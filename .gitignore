@@ -28,8 +28,6 @@ __pycache__/
 _deps/
 
 # Agent memory contents (populated at runtime, not tracked)
-.claude/agent-memory/**/MEMORY.md
-.claude/agent-memory/**/*.md
 !.claude/agent-memory/**/.gitkeep
 
 # MCP config (user-specific)

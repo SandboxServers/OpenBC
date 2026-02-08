@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ghidra__get_current_address",
+      "mcp__ghidra__get_current_function",
+      "mcp__ghidra__decompile_function",
+      "mcp__ghidra__decompile_function_by_address",
+      "mcp__ghidra__disassemble_function",
+      "mcp__ghidra__get_function_by_address",
+      "mcp__ghidra__get_function_xrefs",
+      "mcp__ghidra__get_xrefs_to",
+      "mcp__ghidra__get_xrefs_from",
+      "mcp__ghidra__list_functions",
+      "mcp__ghidra__list_methods",
+      "mcp__ghidra__list_classes",
+      "mcp__ghidra__list_imports",
+      "mcp__ghidra__list_exports",
+      "mcp__ghidra__list_strings",
+      "mcp__ghidra__list_segments",
+      "mcp__ghidra__list_namespaces",
+      "mcp__ghidra__list_data_items",
+      "mcp__ghidra__search_functions_by_name",
+      "mcp__ghidra__rename_function",
+      "mcp__ghidra__rename_function_by_address",
+      "mcp__ghidra__rename_variable",
+      "mcp__ghidra__rename_data",
+      "mcp__ghidra__set_decompiler_comment",
+      "mcp__ghidra__set_disassembly_comment",
+      "mcp__ghidra__set_function_prototype",
+      "mcp__ghidra__set_local_variable_type",
+      "Bash(make:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "mcp__context7__resolve-library-id"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "context7"
+  ],
+  "enableAllProjectMcpServers": true
+}
