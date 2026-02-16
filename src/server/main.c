@@ -11,6 +11,7 @@
 #include "openbc/cipher.h"
 #include "openbc/opcodes.h"
 #include "openbc/handshake.h"
+#include "openbc/manifest.h"
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
 
@@ -27,6 +28,11 @@ static bool        g_collision_dmg = true;
 static bool        g_friendly_fire = false;
 static const char *g_map_name = "DeepSpace9";
 static f32         g_game_time = 0.0f;
+
+/* Manifest / checksum validation */
+static bc_manifest_t g_manifest;
+static bool          g_manifest_loaded = false;
+static bool          g_no_checksum = false;
 
 /* --- Signal handler --- */
 
@@ -376,10 +382,12 @@ static void usage(const char *prog)
     fprintf(stderr,
         "Usage: %s [options]\n"
         "Options:\n"
-        "  -p <port>     Listen port (default: 22101)\n"
-        "  -n <name>     Server name (default: \"OpenBC Server\")\n"
-        "  -m <map>      Map name (default: \"DeepSpace9\")\n"
-        "  --max <n>     Max players (default: 6)\n",
+        "  -p <port>          Listen port (default: 22101)\n"
+        "  -n <name>          Server name (default: \"OpenBC Server\")\n"
+        "  -m <map>           Map name (default: \"DeepSpace9\")\n"
+        "  --max <n>          Max players (default: 6)\n"
+        "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
+        "  --no-checksum      Accept all checksums (testing without game files)\n",
         prog);
 }
 
@@ -390,6 +398,7 @@ int main(int argc, char **argv)
     const char *name = "OpenBC Server";
     const char *map = "DeepSpace9";
     int max_players = BC_MAX_PLAYERS;
+    const char *manifest_path = NULL;
 
     /* Parse args */
     for (int i = 1; i < argc; i++) {
@@ -403,10 +412,32 @@ int main(int argc, char **argv)
             max_players = atoi(argv[++i]);
             if (max_players < 1) max_players = 1;
             if (max_players > BC_MAX_PLAYERS) max_players = BC_MAX_PLAYERS;
+        } else if (strcmp(argv[i], "--manifest") == 0 && i + 1 < argc) {
+            manifest_path = argv[++i];
+        } else if (strcmp(argv[i], "--no-checksum") == 0) {
+            g_no_checksum = true;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
         }
+    }
+
+    /* Load manifest */
+    if (manifest_path) {
+        if (bc_manifest_load(&g_manifest, manifest_path)) {
+            g_manifest_loaded = true;
+            bc_manifest_print_summary(&g_manifest);
+        } else {
+            fprintf(stderr, "Failed to load manifest: %s\n", manifest_path);
+            return 1;
+        }
+    }
+
+    if (!g_manifest_loaded && !g_no_checksum) {
+        printf("Warning: no manifest loaded, running in permissive mode\n");
+        printf("  Use --manifest <path> to enable checksum validation\n");
+        printf("  Use --no-checksum to suppress this warning\n\n");
+        g_no_checksum = true;
     }
 
     /* Initialize */

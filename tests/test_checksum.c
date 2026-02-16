@@ -1,5 +1,6 @@
 #include "test_util.h"
 #include "openbc/checksum.h"
+#include "openbc/manifest.h"
 
 /* === StringHash tests === */
 
@@ -126,6 +127,86 @@ TEST(file_hash_deterministic)
     ASSERT_EQ(h1, h2);
 }
 
+/* === Manifest tests === */
+
+TEST(manifest_load_vanilla)
+{
+    bc_manifest_t m;
+    ASSERT(bc_manifest_load(&m, "manifests/vanilla-1.1.json"));
+    ASSERT_EQ_INT(m.dir_count, 4);
+    ASSERT_EQ(m.version_hash, 0x7E0CE243);
+}
+
+TEST(manifest_dir_hashes)
+{
+    bc_manifest_t m;
+    ASSERT(bc_manifest_load(&m, "manifests/vanilla-1.1.json"));
+    /* Round 0: scripts/ */
+    ASSERT_EQ(m.dirs[0].dir_name_hash, 0x4DAFCB2F);
+    /* Round 2: scripts/ships/ */
+    ASSERT_EQ(m.dirs[2].dir_name_hash, 0xB831D315);
+    /* Round 3: scripts/mainmenu/ */
+    ASSERT_EQ(m.dirs[3].dir_name_hash, 0x3F7BF00A);
+}
+
+TEST(manifest_file_count)
+{
+    bc_manifest_t m;
+    ASSERT(bc_manifest_load(&m, "manifests/vanilla-1.1.json"));
+    /* Round 0: 1 file (App.pyc) */
+    ASSERT_EQ_INT(m.dirs[0].file_count, 1);
+    /* Round 1: 1 file (Autoexec.pyc) */
+    ASSERT_EQ_INT(m.dirs[1].file_count, 1);
+    /* Round 3: 4 files */
+    ASSERT_EQ_INT(m.dirs[3].file_count, 4);
+}
+
+TEST(manifest_known_hashes)
+{
+    bc_manifest_t m;
+    ASSERT(bc_manifest_load(&m, "manifests/vanilla-1.1.json"));
+    /* App.pyc in round 0 */
+    ASSERT_EQ(m.dirs[0].files[0].name_hash, 0x373EB677);
+    ASSERT_EQ(m.dirs[0].files[0].content_hash, 0xF8A0A740);
+    /* Autoexec.pyc in round 1 */
+    ASSERT_EQ(m.dirs[1].files[0].name_hash, 0x8501E6A1);
+    ASSERT_EQ(m.dirs[1].files[0].content_hash, 0x17930067);
+}
+
+TEST(manifest_subdirs)
+{
+    bc_manifest_t m;
+    ASSERT(bc_manifest_load(&m, "manifests/vanilla-1.1.json"));
+    /* Round 2 has 1 subdir: Hardpoints */
+    ASSERT_EQ_INT(m.dirs[2].subdir_count, 1);
+    ASSERT_EQ(m.dirs[2].subdirs[0].name_hash, 0xCAAFFDD4);
+    ASSERT(m.dirs[2].subdirs[0].file_count > 0);
+}
+
+TEST(manifest_find_file)
+{
+    bc_manifest_t m;
+    ASSERT(bc_manifest_load(&m, "manifests/vanilla-1.1.json"));
+    /* Find App.pyc by hash */
+    const bc_manifest_file_t *f = bc_manifest_find_file(&m.dirs[0], 0x373EB677);
+    ASSERT(f != NULL);
+    ASSERT_EQ(f->content_hash, 0xF8A0A740);
+    /* Non-existent file */
+    ASSERT(bc_manifest_find_file(&m.dirs[0], 0xDEADBEEF) == NULL);
+}
+
+TEST(manifest_find_subdir)
+{
+    bc_manifest_t m;
+    ASSERT(bc_manifest_load(&m, "manifests/vanilla-1.1.json"));
+    /* Find Hardpoints subdir */
+    const bc_manifest_subdir_t *sd = bc_manifest_find_subdir(&m.dirs[2], 0xCAAFFDD4);
+    ASSERT(sd != NULL);
+    ASSERT(sd->file_count > 0);
+    /* Non-existent subdir */
+    ASSERT(bc_manifest_find_subdir(&m.dirs[2], 0xDEADBEEF) == NULL);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -146,4 +227,13 @@ TEST_MAIN_BEGIN()
     RUN(file_hash_remainder_sign_extension);
     RUN(file_hash_remainder_positive_byte);
     RUN(file_hash_deterministic);
+
+    /* Manifest */
+    RUN(manifest_load_vanilla);
+    RUN(manifest_dir_hashes);
+    RUN(manifest_file_count);
+    RUN(manifest_known_hashes);
+    RUN(manifest_subdirs);
+    RUN(manifest_find_file);
+    RUN(manifest_find_subdir);
 TEST_MAIN_END()
