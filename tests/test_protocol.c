@@ -1,6 +1,8 @@
 #include "test_util.h"
 #include "openbc/cipher.h"
 #include "openbc/buffer.h"
+#include "openbc/handshake.h"
+#include "openbc/opcodes.h"
 #include <string.h>
 #include <math.h>
 
@@ -443,6 +445,194 @@ TEST(cv4_zero)
     ASSERT(fabsf(z) < 0.01f);
 }
 
+/* === Handshake / Checksum request tests === */
+
+TEST(checksum_request_round0)
+{
+    u8 buf[256];
+    int len = bc_checksum_request_build(buf, sizeof(buf), 0);
+    ASSERT(len > 0);
+
+    /* Parse it back */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode;
+    ASSERT(bc_buf_read_u8(&b, &opcode));
+    ASSERT_EQ(opcode, BC_OP_CHECKSUM_REQ);
+
+    u8 idx;
+    ASSERT(bc_buf_read_u8(&b, &idx));
+    ASSERT_EQ(idx, 0);
+
+    /* Directory: "scripts/" */
+    u16 dir_len;
+    ASSERT(bc_buf_read_u16(&b, &dir_len));
+    ASSERT_EQ_INT(dir_len, 8);
+    u8 dir[64];
+    ASSERT(bc_buf_read_bytes(&b, dir, dir_len));
+    ASSERT(memcmp(dir, "scripts/", 8) == 0);
+
+    /* Filter: "App.pyc" */
+    u16 filt_len;
+    ASSERT(bc_buf_read_u16(&b, &filt_len));
+    ASSERT_EQ_INT(filt_len, 7);
+    u8 filt[64];
+    ASSERT(bc_buf_read_bytes(&b, filt, filt_len));
+    ASSERT(memcmp(filt, "App.pyc", 7) == 0);
+
+    /* Recursive: false */
+    bool recursive;
+    ASSERT(bc_buf_read_bit(&b, &recursive));
+    ASSERT(recursive == false);
+}
+
+TEST(checksum_request_round2_recursive)
+{
+    u8 buf[256];
+    int len = bc_checksum_request_build(buf, sizeof(buf), 2);
+    ASSERT(len > 0);
+
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode, idx;
+    ASSERT(bc_buf_read_u8(&b, &opcode));
+    ASSERT(bc_buf_read_u8(&b, &idx));
+    ASSERT_EQ(opcode, BC_OP_CHECKSUM_REQ);
+    ASSERT_EQ(idx, 2);
+
+    /* Directory: "scripts/ships/" */
+    u16 dir_len;
+    ASSERT(bc_buf_read_u16(&b, &dir_len));
+    ASSERT_EQ_INT(dir_len, 14);
+    u8 dir[64];
+    ASSERT(bc_buf_read_bytes(&b, dir, dir_len));
+    ASSERT(memcmp(dir, "scripts/ships/", 14) == 0);
+
+    /* Filter: "*.pyc" */
+    u16 filt_len;
+    ASSERT(bc_buf_read_u16(&b, &filt_len));
+    ASSERT_EQ_INT(filt_len, 5);
+    u8 filt[64];
+    ASSERT(bc_buf_read_bytes(&b, filt, filt_len));
+    ASSERT(memcmp(filt, "*.pyc", 5) == 0);
+
+    /* Recursive: true */
+    bool recursive;
+    ASSERT(bc_buf_read_bit(&b, &recursive));
+    ASSERT(recursive == true);
+}
+
+TEST(checksum_request_invalid_round)
+{
+    u8 buf[256];
+    ASSERT_EQ_INT(bc_checksum_request_build(buf, sizeof(buf), -1), -1);
+    ASSERT_EQ_INT(bc_checksum_request_build(buf, sizeof(buf), 4), -1);
+}
+
+TEST(checksum_request_all_rounds)
+{
+    /* All 4 rounds should build successfully */
+    u8 buf[256];
+    for (int i = 0; i < BC_CHECKSUM_ROUNDS; i++) {
+        int len = bc_checksum_request_build(buf, sizeof(buf), i);
+        ASSERT(len > 0);
+        ASSERT_EQ(buf[0], BC_OP_CHECKSUM_REQ);
+        ASSERT_EQ(buf[1], (u8)i);
+    }
+}
+
+/* === Settings packet tests === */
+
+TEST(settings_build_basic)
+{
+    u8 buf[256];
+    int len = bc_settings_build(buf, sizeof(buf),
+                                120.5f, true, false, 3, "DeepSpace9");
+    ASSERT(len > 0);
+
+    /* Parse it back */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode;
+    ASSERT(bc_buf_read_u8(&b, &opcode));
+    ASSERT_EQ(opcode, BC_OP_SETTINGS);
+
+    f32 game_time;
+    ASSERT(bc_buf_read_f32(&b, &game_time));
+    ASSERT(game_time == 120.5f);
+
+    bool collision, friendly;
+    ASSERT(bc_buf_read_bit(&b, &collision));
+    ASSERT(bc_buf_read_bit(&b, &friendly));
+    ASSERT(collision == true);
+    ASSERT(friendly == false);
+
+    u8 slot;
+    ASSERT(bc_buf_read_u8(&b, &slot));
+    ASSERT_EQ(slot, 3);
+
+    u16 map_len;
+    ASSERT(bc_buf_read_u16(&b, &map_len));
+    ASSERT_EQ_INT(map_len, 10);  /* "DeepSpace9" */
+
+    u8 map[64];
+    ASSERT(bc_buf_read_bytes(&b, map, map_len));
+    ASSERT(memcmp(map, "DeepSpace9", 10) == 0);
+
+    bool checksum_flag;
+    ASSERT(bc_buf_read_bit(&b, &checksum_flag));
+    ASSERT(checksum_flag == false);
+}
+
+TEST(settings_build_different_values)
+{
+    u8 buf[256];
+    int len = bc_settings_build(buf, sizeof(buf),
+                                0.0f, false, true, 0, "TestMap");
+    ASSERT(len > 0);
+
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode;
+    bc_buf_read_u8(&b, &opcode);
+    ASSERT_EQ(opcode, BC_OP_SETTINGS);
+
+    f32 game_time;
+    bc_buf_read_f32(&b, &game_time);
+    ASSERT(game_time == 0.0f);
+
+    bool collision, friendly;
+    bc_buf_read_bit(&b, &collision);
+    bc_buf_read_bit(&b, &friendly);
+    ASSERT(collision == false);
+    ASSERT(friendly == true);
+
+    u8 slot;
+    bc_buf_read_u8(&b, &slot);
+    ASSERT_EQ(slot, 0);
+}
+
+/* === GameInit packet tests === */
+
+TEST(gameinit_build)
+{
+    u8 buf[16];
+    int len = bc_gameinit_build(buf, sizeof(buf));
+    ASSERT_EQ_INT(len, 1);
+    ASSERT_EQ(buf[0], BC_OP_GAME_INIT);
+}
+
+TEST(gameinit_build_too_small)
+{
+    u8 buf[1];
+    int len = bc_gameinit_build(buf, 0);
+    ASSERT_EQ_INT(len, -1);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -484,4 +674,18 @@ TEST_MAIN_BEGIN()
     RUN(cv4_simple);
     RUN(cv4_diagonal);
     RUN(cv4_zero);
+
+    /* Handshake: Checksum requests */
+    RUN(checksum_request_round0);
+    RUN(checksum_request_round2_recursive);
+    RUN(checksum_request_invalid_round);
+    RUN(checksum_request_all_rounds);
+
+    /* Handshake: Settings */
+    RUN(settings_build_basic);
+    RUN(settings_build_different_values);
+
+    /* Handshake: GameInit */
+    RUN(gameinit_build);
+    RUN(gameinit_build_too_small);
 TEST_MAIN_END()
