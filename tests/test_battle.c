@@ -73,20 +73,6 @@ static const u8 COLLISION_EFFECT_DATA[] = {
     0x44,
 };
 
-/* Explosion payload from trace (from line 46662, 14 bytes total including opcode)
- * obj=0x3FFFFFFF, dmg=50.0, radius=5997.8 */
-static const u8 TRACE_EXPLOSION[] = {
-    0x29, 0xFF, 0xFF, 0xFF, 0x3F, 0x1D, 0x7A, 0x0C,
-    0x95, 0x61, 0x1B, 0x57, 0xE2, 0x78,
-};
-
-/* TorpedoFire payload from trace (from line 12318, 18 bytes total) */
-static const u8 TRACE_TORPEDO[] = {
-    0x19, 0x0D, 0x00, 0x00, 0x40, 0x02, 0x01, 0xDF,
-    0x87, 0x11, 0xFF, 0xFF, 0x03, 0x40, 0x00, 0x88,
-    0xD8, 0x5C,
-};
-
 /* ======================================================================
  * Server + client globals
  * ====================================================================== */
@@ -558,6 +544,33 @@ TEST(battle_of_valentines_day)
     ASSERT(run_battle() == 0);
 }
 
+/* === Real checksum handshake test ===
+ * Connects with wire-accurate checksums computed from test fixture files.
+ * Server validates hashes against a manifest -- no --no-checksum flag. */
+TEST(real_checksum_handshake)
+{
+    bc_test_server_t srv;
+    bc_test_client_t client;
+
+    ASSERT(bc_net_init());
+
+    /* Start server with manifest (real checksum validation) */
+    ASSERT(test_server_start_with_manifest(&srv, 29877,
+                                            "tests\\fixtures\\manifest.json"));
+
+    /* Connect with real checksums scanned from fixture directory */
+    ASSERT(test_client_connect_real_checksums(&client, 29877,
+                                               "Tester", 0,
+                                               "tests\\fixtures\\"));
+
+    /* If we get here, the server accepted our real checksums! */
+    test_client_disconnect(&client);
+    Sleep(100);
+    test_server_stop(&srv);
+    bc_net_shutdown();
+}
+
 TEST_MAIN_BEGIN()
     RUN(battle_of_valentines_day);
+    RUN(real_checksum_handshake);
 TEST_MAIN_END()

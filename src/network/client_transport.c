@@ -1,7 +1,11 @@
 #include "openbc/client_transport.h"
 #include "openbc/transport.h"
 #include "openbc/opcodes.h"
+#include "openbc/buffer.h"
+#include "openbc/checksum.h"
 #include <string.h>
+#include <stdio.h>
+#include <windows.h>
 
 int bc_client_build_connect(u8 *out, int out_size, u32 local_ip)
 {
@@ -147,4 +151,256 @@ int bc_client_build_dummy_checksum_final(u8 *buf, int buf_size)
     buf[6] = 0; buf[7] = 0; buf[8] = 0; buf[9] = 0;
 
     return 10;
+}
+
+/* --- Wire-accurate checksum response builders --- */
+
+bool bc_client_parse_checksum_request(const u8 *payload, int payload_len,
+                                       bc_checksum_request_t *req)
+{
+    memset(req, 0, sizeof(*req));
+    if (payload_len < 2) return false;
+
+    bc_buffer_t b;
+    bc_buf_init(&b, (u8 *)payload, (size_t)payload_len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&b, &opcode)) return false;
+    if (opcode != BC_OP_CHECKSUM_REQ) return false;
+
+    u8 round;
+    if (!bc_buf_read_u8(&b, &round)) return false;
+    req->round = round;
+
+    /* Round 0xFF has no directory/filter fields */
+    if (round == 0xFF) return false;
+
+    /* Read directory path */
+    u16 dir_len;
+    if (!bc_buf_read_u16(&b, &dir_len)) return false;
+    if (dir_len >= sizeof(req->directory)) return false;
+    if (!bc_buf_read_bytes(&b, (u8 *)req->directory, dir_len)) return false;
+    req->directory[dir_len] = '\0';
+
+    /* Read file filter */
+    u16 filter_len;
+    if (!bc_buf_read_u16(&b, &filter_len)) return false;
+    if (filter_len >= sizeof(req->filter)) return false;
+    if (!bc_buf_read_bytes(&b, (u8 *)req->filter, filter_len)) return false;
+    req->filter[filter_len] = '\0';
+
+    /* Read recursive flag (bit-packed) */
+    bool recursive;
+    if (!bc_buf_read_bit(&b, &recursive)) return false;
+    req->recursive = recursive;
+
+    return true;
+}
+
+int bc_client_build_checksum_resp(u8 *buf, int buf_size, u8 round,
+                                   u32 ref_hash, u32 dir_hash,
+                                   const bc_client_file_hash_t *files, int file_count)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP)) return -1;
+    if (!bc_buf_write_u8(&b, round)) return -1;
+    if (!bc_buf_write_u32(&b, ref_hash)) return -1;
+    if (!bc_buf_write_u32(&b, dir_hash)) return -1;
+
+    /* File tree: [file_count:u16][{name_hash:u32, content_hash:u32}...] */
+    if (!bc_buf_write_u16(&b, (u16)file_count)) return -1;
+    for (int i = 0; i < file_count; i++) {
+        if (!bc_buf_write_u32(&b, files[i].name_hash)) return -1;
+        if (!bc_buf_write_u32(&b, files[i].content_hash)) return -1;
+    }
+
+    return (int)b.pos;
+}
+
+int bc_client_build_checksum_resp_recursive(
+    u8 *buf, int buf_size, u8 round,
+    u32 ref_hash, u32 dir_hash,
+    const bc_client_file_hash_t *files, int file_count,
+    const bc_client_subdir_hash_t *subdirs, int subdir_count)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP)) return -1;
+    if (!bc_buf_write_u8(&b, round)) return -1;
+    if (!bc_buf_write_u32(&b, ref_hash)) return -1;
+    if (!bc_buf_write_u32(&b, dir_hash)) return -1;
+
+    /* Top-level files */
+    if (!bc_buf_write_u16(&b, (u16)file_count)) return -1;
+    for (int i = 0; i < file_count; i++) {
+        if (!bc_buf_write_u32(&b, files[i].name_hash)) return -1;
+        if (!bc_buf_write_u32(&b, files[i].content_hash)) return -1;
+    }
+
+    /* Subdirectories */
+    if (!bc_buf_write_u16(&b, (u16)subdir_count)) return -1;
+    for (int s = 0; s < subdir_count; s++) {
+        if (!bc_buf_write_u32(&b, subdirs[s].name_hash)) return -1;
+        if (!bc_buf_write_u16(&b, (u16)subdirs[s].file_count)) return -1;
+        for (int i = 0; i < subdirs[s].file_count; i++) {
+            if (!bc_buf_write_u32(&b, subdirs[s].files[i].name_hash)) return -1;
+            if (!bc_buf_write_u32(&b, subdirs[s].files[i].content_hash)) return -1;
+        }
+    }
+
+    return (int)b.pos;
+}
+
+int bc_client_build_checksum_final(u8 *buf, int buf_size,
+                                    u32 dir_hash, u32 file_count)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP)) return -1;
+    if (!bc_buf_write_u8(&b, 0xFF)) return -1;
+    if (!bc_buf_write_u32(&b, dir_hash)) return -1;
+    if (!bc_buf_write_u32(&b, file_count)) return -1;
+
+    return (int)b.pos;
+}
+
+/* --- Directory scanning for checksum computation --- */
+
+/* Check if a filename matches a filter pattern.
+ * Supports exact match ("App.pyc") and wildcard ("*.pyc"). */
+static bool filter_match(const char *filename, const char *filter)
+{
+    if (filter[0] == '*' && filter[1] == '.') {
+        /* Wildcard: match file extension */
+        const char *ext = filter + 1; /* ".pyc" */
+        size_t ext_len = strlen(ext);
+        size_t name_len = strlen(filename);
+        if (name_len < ext_len) return false;
+        return _stricmp(filename + name_len - ext_len, ext) == 0;
+    }
+    /* Exact match (case-insensitive) */
+    return _stricmp(filename, filter) == 0;
+}
+
+/* Scan a single directory (non-recursive) for matching files. */
+static bool scan_single_dir(const char *full_path, const char *filter,
+                             bc_client_file_hash_t *files, int *file_count,
+                             int max_files)
+{
+    char search_path[260];
+    snprintf(search_path, sizeof(search_path), "%s*", full_path);
+
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA(search_path, &fd);
+    if (hFind == INVALID_HANDLE_VALUE) {
+        *file_count = 0;
+        return true; /* Empty dir is OK */
+    }
+
+    *file_count = 0;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        if (!filter_match(fd.cFileName, filter)) continue;
+        if (*file_count >= max_files) break;
+
+        /* Compute name hash (StringHash of filename) */
+        files[*file_count].name_hash = string_hash(fd.cFileName);
+
+        /* Compute content hash (FileHash of file data) */
+        char file_path[260];
+        snprintf(file_path, sizeof(file_path), "%s%s", full_path, fd.cFileName);
+
+        bool ok;
+        files[*file_count].content_hash = file_hash_from_path(file_path, &ok);
+        if (!ok) continue; /* Skip unreadable files */
+
+        (*file_count)++;
+    } while (FindNextFileA(hFind, &fd));
+
+    FindClose(hFind);
+    return true;
+}
+
+bool bc_client_scan_directory(const char *base_dir, const char *sub_dir,
+                               const char *filter, bool recursive,
+                               bc_client_dir_scan_t *scan)
+{
+    memset(scan, 0, sizeof(*scan));
+
+    /* Compute directory name hash.
+     * The real BC client hashes only the LEAF directory name (e.g. "ships"
+     * not "scripts/ships/"). Strip trailing separators, then find the last
+     * path component. */
+    char dir_for_hash[64];
+    strncpy(dir_for_hash, sub_dir, sizeof(dir_for_hash) - 1);
+    dir_for_hash[sizeof(dir_for_hash) - 1] = '\0';
+    size_t dlen = strlen(dir_for_hash);
+    while (dlen > 0 && (dir_for_hash[dlen - 1] == '/' || dir_for_hash[dlen - 1] == '\\')) {
+        dir_for_hash[--dlen] = '\0';
+    }
+    /* Find last path component */
+    const char *leaf = dir_for_hash;
+    for (size_t i = 0; i < dlen; i++) {
+        if (dir_for_hash[i] == '/' || dir_for_hash[i] == '\\') {
+            leaf = dir_for_hash + i + 1;
+        }
+    }
+    scan->dir_hash = string_hash(leaf);
+
+    /* Build full path: base_dir + sub_dir */
+    char full_path[260];
+    snprintf(full_path, sizeof(full_path), "%s%s", base_dir, sub_dir);
+
+    /* Ensure path ends with separator */
+    size_t plen = strlen(full_path);
+    if (plen > 0 && full_path[plen - 1] != '\\' && full_path[plen - 1] != '/') {
+        if (plen + 1 < sizeof(full_path)) {
+            full_path[plen] = '\\';
+            full_path[plen + 1] = '\0';
+        }
+    }
+
+    /* Scan top-level files */
+    if (!scan_single_dir(full_path, filter,
+                          scan->files, &scan->file_count, 256))
+        return false;
+
+    /* If recursive, scan subdirectories */
+    if (recursive) {
+        char search_path[260];
+        snprintf(search_path, sizeof(search_path), "%s*", full_path);
+
+        WIN32_FIND_DATAA fd;
+        HANDLE hFind = FindFirstFileA(search_path, &fd);
+        if (hFind == INVALID_HANDLE_VALUE) return true;
+
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+            if (fd.cFileName[0] == '.') continue; /* Skip . and .. */
+            if (scan->subdir_count >= 8) break;
+
+            bc_client_subdir_hash_t *sd = &scan->subdirs[scan->subdir_count];
+            sd->name_hash = string_hash(fd.cFileName);
+
+            char subdir_path[260];
+            snprintf(subdir_path, sizeof(subdir_path), "%s%s\\",
+                     full_path, fd.cFileName);
+
+            if (!scan_single_dir(subdir_path, filter,
+                                  sd->files, &sd->file_count, 128))
+                continue;
+
+            if (sd->file_count > 0) {
+                scan->subdir_count++;
+            }
+        } while (FindNextFileA(hFind, &fd));
+
+        FindClose(hFind);
+    }
+
+    return true;
 }

@@ -50,4 +50,77 @@ int bc_client_build_dummy_checksum_resp(u8 *buf, int buf_size, u8 round);
  * Returns a valid-format final response (passes --no-checksum). */
 int bc_client_build_dummy_checksum_final(u8 *buf, int buf_size);
 
+/* --- Wire-accurate checksum response builders --- */
+
+/* File hash entry for checksum response building */
+typedef struct {
+    u32 name_hash;     /* StringHash of filename */
+    u32 content_hash;  /* FileHash of file contents */
+} bc_client_file_hash_t;
+
+/* Subdirectory entry for recursive checksum responses (round 2) */
+typedef struct {
+    u32 name_hash;                        /* StringHash of subdir name */
+    int file_count;
+    bc_client_file_hash_t files[128];
+} bc_client_subdir_hash_t;
+
+/* Parsed checksum request from the server */
+typedef struct {
+    u8   round;         /* Round index (0-3) */
+    char directory[64]; /* Directory path (e.g. "scripts/") */
+    char filter[32];    /* File filter (e.g. "*.pyc", "App.pyc") */
+    bool recursive;     /* True if recursive directory scan */
+} bc_checksum_request_t;
+
+/* Parse a checksum request payload (opcode 0x20) from the server.
+ * Returns true on success, fills req. Returns false for round 0xFF
+ * (which has no directory/filter fields). */
+bool bc_client_parse_checksum_request(const u8 *payload, int payload_len,
+                                       bc_checksum_request_t *req);
+
+/* Build a wire-accurate checksum response for rounds 0-3 (non-recursive).
+ * Wire: [0x21][round][ref_hash:u32][dir_hash:u32]
+ *       [file_count:u16][{name_hash:u32,content_hash:u32}...]
+ * Returns payload length, or -1 on error. */
+int bc_client_build_checksum_resp(u8 *buf, int buf_size, u8 round,
+                                   u32 ref_hash, u32 dir_hash,
+                                   const bc_client_file_hash_t *files, int file_count);
+
+/* Build a wire-accurate checksum response for round 2 (recursive).
+ * Adds subdirectory entries after the top-level file list.
+ * Returns payload length, or -1 on error. */
+int bc_client_build_checksum_resp_recursive(
+    u8 *buf, int buf_size, u8 round,
+    u32 ref_hash, u32 dir_hash,
+    const bc_client_file_hash_t *files, int file_count,
+    const bc_client_subdir_hash_t *subdirs, int subdir_count);
+
+/* Build a wire-accurate checksum response for the final round (0xFF).
+ * Wire: [0x21][0xFF][dir_hash:u32][file_count:u32]
+ * Returns payload length, or -1 on error. */
+int bc_client_build_checksum_final(u8 *buf, int buf_size,
+                                    u32 dir_hash, u32 file_count);
+
+/* --- Directory scanning for checksum computation --- */
+
+/* Result of scanning a directory for checksum files */
+typedef struct {
+    u32 dir_hash;      /* StringHash of directory name */
+    int file_count;
+    bc_client_file_hash_t files[256];
+    int subdir_count;
+    bc_client_subdir_hash_t subdirs[8];
+} bc_client_dir_scan_t;
+
+/* Scan a directory and compute hashes for matching files.
+ * base_dir: root game directory (e.g. "C:\\Games\\BC\\")
+ * sub_dir:  relative subdirectory (e.g. "scripts/")
+ * filter:   file filter (e.g. "*.pyc" or "App.pyc")
+ * recursive: scan subdirectories
+ * Returns true on success (scan->file_count may be 0 if dir is empty). */
+bool bc_client_scan_directory(const char *base_dir, const char *sub_dir,
+                               const char *filter, bool recursive,
+                               bc_client_dir_scan_t *scan);
+
 #endif /* OPENBC_CLIENT_TRANSPORT_H */

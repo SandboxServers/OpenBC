@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "name": "Star Trek: Bridge Commander 1.1",
+    "generator": "openbc-hash",
+    "generator_version": "0.1.0"
+  },
+  "version_string": "60",
+  "version_string_hash": "0x7E0CE243",
+  "directories": [
+    {
+      "index": 0,
+      "path": "scripts",
+      "filter": "App.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x4DAFCB2F",
+      "files": [
+        {
+          "filename": "App.pyc",
+          "name_hash": "0x373EB677",
+          "content_hash": "0x770186A9"
+        }
+      ],
+      "subdirs": [
+      ]
+    },
+    {
+      "index": 1,
+      "path": "scripts",
+      "filter": "Autoexec.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x4DAFCB2F",
+      "files": [
+        {
+          "filename": "Autoexec.pyc",
+          "name_hash": "0x8501E6A1",
+          "content_hash": "0x310C1950"
+        }
+      ],
+      "subdirs": [
+      ]
+    },
+    {
+      "index": 2,
+      "path": "scripts/ships",
+      "filter": "*.pyc",
+      "recursive": true,
+      "dir_name_hash": "0xB831D315",
+      "files": [
+        {
+          "filename": "Galaxy.pyc",
+          "name_hash": "0x8D0F8067",
+          "content_hash": "0x9BA7AE2A"
+        }
+      ],
+      "subdirs": [
+        {
+          "name": "Klingon",
+          "name_hash": "0xC51A8DA4",
+          "files": [
+            {
+              "filename": "BirdOfPrey.pyc",
+              "name_hash": "0xE46791C4",
+              "content_hash": "0x9C46DD48"
+            }
+          ],
+          "subdirs": [
+          ]
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "path": "scripts/mainmenu",
+      "filter": "*.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x3F7BF00A",
+      "files": [
+        {
+          "filename": "MainMenu.pyc",
+          "name_hash": "0xFF1BB45F",
+          "content_hash": "0x9085B1D0"
+        }
+      ],
+      "subdirs": [
+      ]
+    }
+  ]
+}
