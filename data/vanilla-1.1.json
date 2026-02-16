@@ -8110,5 +8110,187 @@
         }
       ]
     }
+  ],
+  "projectiles": [
+    {
+      "name": "Disruptor",
+      "damage": 400.0,
+      "launch_speed": 43.0,
+      "power_cost": 10.0,
+      "guidance_lifetime": 0.0,
+      "max_angular_accel": 0.125,
+      "lifetime": 8.0,
+      "damage_radius_factor": 0.15,
+      "net_type_id": 1,
+      "script": "Disruptor"
+    },
+    {
+      "name": "Photon",
+      "damage": 500.0,
+      "launch_speed": 19.0,
+      "power_cost": 20.0,
+      "guidance_lifetime": 6.0,
+      "max_angular_accel": 0.15,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.13,
+      "net_type_id": 2,
+      "script": "PhotonTorpedo"
+    },
+    {
+      "name": "Quantum",
+      "damage": 900.0,
+      "launch_speed": 22.0,
+      "power_cost": 30.0,
+      "guidance_lifetime": 6.0,
+      "max_angular_accel": 0.15,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.14,
+      "net_type_id": 3,
+      "script": "QuantumTorpedo"
+    },
+    {
+      "name": "Antimatter",
+      "damage": 440.0,
+      "launch_speed": 35.0,
+      "power_cost": 20.0,
+      "guidance_lifetime": 12.0,
+      "max_angular_accel": 0.7,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.12,
+      "net_type_id": 4,
+      "script": "AntimatterTorpedo"
+    },
+    {
+      "name": "Photon",
+      "damage": 600.0,
+      "launch_speed": 15.0,
+      "power_cost": 10.0,
+      "guidance_lifetime": 7.0,
+      "max_angular_accel": 0.3,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.15,
+      "net_type_id": 5,
+      "script": "CardassianTorpedo"
+    },
+    {
+      "name": "Adv. Photon",
+      "damage": 1400.0,
+      "launch_speed": 10.0,
+      "power_cost": 40.0,
+      "guidance_lifetime": 7.0,
+      "max_angular_accel": 0.2,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.2,
+      "net_type_id": 6,
+      "script": "KlingonTorpedo"
+    },
+    {
+      "name": "Positron",
+      "damage": 2200.0,
+      "launch_speed": 3.8,
+      "power_cost": 10.0,
+      "guidance_lifetime": 40.0,
+      "max_angular_accel": 3.0,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.2,
+      "net_type_id": 7,
+      "script": "PositronTorpedo"
+    },
+    {
+      "name": "Disruptor",
+      "damage": 220.0,
+      "launch_speed": 55.0,
+      "power_cost": 10.0,
+      "guidance_lifetime": 0.0,
+      "max_angular_accel": 0.025,
+      "lifetime": 8.0,
+      "damage_radius_factor": 0.1,
+      "net_type_id": 8,
+      "script": "PulseDisruptor"
+    },
+    {
+      "name": "FusionBolt",
+      "damage": 300.0,
+      "launch_speed": 46.0,
+      "power_cost": 10.0,
+      "guidance_lifetime": 0.0,
+      "max_angular_accel": 0.025,
+      "lifetime": 8.0,
+      "damage_radius_factor": 0.08,
+      "net_type_id": 9,
+      "script": "FusionBolt"
+    },
+    {
+      "name": "Cardassian Disruptor",
+      "damage": 350.0,
+      "launch_speed": 42.0,
+      "power_cost": 10.0,
+      "guidance_lifetime": 0.0,
+      "max_angular_accel": 0.125,
+      "lifetime": 10.0,
+      "damage_radius_factor": 0.09,
+      "net_type_id": 10,
+      "script": "CardassianDisruptor"
+    },
+    {
+      "name": "Kessok Disruptor",
+      "damage": 2000.0,
+      "launch_speed": 27.0,
+      "power_cost": 30.0,
+      "guidance_lifetime": 0.0,
+      "max_angular_accel": 0.25,
+      "lifetime": 12.0,
+      "damage_radius_factor": 0.17,
+      "net_type_id": 11,
+      "script": "KessokDisruptor"
+    },
+    {
+      "name": "Phased",
+      "damage": 1900.0,
+      "launch_speed": 12.0,
+      "power_cost": 40.0,
+      "guidance_lifetime": 10.0,
+      "max_angular_accel": 0.11,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.19,
+      "net_type_id": 12,
+      "script": "PhasedPlasma"
+    },
+    {
+      "name": "Positron",
+      "damage": 2200.0,
+      "launch_speed": 5.0,
+      "power_cost": 10.0,
+      "guidance_lifetime": 40.0,
+      "max_angular_accel": 3.0,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.2,
+      "net_type_id": 13,
+      "script": "PositronTorpedo2"
+    },
+    {
+      "name": "Photon",
+      "damage": 550.0,
+      "launch_speed": 19.0,
+      "power_cost": 20.0,
+      "guidance_lifetime": 6.0,
+      "max_angular_accel": 0.15,
+      "lifetime": 0.0,
+      "damage_radius_factor": 0.13,
+      "net_type_id": 14,
+      "script": "PhotonTorpedo2"
+    },
+    {
+      "name": "Disruptor",
+      "damage": 400.0,
+      "launch_speed": 43.0,
+      "power_cost": 10.0,
+      "guidance_lifetime": 0.0,
+      "max_angular_accel": 0.125,
+      "lifetime": 8.0,
+      "damage_radius_factor": 0.2,
+      "net_type_id": 15,
+      "script": "RomulanCannon"
+    }
   ]
 }
