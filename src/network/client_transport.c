@@ -119,40 +119,6 @@ int bc_client_build_ack(u8 *out, int out_size, u8 slot, u16 seq, u8 flags)
     return 6;
 }
 
-int bc_client_build_dummy_checksum_resp(u8 *buf, int buf_size, u8 round)
-{
-    /* Wire: [0x21][round][ref_hash:u32][dir_hash:u32][file_count=0:u16]
-     * Minimal valid response with zero files. Passes --no-checksum. */
-    if (buf_size < 12) return -1;
-
-    buf[0] = BC_OP_CHECKSUM_RESP; /* 0x21 */
-    buf[1] = round;
-    /* ref_hash = 0 */
-    buf[2] = 0; buf[3] = 0; buf[4] = 0; buf[5] = 0;
-    /* dir_hash = 0 */
-    buf[6] = 0; buf[7] = 0; buf[8] = 0; buf[9] = 0;
-    /* file_count = 0 */
-    buf[10] = 0; buf[11] = 0;
-
-    return 12;
-}
-
-int bc_client_build_dummy_checksum_final(u8 *buf, int buf_size)
-{
-    /* Wire: [0x21][0xFF][dir_hash=0:u32][file_count=0:u32]
-     * The final round uses u32 file_count (not u16). */
-    if (buf_size < 10) return -1;
-
-    buf[0] = BC_OP_CHECKSUM_RESP; /* 0x21 */
-    buf[1] = 0xFF;
-    /* dir_hash = 0 */
-    buf[2] = 0; buf[3] = 0; buf[4] = 0; buf[5] = 0;
-    /* file_count = 0 */
-    buf[6] = 0; buf[7] = 0; buf[8] = 0; buf[9] = 0;
-
-    return 10;
-}
-
 /* --- Wire-accurate checksum response builders --- */
 
 bool bc_client_parse_checksum_request(const u8 *payload, int payload_len,

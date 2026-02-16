@@ -11,6 +11,7 @@
  *   - Server as subprocess: CreateProcess("build\\openbc-server.exe", ...)
  *   - Real UDP, real AlbyRules cipher, real transport framing
  *   - Probe-based startup: GameSpy query loop until server responds
+ *   - Real checksum validation: manifest + directory scanning
  *   - Auto-ACK: recv_msg automatically ACKs reliable messages
  *   - Keepalive/ACK filtering: expect_opcode skips non-game messages
  *   - Timeout-based assertions: every expect has a timeout
@@ -40,14 +41,17 @@ typedef struct {
 /* Forward declarations */
 static void test_server_stop(bc_test_server_t *srv);
 
-static bool test_server_start(bc_test_server_t *srv, u16 port)
+/* Start server with manifest for real checksum validation. */
+static bool test_server_start(bc_test_server_t *srv, u16 port,
+                               const char *manifest_path)
 {
     memset(srv, 0, sizeof(*srv));
     srv->port = port;
 
-    char cmd[256];
+    char cmd[512];
     snprintf(cmd, sizeof(cmd),
-             "build\\openbc-server.exe --no-checksum -v --log-file server_test.log -p %u", port);
+             "build\\openbc-server.exe --manifest %s -v --log-file server_test.log -p %u",
+             manifest_path, port);
 
     STARTUPINFO si;
     memset(&si, 0, sizeof(si));
@@ -62,18 +66,14 @@ static bool test_server_start(bc_test_server_t *srv, u16 port)
 
     srv->running = true;
 
-    /* Probe: send GameSpy query until server responds (max 3s) */
+    /* Probe until server responds */
     bc_socket_t probe;
-    if (!bc_socket_open(&probe, 0)) {
-        fprintf(stderr, "  HARNESS: probe socket failed\n");
-        return false;
-    }
+    if (!bc_socket_open(&probe, 0)) return false;
 
     bc_addr_t srv_addr;
-    srv_addr.ip = htonl(0x7F000001); /* 127.0.0.1 */
+    srv_addr.ip = htonl(0x7F000001);
     srv_addr.port = htons(port);
 
-    /* GameSpy status query: "\\status\\" */
     const u8 query[] = "\\status\\";
     u8 resp[512];
     bc_addr_t from;
@@ -82,14 +82,9 @@ static bool test_server_start(bc_test_server_t *srv, u16 port)
     for (int attempt = 0; attempt < 30; attempt++) {
         bc_socket_send(&probe, &srv_addr, query, sizeof(query) - 1);
         Sleep(100);
-
         int got = bc_socket_recv(&probe, &from, resp, sizeof(resp));
-        if (got > 0) {
-            ready = true;
-            break;
-        }
+        if (got > 0) { ready = true; break; }
     }
-
     bc_socket_close(&probe);
 
     if (!ready) {
@@ -97,7 +92,6 @@ static bool test_server_start(bc_test_server_t *srv, u16 port)
         test_server_stop(srv);
         return false;
     }
-
     return true;
 }
 
@@ -163,11 +157,31 @@ static void tc_send_ack(bc_test_client_t *c, u16 seq)
     if (len > 0) tc_send_raw(c, pkt, len);
 }
 
-/* Full handshake: Connect -> wait for ConnectAck -> send keepalive name ->
- * respond to 4+1 checksum rounds -> receive Settings/GameInit/NewPlayerInGame.
- * Returns true if handshake completed. */
+/* Build a real checksum response from scanned directory data.
+ * Handles rounds 0-3 (non-recursive and recursive). */
+static int tc_build_real_checksum(u8 *buf, int buf_size, u8 round,
+                                    const bc_client_dir_scan_t *scan)
+{
+    /* ref_hash = dir_hash for consistency with real BC client */
+    if (round == 2 && scan->subdir_count > 0) {
+        return bc_client_build_checksum_resp_recursive(
+            buf, buf_size, round,
+            scan->dir_hash, scan->dir_hash,
+            scan->files, scan->file_count,
+            scan->subdirs, scan->subdir_count);
+    }
+    return bc_client_build_checksum_resp(
+        buf, buf_size, round,
+        scan->dir_hash, scan->dir_hash,
+        scan->files, scan->file_count);
+}
+
+/* Full handshake with wire-accurate checksums computed from a game directory.
+ * Connect -> ConnectAck -> keepalive name -> 4+1 checksum rounds ->
+ * receive Settings/GameInit/NewPlayerInGame. */
 static bool test_client_connect(bc_test_client_t *c, u16 port,
-                                 const char *name, u8 slot)
+                                 const char *name, u8 slot,
+                                 const char *game_dir)
 {
     memset(c, 0, sizeof(*c));
     c->slot = slot;
@@ -188,7 +202,7 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
     if (len <= 0) return false;
     tc_send_raw(c, pkt, len);
 
-    /* 2. Wait for ConnectAck (type=0x05) */
+    /* 2. Wait for ConnectAck */
     if (tc_recv_raw(c, 2000) <= 0) {
         fprintf(stderr, "  CLIENT %s: no ConnectAck\n", name);
         return false;
@@ -199,47 +213,70 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
                                           htonl(0x7F000001), name);
     if (len > 0) tc_send_raw(c, pkt, len);
 
-    /* 4. Handle checksum rounds (4 regular + 1 final) */
+    /* 4. Handle checksum rounds with real hashes */
     for (int round = 0; round < 5; round++) {
-        /* Receive checksum request (reliable) */
         if (tc_recv_raw(c, 2000) <= 0) {
             fprintf(stderr, "  CLIENT %s: no checksum request round %d\n",
                     name, round);
             return false;
         }
 
-        /* Parse to get the reliable seq for ACK */
         bc_packet_t parsed;
         if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
             return false;
 
-        /* ACK all reliable messages in this packet */
         for (int i = 0; i < parsed.msg_count; i++) {
-            if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE) {
+            if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE)
                 tc_send_ack(c, parsed.msgs[i].seq);
-            }
         }
 
-        /* Build and send checksum response */
-        u8 resp[32];
+        u8 resp[4096];
         int resp_len;
+
         if (round < 4) {
-            resp_len = bc_client_build_dummy_checksum_resp(resp, sizeof(resp),
-                                                            (u8)round);
+            /* Parse checksum request to get directory/filter */
+            bc_transport_msg_t *msg = NULL;
+            for (int i = 0; i < parsed.msg_count; i++) {
+                if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE &&
+                    parsed.msgs[i].payload_len > 0) {
+                    msg = &parsed.msgs[i];
+                    break;
+                }
+            }
+            if (!msg) return false;
+
+            bc_checksum_request_t req;
+            if (!bc_client_parse_checksum_request(msg->payload, msg->payload_len, &req)) {
+                fprintf(stderr, "  CLIENT %s: failed to parse checksum request round %d\n",
+                        name, round);
+                return false;
+            }
+
+            /* Scan directory and compute real hashes */
+            bc_client_dir_scan_t scan;
+            if (!bc_client_scan_directory(game_dir, req.directory,
+                                           req.filter, req.recursive, &scan)) {
+                fprintf(stderr, "  CLIENT %s: failed to scan %s%s\n",
+                        name, game_dir, req.directory);
+                return false;
+            }
+
+            resp_len = tc_build_real_checksum(resp, sizeof(resp),
+                                               (u8)round, &scan);
         } else {
-            resp_len = bc_client_build_dummy_checksum_final(resp, sizeof(resp));
+            /* Final round: send real hash (use 0 for now as the server
+             * doesn't validate the final round hash strictly) */
+            resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0, 0);
         }
         if (resp_len <= 0) return false;
 
-        u8 out[512];
+        u8 out[4096];
         int out_len = bc_client_build_reliable(out, sizeof(out), slot,
                                                 resp, resp_len, c->seq_out++);
         if (out_len > 0) tc_send_raw(c, out, out_len);
     }
 
-    /* 5. Receive Settings + UICollision + GameInit + NewPlayerInGame + MissionInit.
-     * These arrive as reliable messages, possibly batched.
-     * Drain for up to 2 seconds, ACKing everything. */
+    /* 5. Drain Settings/GameInit/NewPlayerInGame/MissionInit */
     u32 drain_start = GetTickCount();
     bool got_settings = false;
     bool got_npig = false;
@@ -258,7 +295,6 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
             bc_transport_msg_t *msg = &parsed.msgs[i];
             if (msg->type == BC_TRANSPORT_RELIABLE) {
                 tc_send_ack(c, msg->seq);
-
                 if (msg->payload_len > 0) {
                     u8 op = msg->payload[0];
                     if (op == BC_OP_SETTINGS) got_settings = true;
@@ -266,7 +302,6 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
                 }
             }
         }
-
         if (got_settings && got_npig) break;
     }
 
@@ -459,218 +494,6 @@ static void test_client_disconnect(bc_test_client_t *c)
     bc_socket_send(&c->sock, &c->server_addr, pkt, 4);
     bc_socket_close(&c->sock);
     c->connected = false;
-}
-
-/* --- Server with manifest (real checksum validation) --- */
-
-static bool test_server_start_with_manifest(bc_test_server_t *srv, u16 port,
-                                              const char *manifest_path)
-{
-    memset(srv, 0, sizeof(*srv));
-    srv->port = port;
-
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "build\\openbc-server.exe --manifest %s -v --log-file server_test.log -p %u",
-             manifest_path, port);
-
-    STARTUPINFO si;
-    memset(&si, 0, sizeof(si));
-    si.cb = sizeof(si);
-
-    if (!CreateProcess(NULL, cmd, NULL, NULL, FALSE,
-                       CREATE_NO_WINDOW, NULL, NULL, &si, &srv->pi)) {
-        fprintf(stderr, "  HARNESS: CreateProcess failed (err=%lu)\n",
-                GetLastError());
-        return false;
-    }
-
-    srv->running = true;
-
-    /* Probe until server responds */
-    bc_socket_t probe;
-    if (!bc_socket_open(&probe, 0)) return false;
-
-    bc_addr_t srv_addr;
-    srv_addr.ip = htonl(0x7F000001);
-    srv_addr.port = htons(port);
-
-    const u8 query[] = "\\status\\";
-    u8 resp[512];
-    bc_addr_t from;
-
-    bool ready = false;
-    for (int attempt = 0; attempt < 30; attempt++) {
-        bc_socket_send(&probe, &srv_addr, query, sizeof(query) - 1);
-        Sleep(100);
-        int got = bc_socket_recv(&probe, &from, resp, sizeof(resp));
-        if (got > 0) { ready = true; break; }
-    }
-    bc_socket_close(&probe);
-
-    if (!ready) {
-        fprintf(stderr, "  HARNESS: server didn't respond to probe in 3s\n");
-        test_server_stop(srv);
-        return false;
-    }
-    return true;
-}
-
-/* Build a real checksum response from scanned directory data.
- * Handles rounds 0-3 (non-recursive and recursive). */
-static int tc_build_real_checksum(u8 *buf, int buf_size, u8 round,
-                                    const bc_client_dir_scan_t *scan)
-{
-    /* ref_hash = dir_hash for consistency with real BC client */
-    if (round == 2 && scan->subdir_count > 0) {
-        return bc_client_build_checksum_resp_recursive(
-            buf, buf_size, round,
-            scan->dir_hash, scan->dir_hash,
-            scan->files, scan->file_count,
-            scan->subdirs, scan->subdir_count);
-    }
-    return bc_client_build_checksum_resp(
-        buf, buf_size, round,
-        scan->dir_hash, scan->dir_hash,
-        scan->files, scan->file_count);
-}
-
-/* Connect with wire-accurate checksums computed from a game directory.
- * Same as test_client_connect but uses real hashes instead of dummy zeros. */
-static bool test_client_connect_real_checksums(bc_test_client_t *c, u16 port,
-                                                const char *name, u8 slot,
-                                                const char *game_dir)
-{
-    memset(c, 0, sizeof(*c));
-    c->slot = slot;
-    c->seq_out = 0;
-    strncpy(c->name, name, sizeof(c->name) - 1);
-
-    c->server_addr.ip = htonl(0x7F000001);
-    c->server_addr.port = htons(port);
-
-    if (!bc_socket_open(&c->sock, 0)) {
-        fprintf(stderr, "  CLIENT %s: socket open failed\n", name);
-        return false;
-    }
-
-    /* 1. Send Connect packet */
-    u8 pkt[512];
-    int len = bc_client_build_connect(pkt, sizeof(pkt), htonl(0x7F000001));
-    if (len <= 0) return false;
-    tc_send_raw(c, pkt, len);
-
-    /* 2. Wait for ConnectAck */
-    if (tc_recv_raw(c, 2000) <= 0) {
-        fprintf(stderr, "  CLIENT %s: no ConnectAck\n", name);
-        return false;
-    }
-
-    /* 3. Send keepalive with name */
-    len = bc_client_build_keepalive_name(pkt, sizeof(pkt), slot,
-                                          htonl(0x7F000001), name);
-    if (len > 0) tc_send_raw(c, pkt, len);
-
-    /* 4. Handle checksum rounds with real hashes */
-    for (int round = 0; round < 5; round++) {
-        if (tc_recv_raw(c, 2000) <= 0) {
-            fprintf(stderr, "  CLIENT %s: no checksum request round %d\n",
-                    name, round);
-            return false;
-        }
-
-        bc_packet_t parsed;
-        if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
-            return false;
-
-        for (int i = 0; i < parsed.msg_count; i++) {
-            if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE)
-                tc_send_ack(c, parsed.msgs[i].seq);
-        }
-
-        u8 resp[4096];
-        int resp_len;
-
-        if (round < 4) {
-            /* Parse checksum request to get directory/filter */
-            bc_transport_msg_t *msg = NULL;
-            for (int i = 0; i < parsed.msg_count; i++) {
-                if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE &&
-                    parsed.msgs[i].payload_len > 0) {
-                    msg = &parsed.msgs[i];
-                    break;
-                }
-            }
-            if (!msg) return false;
-
-            bc_checksum_request_t req;
-            if (!bc_client_parse_checksum_request(msg->payload, msg->payload_len, &req)) {
-                fprintf(stderr, "  CLIENT %s: failed to parse checksum request round %d\n",
-                        name, round);
-                return false;
-            }
-
-            /* Scan directory and compute real hashes */
-            bc_client_dir_scan_t scan;
-            if (!bc_client_scan_directory(game_dir, req.directory,
-                                           req.filter, req.recursive, &scan)) {
-                fprintf(stderr, "  CLIENT %s: failed to scan %s%s\n",
-                        name, game_dir, req.directory);
-                return false;
-            }
-
-            resp_len = tc_build_real_checksum(resp, sizeof(resp),
-                                               (u8)round, &scan);
-        } else {
-            /* Final round: send real hash (use 0 for now as the server
-             * doesn't validate the final round hash strictly) */
-            resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0, 0);
-        }
-        if (resp_len <= 0) return false;
-
-        u8 out[4096];
-        int out_len = bc_client_build_reliable(out, sizeof(out), slot,
-                                                resp, resp_len, c->seq_out++);
-        if (out_len > 0) tc_send_raw(c, out, out_len);
-    }
-
-    /* 5. Drain Settings/GameInit/NewPlayerInGame/MissionInit */
-    u32 drain_start = GetTickCount();
-    bool got_settings = false;
-    bool got_npig = false;
-
-    while ((int)(GetTickCount() - drain_start) < 2000) {
-        if (tc_recv_raw(c, 200) <= 0) {
-            if (got_settings && got_npig) break;
-            continue;
-        }
-
-        bc_packet_t parsed;
-        if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
-            continue;
-
-        for (int i = 0; i < parsed.msg_count; i++) {
-            bc_transport_msg_t *msg = &parsed.msgs[i];
-            if (msg->type == BC_TRANSPORT_RELIABLE) {
-                tc_send_ack(c, msg->seq);
-                if (msg->payload_len > 0) {
-                    u8 op = msg->payload[0];
-                    if (op == BC_OP_SETTINGS) got_settings = true;
-                    if (op == BC_OP_NEW_PLAYER_IN_GAME) got_npig = true;
-                }
-            }
-        }
-        if (got_settings && got_npig) break;
-    }
-
-    if (!got_settings || !got_npig) {
-        fprintf(stderr, "  CLIENT %s: handshake incomplete (settings=%d npig=%d)\n",
-                name, got_settings, got_npig);
-        return false;
-    }
-
-    c->connected = true;
-    return true;
 }
 
 #endif /* TEST_HARNESS_H */

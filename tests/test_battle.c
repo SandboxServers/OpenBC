@@ -81,8 +81,10 @@ static bc_test_server_t g_server;
 static bc_test_client_t g_cady, g_kirk, g_sep;
 static int g_assertions = 0;
 
-#define BATTLE_PORT  29876
-#define TIMEOUT      1000  /* ms */
+#define BATTLE_PORT      29876
+#define TIMEOUT          1000  /* ms */
+#define MANIFEST_PATH    "tests\\fixtures\\manifest.json"
+#define GAME_DIR         "tests\\fixtures\\"
 
 /* Assertion helper that counts */
 #define BATTLE_ASSERT(cond) do { \
@@ -105,11 +107,11 @@ static int run_battle(void)
     printf("    Phase 1: Connect 3 players...\n");
 
     BATTLE_ASSERT(bc_net_init());
-    BATTLE_ASSERT(test_server_start(&g_server, BATTLE_PORT));
+    BATTLE_ASSERT(test_server_start(&g_server, BATTLE_PORT, MANIFEST_PATH));
 
-    BATTLE_ASSERT(test_client_connect(&g_cady, BATTLE_PORT, "Cady2", 0));
-    BATTLE_ASSERT(test_client_connect(&g_kirk, BATTLE_PORT, "Kirk", 1));
-    BATTLE_ASSERT(test_client_connect(&g_sep,  BATTLE_PORT, "Sep", 2));
+    BATTLE_ASSERT(test_client_connect(&g_cady, BATTLE_PORT, "Cady2", 0, GAME_DIR));
+    BATTLE_ASSERT(test_client_connect(&g_kirk, BATTLE_PORT, "Kirk", 1, GAME_DIR));
+    BATTLE_ASSERT(test_client_connect(&g_sep,  BATTLE_PORT, "Sep", 2, GAME_DIR));
 
     /* Small delay for server to process all connections */
     Sleep(200);
@@ -546,7 +548,7 @@ TEST(battle_of_valentines_day)
 
 /* === Real checksum handshake test ===
  * Connects with wire-accurate checksums computed from test fixture files.
- * Server validates hashes against a manifest -- no --no-checksum flag. */
+ * Server validates hashes against a manifest. */
 TEST(real_checksum_handshake)
 {
     bc_test_server_t srv;
@@ -554,14 +556,8 @@ TEST(real_checksum_handshake)
 
     ASSERT(bc_net_init());
 
-    /* Start server with manifest (real checksum validation) */
-    ASSERT(test_server_start_with_manifest(&srv, 29877,
-                                            "tests\\fixtures\\manifest.json"));
-
-    /* Connect with real checksums scanned from fixture directory */
-    ASSERT(test_client_connect_real_checksums(&client, 29877,
-                                               "Tester", 0,
-                                               "tests\\fixtures\\"));
+    ASSERT(test_server_start(&srv, 29877, MANIFEST_PATH));
+    ASSERT(test_client_connect(&client, 29877, "Tester", 0, GAME_DIR));
 
     /* If we get here, the server accepted our real checksums! */
     test_client_disconnect(&client);

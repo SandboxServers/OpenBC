@@ -40,16 +40,6 @@ int bc_client_build_unreliable(u8 *out, int out_size,
  * Wire: [dir=0x02+slot][count=1][0x01][counter][0x00][flags] */
 int bc_client_build_ack(u8 *out, int out_size, u8 slot, u16 seq, u8 flags);
 
-/* Build a dummy checksum response for round 0-3.
- * Wire: [0x21][round][ref_hash:u32][dir_hash:u32][file_count=0:u16]
- * Returns a valid-format response with zero files (passes --no-checksum). */
-int bc_client_build_dummy_checksum_resp(u8 *buf, int buf_size, u8 round);
-
-/* Build a dummy checksum response for the final round (0xFF).
- * Wire: [0x21][0xFF][dir_hash=0:u32][file_count=0:u32]
- * Returns a valid-format final response (passes --no-checksum). */
-int bc_client_build_dummy_checksum_final(u8 *buf, int buf_size);
-
 /* --- Wire-accurate checksum response builders --- */
 
 /* File hash entry for checksum response building */

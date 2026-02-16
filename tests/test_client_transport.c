@@ -79,28 +79,6 @@ TEST(client_ack_direction)
     ASSERT_EQ(buf[5], 0x80);              /* flags */
 }
 
-/* === Dummy checksum === */
-
-TEST(dummy_checksum_format)
-{
-    u8 buf[32];
-    int len = bc_client_build_dummy_checksum_resp(buf, sizeof(buf), 2);
-
-    ASSERT(len == 12);
-    ASSERT_EQ(buf[0], BC_OP_CHECKSUM_RESP); /* 0x21 */
-    ASSERT_EQ(buf[1], 2);                   /* round */
-    /* All zeros for hashes and file count */
-    for (int i = 2; i < 12; i++) {
-        ASSERT_EQ(buf[i], 0);
-    }
-
-    /* Final round */
-    len = bc_client_build_dummy_checksum_final(buf, sizeof(buf));
-    ASSERT(len == 10);
-    ASSERT_EQ(buf[0], BC_OP_CHECKSUM_RESP);
-    ASSERT_EQ(buf[1], 0xFF);
-}
-
 /* === Parse checksum request === */
 
 TEST(parse_checksum_request_round0)
@@ -276,7 +254,6 @@ TEST_MAIN_BEGIN()
     RUN(keepalive_name_utf16);
     RUN(client_reliable_direction);
     RUN(client_ack_direction);
-    RUN(dummy_checksum_format);
     RUN(parse_checksum_request_round0);
     RUN(parse_checksum_request_round2_recursive);
     RUN(checksum_resp_roundtrip);

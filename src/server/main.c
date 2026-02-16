@@ -39,7 +39,7 @@ static f32         g_game_time = 0.0f;
 /* Manifest / checksum validation */
 static bc_manifest_t g_manifest;
 static bool          g_manifest_loaded = false;
-static bool          g_no_checksum = false;
+static bool          g_no_checksum = false;  /* auto-set when no manifest */
 
 /* Master server */
 static bc_master_t   g_master;
@@ -677,7 +677,6 @@ static void usage(const char *prog)
         "  --friendly-fire    Enable friendly fire\n"
         "  --no-friendly-fire Disable friendly fire (default)\n"
         "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
-        "  --no-checksum      Accept all checksums (testing without game files)\n"
         "  --master <h:p>     Master server address (e.g. master.gamespy.com:27900)\n"
         "  --log-level <lvl>  Log verbosity: quiet|error|warn|info|debug|trace (default: info)\n"
         "  --log-file <path>  Also write log to file (append mode)\n"
@@ -734,8 +733,6 @@ int main(int argc, char **argv)
             g_frag_limit = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--manifest") == 0 && i + 1 < argc) {
             manifest_path = argv[++i];
-        } else if (strcmp(argv[i], "--no-checksum") == 0) {
-            g_no_checksum = true;
         } else if (strcmp(argv[i], "--collision") == 0) {
             g_collision_dmg = true;
         } else if (strcmp(argv[i], "--no-collision") == 0) {
@@ -830,10 +827,8 @@ int main(int argc, char **argv)
            g_friendly_fire ? "on" : "off");
     if (g_manifest_loaded) {
         printf("Checksum validation: on (manifest loaded)\n");
-    } else if (g_no_checksum) {
-        printf("Checksum validation: off (--no-checksum)\n");
     } else {
-        printf("Checksum validation: off (no manifest loaded)\n");
+        printf("Checksum validation: off (no manifest, permissive mode)\n");
     }
     if (g_master.enabled) {
         printf("Master server: heartbeat enabled\n");
