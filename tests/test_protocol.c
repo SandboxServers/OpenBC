@@ -1127,6 +1127,26 @@ TEST(outbox_reliable_seq_format)
     ASSERT_EQ(parsed.msgs[0].payload[0], 0x20);
 }
 
+TEST(outbox_keepalive)
+{
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    ASSERT(bc_outbox_add_keepalive(&outbox));
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
+    ASSERT(len > 0);
+
+    /* Parse back: should be a single type 0x00 message */
+    bc_packet_t parsed;
+    ASSERT(bc_transport_parse(pkt, len, &parsed));
+    ASSERT_EQ_INT(parsed.msg_count, 1);
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_KEEPALIVE);
+    /* Keepalive totalLen=2 → payload_len=0 (2 - 2 header bytes) */
+    ASSERT_EQ_INT(parsed.msgs[0].payload_len, 0);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -1220,4 +1240,5 @@ TEST_MAIN_BEGIN()
     RUN(outbox_overflow);
     RUN(outbox_empty_flush);
     RUN(outbox_reliable_seq_format);
+    RUN(outbox_keepalive);
 TEST_MAIN_END()

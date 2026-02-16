@@ -716,6 +716,15 @@ int main(int argc, char **argv)
                 bc_master_tick(&g_master, &g_socket, now);
             }
 
+            /* Every 10 ticks (~1 second): send keepalive to all active peers */
+            if (tick_counter % 10 == 0) {
+                for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                    bc_peer_t *peer = &g_peers.peers[i];
+                    if (peer->state < PEER_LOBBY) continue;
+                    bc_outbox_add_keepalive(&peer->outbox);
+                }
+            }
+
             /* Flush all peer outboxes (sends batched messages) */
             for (int i = 0; i < BC_MAX_PLAYERS; i++) {
                 bc_peer_t *peer = &g_peers.peers[i];
