@@ -37,7 +37,7 @@ int bc_checksum_request_final_build(u8 *buf, int buf_size);
  *   collision_dmg   - collision damage enabled
  *   friendly_fire   - friendly fire enabled
  *   player_slot     - assigned player slot (0-5)
- *   map_name        - mission TGL path (e.g. "DeepSpace9")
+ *   map_name        - mission module path (e.g. "Multiplayer.Episode.Mission1.Mission1")
  * Returns bytes written, or -1 on error. */
 int bc_settings_build(u8 *buf, int buf_size,
                       f32 game_time,
@@ -49,6 +49,18 @@ int bc_settings_build(u8 *buf, int buf_size,
 /* Build the GameInit payload (opcode 0x01).
  * Returns bytes written (always 1), or -1 on error. */
 int bc_gameinit_build(u8 *buf, int buf_size);
+
+/* Build the MissionInit payload (opcode 0x35).
+ * Sent to each client after NewPlayerInGame to tell them which star system
+ * to load, along with player limit and match rules.
+ *   system_index  - star system (1-9, see SpeciesToSystem.py)
+ *   player_limit  - max players in the match
+ *   time_limit    - time limit in minutes (-1 = no limit)
+ *   frag_limit    - frag/kill limit (-1 = no limit)
+ * Returns bytes written, or -1 on error. */
+int bc_mission_init_build(u8 *buf, int buf_size,
+                          int system_index, int player_limit,
+                          int time_limit, int frag_limit);
 
 /* --- UICollisionSetting (opcode 0x16) --- */
 

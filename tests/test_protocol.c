@@ -552,7 +552,8 @@ TEST(settings_build_basic)
 {
     u8 buf[256];
     int len = bc_settings_build(buf, sizeof(buf),
-                                120.5f, true, false, 3, "DeepSpace9");
+                                120.5f, true, false, 3,
+                                "Multiplayer.Episode.Mission1.Mission1");
     ASSERT(len > 0);
 
     /* Parse it back */
@@ -579,11 +580,11 @@ TEST(settings_build_basic)
 
     u16 map_len;
     ASSERT(bc_buf_read_u16(&b, &map_len));
-    ASSERT_EQ_INT(map_len, 10);  /* "DeepSpace9" */
+    ASSERT_EQ_INT(map_len, 37);  /* "Multiplayer.Episode.Mission1.Mission1" */
 
     u8 map[64];
     ASSERT(bc_buf_read_bytes(&b, map, map_len));
-    ASSERT(memcmp(map, "DeepSpace9", 10) == 0);
+    ASSERT(memcmp(map, "Multiplayer.Episode.Mission1.Mission1", 37) == 0);
 
     bool checksum_flag;
     ASSERT(bc_buf_read_bit(&b, &checksum_flag));
@@ -633,6 +634,86 @@ TEST(gameinit_build_too_small)
 {
     u8 buf[1];
     int len = bc_gameinit_build(buf, 0);
+    ASSERT_EQ_INT(len, -1);
+}
+
+/* === MissionInit packet tests === */
+
+TEST(mission_init_no_limits)
+{
+    u8 buf[32];
+    int len = bc_mission_init_build(buf, sizeof(buf), 3, 6, -1, -1);
+    ASSERT(len > 0);
+
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode;
+    ASSERT(bc_buf_read_u8(&b, &opcode));
+    ASSERT_EQ(opcode, BC_MSG_MISSION_INIT);
+
+    u8 player_limit;
+    ASSERT(bc_buf_read_u8(&b, &player_limit));
+    ASSERT_EQ(player_limit, 6);
+
+    u8 system_index;
+    ASSERT(bc_buf_read_u8(&b, &system_index));
+    ASSERT_EQ(system_index, 3);
+
+    u8 time_limit;
+    ASSERT(bc_buf_read_u8(&b, &time_limit));
+    ASSERT_EQ(time_limit, 0xFF);  /* no limit */
+
+    u8 frag_limit;
+    ASSERT(bc_buf_read_u8(&b, &frag_limit));
+    ASSERT_EQ(frag_limit, 0xFF);  /* no limit */
+
+    /* Should be exactly 5 bytes with no limits */
+    ASSERT_EQ_INT(len, 5);
+}
+
+TEST(mission_init_with_limits)
+{
+    u8 buf[32];
+    int len = bc_mission_init_build(buf, sizeof(buf), 8, 4, 10, 25);
+    ASSERT(len > 0);
+
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode;
+    ASSERT(bc_buf_read_u8(&b, &opcode));
+    ASSERT_EQ(opcode, BC_MSG_MISSION_INIT);
+
+    u8 player_limit;
+    ASSERT(bc_buf_read_u8(&b, &player_limit));
+    ASSERT_EQ(player_limit, 4);
+
+    u8 system_index;
+    ASSERT(bc_buf_read_u8(&b, &system_index));
+    ASSERT_EQ(system_index, 8);  /* Albirea */
+
+    u8 time_limit;
+    ASSERT(bc_buf_read_u8(&b, &time_limit));
+    ASSERT_EQ(time_limit, 10);
+
+    /* end_time i32 follows when time_limit != 255 */
+    i32 end_time;
+    ASSERT(bc_buf_read_i32(&b, &end_time));
+    ASSERT_EQ_INT(end_time, 0);  /* placeholder for now */
+
+    u8 frag_limit;
+    ASSERT(bc_buf_read_u8(&b, &frag_limit));
+    ASSERT_EQ(frag_limit, 25);
+
+    /* 1+1+1+1+4+1 = 9 bytes with both limits */
+    ASSERT_EQ_INT(len, 9);
+}
+
+TEST(mission_init_too_small)
+{
+    u8 buf[2];
+    int len = bc_mission_init_build(buf, sizeof(buf), 1, 6, -1, -1);
     ASSERT_EQ_INT(len, -1);
 }
 
@@ -1266,6 +1347,11 @@ TEST_MAIN_BEGIN()
     /* Handshake: GameInit */
     RUN(gameinit_build);
     RUN(gameinit_build_too_small);
+
+    /* MissionInit */
+    RUN(mission_init_no_limits);
+    RUN(mission_init_with_limits);
+    RUN(mission_init_too_small);
 
     /* Checksum response */
     RUN(checksum_resp_parse_round0);

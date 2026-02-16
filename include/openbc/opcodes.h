@@ -39,16 +39,17 @@
 #define BC_OP_STOP_FIRING          0x08  /* Weapon stop firing */
 #define BC_OP_STOP_FIRING_AT       0x09  /* Stop firing at specific target */
 #define BC_OP_SUBSYS_STATUS        0x0A  /* Subsystem status update */
-#define BC_OP_EVENT_FWD_DF         0x0B  /* Event forward (deferred) */
-#define BC_OP_EVENT_FWD            0x0C  /* Event forward (immediate) */
+#define BC_OP_ADD_REPAIR_LIST      0x0B  /* Add to crew repair list (event 0x008000DF) */
+#define BC_OP_CLIENT_EVENT         0x0C  /* Generic event forward (preserve=0) */
 #define BC_OP_PYTHON_EVENT2        0x0D  /* Python event dispatch (variant) */
 #define BC_OP_START_CLOAK          0x0E  /* Start cloaking */
 #define BC_OP_STOP_CLOAK           0x0F  /* Stop cloaking */
 #define BC_OP_START_WARP           0x10  /* Enter warp speed */
-/* 0x11, 0x12 unused */
+#define BC_OP_REPAIR_PRIORITY      0x11  /* Repair list priority ordering (event 0x008000E1) */
+#define BC_OP_SET_PHASER_LEVEL     0x12  /* Phaser power/intensity setting (event 0x008000E0) */
 #define BC_OP_HOST_MSG             0x13  /* Host-specific message */
 #define BC_OP_DESTROY_OBJ          0x14  /* Destroy object */
-#define BC_OP_UNKNOWN_15           0x15  /* Unknown (possibly unused) */
+#define BC_OP_COLLISION_EFFECT     0x15  /* Collision damage relay (C->S, host processes) */
 #define BC_OP_UI_SETTINGS          0x16  /* UI settings sync */
 #define BC_OP_DELETE_PLAYER_UI     0x17  /* Delete player UI elements */
 #define BC_OP_DELETE_PLAYER_ANIM   0x18  /* Delete player animations */

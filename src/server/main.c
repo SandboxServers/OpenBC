@@ -30,7 +30,10 @@ static bc_server_info_t g_info;
 /* Game settings */
 static bool        g_collision_dmg = true;
 static bool        g_friendly_fire = false;
-static const char *g_map_name = "DeepSpace9";
+static const char *g_map_name = "Multiplayer.Episode.Mission1.Mission1";
+static int         g_system_index = 1;   /* Star system 1-9 (SpeciesToSystem) */
+static int         g_time_limit = -1;    /* Minutes, -1 = no limit */
+static int         g_frag_limit = -1;    /* Kills, -1 = no limit */
 static f32         g_game_time = 0.0f;
 
 /* Manifest / checksum validation */
@@ -192,6 +195,19 @@ static void send_settings_and_gameinit(int peer_slot)
     u8 npig[2] = { BC_OP_NEW_PLAYER_IN_GAME, 0x20 };
     send_to_all(npig, 2);
     LOG_DEBUG("handshake", "slot=%d sent NewPlayerInGame to all", peer_slot);
+
+    /* MissionInit (opcode 0x35) -- reliable, sent to joining player only.
+     * In the original game, the host's Python InitNetwork() sends this.
+     * We are the host, so we send it ourselves. Tells the client which
+     * star system to load and what the match rules are. */
+    len = bc_mission_init_build(payload, sizeof(payload),
+                                g_system_index, g_info.maxplayers,
+                                g_time_limit, g_frag_limit);
+    if (len > 0) {
+        LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
+                  peer_slot, g_system_index);
+        queue_reliable(peer_slot, payload, len);
+    }
 }
 
 /* Notify all other peers that a player has left, then remove them. */
@@ -444,11 +460,13 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     case BC_OP_STOP_FIRING:
     case BC_OP_STOP_FIRING_AT:
     case BC_OP_SUBSYS_STATUS:
-    case BC_OP_EVENT_FWD_DF:
-    case BC_OP_EVENT_FWD:
+    case BC_OP_ADD_REPAIR_LIST:
+    case BC_OP_CLIENT_EVENT:
     case BC_OP_START_CLOAK:
     case BC_OP_STOP_CLOAK:
     case BC_OP_START_WARP:
+    case BC_OP_REPAIR_PRIORITY:
+    case BC_OP_SET_PHASER_LEVEL:
     case BC_OP_TORP_TYPE_CHANGE:
         relay_to_others(peer_slot, payload, payload_len, true);
         break;
@@ -536,9 +554,13 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         LOG_DEBUG("game", "slot=%d host message len=%d", peer_slot, payload_len);
         break;
 
-    /* --- Collision effect (C->S, server would process) --- */
-    case BC_OP_UNKNOWN_15:
+    /* --- Collision effect (C->S, host processes damage authoritatively) ---
+     * In stock BC, the client detects a collision and sends this to the host.
+     * The host computes damage via FUN_006a2470. For Phase C relay, we relay
+     * to others so they see the effect. Phase E will process damage locally. */
+    case BC_OP_COLLISION_EFFECT:
         LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
+        relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
     /* --- Request object (C->S, server responds with object data) --- */
@@ -641,8 +663,11 @@ static void usage(const char *prog)
         "Options:\n"
         "  -p <port>          Listen port (default: 22101)\n"
         "  -n <name>          Server name (default: \"OpenBC Server\")\n"
-        "  -m <map>           Map name (default: \"DeepSpace9\")\n"
+        "  -m <mode>          Game mode (default: \"Multiplayer.Episode.Mission1.Mission1\")\n"
+        "  --system <n>       Star system index 1-9 (default: 1)\n"
         "  --max <n>          Max players (default: 6)\n"
+        "  --time-limit <n>   Time limit in minutes (default: none)\n"
+        "  --frag-limit <n>   Frag/kill limit (default: none)\n"
         "  --collision        Enable collision damage (default)\n"
         "  --no-collision     Disable collision damage\n"
         "  --friendly-fire    Enable friendly fire\n"
@@ -676,7 +701,7 @@ int main(int argc, char **argv)
     /* Defaults */
     u16 port = BC_DEFAULT_PORT;
     const char *name = "OpenBC Server";
-    const char *map = "DeepSpace9";
+    const char *map = "Multiplayer.Episode.Mission1.Mission1";
     int max_players = BC_MAX_PLAYERS;
     const char *manifest_path = NULL;
     const char *master_addr = NULL;
@@ -695,6 +720,14 @@ int main(int argc, char **argv)
             max_players = atoi(argv[++i]);
             if (max_players < 1) max_players = 1;
             if (max_players > BC_MAX_PLAYERS) max_players = BC_MAX_PLAYERS;
+        } else if (strcmp(argv[i], "--system") == 0 && i + 1 < argc) {
+            g_system_index = atoi(argv[++i]);
+            if (g_system_index < 1) g_system_index = 1;
+            if (g_system_index > 9) g_system_index = 9;
+        } else if (strcmp(argv[i], "--time-limit") == 0 && i + 1 < argc) {
+            g_time_limit = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--frag-limit") == 0 && i + 1 < argc) {
+            g_frag_limit = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--manifest") == 0 && i + 1 < argc) {
             manifest_path = argv[++i];
         } else if (strcmp(argv[i], "--no-checksum") == 0) {
@@ -724,6 +757,9 @@ int main(int argc, char **argv)
             return 0;
         }
     }
+
+    /* Apply parsed settings to globals */
+    g_map_name = map;
 
     /* Initialize logging (before anything that uses LOG_*) */
     bc_log_init(log_level, log_file_path);
