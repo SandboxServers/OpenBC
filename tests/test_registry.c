@@ -2,6 +2,7 @@
 #include "openbc/ship_data.h"
 #include "openbc/ship_state.h"
 #include "openbc/movement.h"
+#include "openbc/combat.h"
 #include "openbc/game_builders.h"
 #include "openbc/opcodes.h"
 #include <string.h>
@@ -302,6 +303,169 @@ TEST(state_update_speed_change)
     ASSERT(!(buf[9] & BC_DIRTY_POS_ABS)); /* position didn't change */
 }
 
+/* === Combat: Phaser fire === */
+
+TEST(phaser_requires_min_charge)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    /* Full charge -> can fire */
+    ASSERT(bc_combat_can_fire_phaser(&ship, cls, 0));
+
+    /* Deplete charge */
+    ship.phaser_charge[0] = 0.0f;
+    ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
+
+    /* Partial charge below min -> still can't */
+    ship.phaser_charge[0] = 1.0f;
+    ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
+}
+
+TEST(phaser_fire_resets_charge)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    u8 buf[128];
+    int len = bc_combat_fire_phaser(&ship, cls, 0, -1, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(ship.phaser_charge[0] < 0.01f); /* charge reset */
+}
+
+TEST(cloaked_cannot_fire)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    ship.cloak_state = BC_CLOAK_CLOAKED;
+    ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
+    ASSERT(!bc_combat_can_fire_torpedo(&ship, cls, 0));
+}
+
+/* === Combat: Torpedo fire === */
+
+TEST(torpedo_respects_cooldown)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    /* Initially ready */
+    ASSERT(bc_combat_can_fire_torpedo(&ship, cls, 0));
+
+    /* Fire */
+    u8 buf[128];
+    bc_vec3_t dir = {0, 1, 0};
+    int len = bc_combat_fire_torpedo(&ship, cls, 0, -1, dir, buf, sizeof(buf));
+    ASSERT(len > 0);
+
+    /* Now on cooldown */
+    ASSERT(!bc_combat_can_fire_torpedo(&ship, cls, 0));
+    ASSERT(ship.torpedo_cooldown[0] > 0.0f);
+
+    /* After enough ticks, ready again */
+    bc_combat_torpedo_tick(&ship, cls, 999.0f);
+    ASSERT(bc_combat_can_fire_torpedo(&ship, cls, 0));
+}
+
+TEST(torpedo_type_switch_imposes_reload)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    bc_combat_switch_torpedo_type(&ship, cls, 3); /* switch to quantum */
+    ASSERT(ship.torpedo_switching);
+    ASSERT(!bc_combat_can_fire_torpedo(&ship, cls, 0));
+
+    /* After timer expires */
+    bc_combat_torpedo_tick(&ship, cls, 999.0f);
+    ASSERT(!ship.torpedo_switching);
+    ASSERT(bc_combat_can_fire_torpedo(&ship, cls, 0));
+}
+
+/* === Combat: Damage === */
+
+TEST(shield_absorbs_damage)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    f32 hull_before = ship.hull_hp;
+    f32 front_before = ship.shield_hp[BC_SHIELD_FRONT];
+
+    /* Hit from the front (impact_dir = -fwd, i.e. toward the ship's front) */
+    bc_vec3_t impact = {0, 1, 0}; /* toward the ship's forward */
+    bc_combat_apply_damage(&ship, cls, 100.0f, impact);
+
+    /* Shield should have absorbed it */
+    ASSERT(ship.shield_hp[BC_SHIELD_FRONT] < front_before);
+    ASSERT(fabsf(ship.hull_hp - hull_before) < 0.01f); /* hull untouched */
+}
+
+TEST(overflow_penetrates_hull)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    /* Drop front shields */
+    ship.shield_hp[BC_SHIELD_FRONT] = 10.0f;
+    f32 hull_before = ship.hull_hp;
+
+    bc_vec3_t impact = {0, 1, 0};
+    bc_combat_apply_damage(&ship, cls, 100.0f, impact);
+
+    /* Shield gone, hull damaged by overflow */
+    ASSERT(ship.shield_hp[BC_SHIELD_FRONT] < 0.01f);
+    ASSERT(ship.hull_hp < hull_before);
+    f32 expected_hull = hull_before - 90.0f; /* 100 - 10 shield */
+    ASSERT(fabsf(ship.hull_hp - expected_hull) < 1.0f);
+}
+
+TEST(hull_zero_means_death)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 15); /* Shuttle: 1600 HP */
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 14, bc_make_ship_id(0), 0, 0);
+
+    /* Strip all shields */
+    for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) ship.shield_hp[i] = 0;
+
+    bc_vec3_t impact = {0, 1, 0};
+    bc_combat_apply_damage(&ship, cls, 99999.0f, impact);
+    ASSERT(!ship.alive);
+    ASSERT(ship.hull_hp < 0.01f);
+}
+
+TEST(shield_recharge_tick)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    ship.shield_hp[0] = 0.0f;
+    bc_combat_shield_tick(&ship, cls, 1.0f);
+    ASSERT(ship.shield_hp[0] > 0.0f); /* recharging */
+    ASSERT(ship.shield_hp[0] <= cls->shield_hp[0]); /* not over max */
+}
+
+TEST(charge_tick_recharges)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    ship.phaser_charge[0] = 0.0f;
+    bc_combat_charge_tick(&ship, cls, 1.0f, 1.0f);
+    ASSERT(ship.phaser_charge[0] > 0.0f);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -325,4 +489,14 @@ TEST_MAIN_BEGIN()
     RUN(turn_toward_respects_rate);
     RUN(state_update_dirty_flags);
     RUN(state_update_speed_change);
+    RUN(phaser_requires_min_charge);
+    RUN(phaser_fire_resets_charge);
+    RUN(cloaked_cannot_fire);
+    RUN(torpedo_respects_cooldown);
+    RUN(torpedo_type_switch_imposes_reload);
+    RUN(shield_absorbs_damage);
+    RUN(overflow_penetrates_hull);
+    RUN(hull_zero_means_death);
+    RUN(shield_recharge_tick);
+    RUN(charge_tick_recharges);
 TEST_MAIN_END()
