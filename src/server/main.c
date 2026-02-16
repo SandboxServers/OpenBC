@@ -77,6 +77,44 @@ static void send_reliable(const bc_addr_t *to, int peer_slot,
     }
 }
 
+static void send_unreliable(const bc_addr_t *to,
+                            const u8 *payload, int payload_len)
+{
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_transport_build_unreliable(pkt, sizeof(pkt),
+                                            payload, payload_len);
+    if (len > 0) {
+        alby_rules_cipher(pkt, (size_t)len);
+        bc_socket_send(&g_socket, to, pkt, len);
+    }
+}
+
+/* Relay a message to all connected peers except the sender.
+ * Uses reliable delivery for guaranteed opcodes, unreliable otherwise. */
+static void relay_to_others(int sender_slot, const u8 *payload, int payload_len,
+                            bool reliable)
+{
+    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+        if (i == sender_slot) continue;
+        if (g_peers.peers[i].state < PEER_LOBBY) continue;
+
+        if (reliable) {
+            send_reliable(&g_peers.peers[i].addr, i, payload, payload_len);
+        } else {
+            send_unreliable(&g_peers.peers[i].addr, payload, payload_len);
+        }
+    }
+}
+
+/* Send a reliable message to all connected peers (including the target). */
+static void send_to_all(const u8 *payload, int payload_len)
+{
+    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+        if (g_peers.peers[i].state < PEER_LOBBY) continue;
+        send_reliable(&g_peers.peers[i].addr, i, payload, payload_len);
+    }
+}
+
 static void send_checksum_request(const bc_addr_t *to, int peer_slot, int round)
 {
     u8 payload[256];
@@ -112,6 +150,12 @@ static void send_settings_and_gameinit(const bc_addr_t *to, int peer_slot)
 
     peer->state = PEER_LOBBY;
     printf("[handshake] slot=%d reached LOBBY state\n", peer_slot);
+
+    /* Notify all peers (including the new player) about the new player.
+     * Opcode 0x2A triggers client-side InitNetwork + object replication. */
+    u8 npig[1] = { BC_OP_NEW_PLAYER_IN_GAME };
+    send_to_all(npig, 1);
+    printf("[handshake] slot=%d sent NewPlayerInGame to all\n", peer_slot);
 }
 
 static void handle_connect(const bc_addr_t *from, int len)
@@ -190,9 +234,6 @@ static void handle_game_message(const bc_addr_t *from, int peer_slot,
     u8 opcode = msg->payload[0];
     const char *name = bc_opcode_name(opcode);
 
-    printf("[game] slot=%d opcode=0x%02X (%s) len=%d\n",
-           peer_slot, opcode, name ? name : "?", msg->payload_len);
-
     /* ACK reliable messages */
     if (msg->type == BC_TRANSPORT_RELIABLE) {
         send_ack(from, msg->seq);
@@ -202,6 +243,80 @@ static void handle_game_message(const bc_addr_t *from, int peer_slot,
     if (opcode == BC_OP_CHECKSUM_RESP) {
         handle_checksum_response(from, peer_slot, msg);
         return;
+    }
+
+    /* Below here, only accept messages from peers in LOBBY or IN_GAME state */
+    if (g_peers.peers[peer_slot].state < PEER_LOBBY) {
+        printf("[game] slot=%d opcode=0x%02X (%s) ignored (state=%d)\n",
+               peer_slot, opcode, name ? name : "?",
+               g_peers.peers[peer_slot].state);
+        return;
+    }
+
+    switch (opcode) {
+
+    /* --- Chat relay (reliable) --- */
+    case BC_MSG_CHAT:
+    case BC_MSG_TEAM_CHAT:
+        printf("[chat] slot=%d %s len=%d\n",
+               peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
+               msg->payload_len);
+        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+        break;
+
+    /* --- Python events: relay to all others (reliable) --- */
+    case BC_OP_PYTHON_EVENT:
+    case BC_OP_PYTHON_EVENT2:
+        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+        break;
+
+    /* --- Weapon/combat events: relay to all others (reliable) --- */
+    case BC_OP_START_FIRING:
+    case BC_OP_STOP_FIRING:
+    case BC_OP_STOP_FIRING_AT:
+    case BC_OP_SUBSYS_STATUS:
+    case BC_OP_EVENT_FWD_DF:
+    case BC_OP_EVENT_FWD:
+    case BC_OP_START_CLOAK:
+    case BC_OP_STOP_CLOAK:
+    case BC_OP_START_WARP:
+    case BC_OP_TORP_TYPE_CHANGE:
+    case BC_OP_TORPEDO_FIRE:
+    case BC_OP_BEAM_FIRE:
+        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+        break;
+
+    /* --- StateUpdate: relay to all others (unreliable -- high frequency) --- */
+    case BC_OP_STATE_UPDATE:
+        relay_to_others(peer_slot, msg->payload, msg->payload_len, false);
+        break;
+
+    /* --- ObjectCreateTeam: relay to all others (reliable) --- */
+    case BC_OP_OBJ_CREATE_TEAM:
+    case BC_OP_OBJ_CREATE:
+        printf("[game] slot=%d object create, relaying\n", peer_slot);
+        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+        break;
+
+    /* --- Host message (C->S only, not relayed) --- */
+    case BC_OP_HOST_MSG:
+        printf("[game] slot=%d host message len=%d\n", peer_slot, msg->payload_len);
+        break;
+
+    /* --- Collision effect (C->S, server would process) --- */
+    case BC_OP_UNKNOWN_15:
+        printf("[game] slot=%d collision effect len=%d\n", peer_slot, msg->payload_len);
+        break;
+
+    /* --- Request object (C->S, server responds with object data) --- */
+    case BC_OP_REQUEST_OBJ:
+        printf("[game] slot=%d request object len=%d\n", peer_slot, msg->payload_len);
+        break;
+
+    default:
+        printf("[game] slot=%d opcode=0x%02X (%s) len=%d (unhandled)\n",
+               peer_slot, opcode, name ? name : "?", msg->payload_len);
+        break;
     }
 }
 
