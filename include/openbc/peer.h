@@ -4,6 +4,7 @@
 #include "openbc/types.h"
 #include "openbc/net.h"
 #include "openbc/opcodes.h"
+#include "openbc/transport.h"
 
 /*
  * Peer management -- tracks connected clients in a fixed-size slot array.
@@ -21,14 +22,15 @@ typedef enum {
 } peer_state_t;
 
 typedef struct {
-    peer_state_t state;
-    bc_addr_t    addr;
-    u32          last_recv_time;  /* Timestamp of last received packet (ms) */
-    u8           checksum_round;  /* Current checksum round (0-3) */
-    u16          reliable_seq_out; /* Next outgoing reliable sequence number */
-    u16          reliable_seq_in;  /* Next expected incoming reliable sequence */
-    i32          object_id;       /* Player's ship object ID (-1 if none) */
-    char         name[32];        /* Player name */
+    peer_state_t      state;
+    bc_addr_t         addr;
+    u32               last_recv_time;  /* Timestamp of last received packet (ms) */
+    u8                checksum_round;  /* Current checksum round (0-3) */
+    u16               reliable_seq_out; /* Next outgoing reliable sequence number */
+    u16               reliable_seq_in;  /* Next expected incoming reliable sequence */
+    i32               object_id;       /* Player's ship object ID (-1 if none) */
+    char              name[32];        /* Player name */
+    bc_fragment_buf_t fragment;        /* Fragment reassembly state */
 } bc_peer_t;
 
 typedef struct {

@@ -1,6 +1,7 @@
 #include "test_util.h"
 #include "openbc/cipher.h"
 #include "openbc/buffer.h"
+#include "openbc/transport.h"
 #include "openbc/handshake.h"
 #include "openbc/opcodes.h"
 #include <string.h>
@@ -633,6 +634,66 @@ TEST(gameinit_build_too_small)
     ASSERT_EQ_INT(len, -1);
 }
 
+/* === Fragment reassembly tests === */
+
+TEST(fragment_three_part_reassembly)
+{
+    bc_fragment_buf_t frag;
+    bc_fragment_reset(&frag);
+
+    /* Fragment 0: [total_frags=3][data: 0xAA 0xBB] */
+    u8 f0[] = { 3, 0xAA, 0xBB };
+    ASSERT(!bc_fragment_receive(&frag, f0, 3));
+    ASSERT(frag.active);
+    ASSERT_EQ_INT(frag.frags_expected, 3);
+    ASSERT_EQ_INT(frag.frags_received, 1);
+
+    /* Fragment 1: [frag_idx=1][data: 0xCC 0xDD] */
+    u8 f1[] = { 1, 0xCC, 0xDD };
+    ASSERT(!bc_fragment_receive(&frag, f1, 3));
+    ASSERT_EQ_INT(frag.frags_received, 2);
+
+    /* Fragment 2: [frag_idx=2][data: 0xEE] */
+    u8 f2[] = { 2, 0xEE };
+    ASSERT(bc_fragment_receive(&frag, f2, 2));  /* Complete! */
+    ASSERT_EQ_INT(frag.buf_len, 5);
+    ASSERT_EQ(frag.buf[0], 0xAA);
+    ASSERT_EQ(frag.buf[1], 0xBB);
+    ASSERT_EQ(frag.buf[2], 0xCC);
+    ASSERT_EQ(frag.buf[3], 0xDD);
+    ASSERT_EQ(frag.buf[4], 0xEE);
+}
+
+TEST(fragment_two_part_reassembly)
+{
+    bc_fragment_buf_t frag;
+    bc_fragment_reset(&frag);
+
+    /* Fragment 0: [total_frags=2][data: 0x21 0x02 ...] -- simulating checksum resp */
+    u8 f0[256];
+    f0[0] = 2;  /* total frags */
+    f0[1] = 0x21;  /* opcode (checksum response) */
+    for (int i = 2; i < 200; i++) f0[i] = (u8)(i & 0xFF);
+    ASSERT(!bc_fragment_receive(&frag, f0, 200));
+
+    /* Fragment 1: [frag_idx=1][more data] */
+    u8 f1[100];
+    f1[0] = 1;
+    for (int i = 1; i < 80; i++) f1[i] = (u8)((i + 100) & 0xFF);
+    ASSERT(bc_fragment_receive(&frag, f1, 80));
+    ASSERT_EQ_INT(frag.buf_len, 199 + 79);  /* 278 total */
+}
+
+TEST(fragment_reset)
+{
+    bc_fragment_buf_t frag;
+    bc_fragment_reset(&frag);
+    ASSERT(!frag.active);
+    ASSERT_EQ_INT(frag.buf_len, 0);
+    ASSERT_EQ_INT(frag.frags_expected, 0);
+    ASSERT_EQ_INT(frag.frags_received, 0);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -688,4 +749,9 @@ TEST_MAIN_BEGIN()
     /* Handshake: GameInit */
     RUN(gameinit_build);
     RUN(gameinit_build_too_small);
+
+    /* Fragment reassembly */
+    RUN(fragment_three_part_reassembly);
+    RUN(fragment_two_part_reassembly);
+    RUN(fragment_reset);
 TEST_MAIN_END()

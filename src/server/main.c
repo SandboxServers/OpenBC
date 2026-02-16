@@ -237,25 +237,51 @@ static void handle_game_message(const bc_addr_t *from, int peer_slot,
 {
     if (msg->payload_len < 1) return;
 
-    u8 opcode = msg->payload[0];
-    const char *name = bc_opcode_name(opcode);
+    bc_peer_t *peer = &g_peers.peers[peer_slot];
 
     /* ACK reliable messages */
     if (msg->type == BC_TRANSPORT_RELIABLE) {
         send_ack(from, msg->seq);
     }
 
+    /* Handle fragmented messages: accumulate until complete */
+    const u8 *payload = msg->payload;
+    int payload_len = msg->payload_len;
+
+    if (msg->type == BC_TRANSPORT_RELIABLE &&
+        (msg->flags & BC_RELIABLE_FLAG_FRAGMENT)) {
+        if (bc_fragment_receive(&peer->fragment, payload, payload_len)) {
+            /* Complete reassembled message */
+            payload = peer->fragment.buf;
+            payload_len = peer->fragment.buf_len;
+            printf("[fragment] slot=%d reassembled %d bytes from %d fragments\n",
+                   peer_slot, payload_len, peer->fragment.frags_expected);
+            bc_fragment_reset(&peer->fragment);
+        } else {
+            /* Still waiting for more fragments */
+            return;
+        }
+    }
+
+    if (payload_len < 1) return;
+
+    u8 opcode = payload[0];
+    const char *name = bc_opcode_name(opcode);
+
     /* Dispatch checksum responses to the handshake handler */
     if (opcode == BC_OP_CHECKSUM_RESP) {
-        handle_checksum_response(from, peer_slot, msg);
+        /* Build a temporary msg with the (possibly reassembled) payload */
+        bc_transport_msg_t reassembled = *msg;
+        reassembled.payload = (u8 *)payload;
+        reassembled.payload_len = payload_len;
+        handle_checksum_response(from, peer_slot, &reassembled);
         return;
     }
 
     /* Below here, only accept messages from peers in LOBBY or IN_GAME state */
-    if (g_peers.peers[peer_slot].state < PEER_LOBBY) {
+    if (peer->state < PEER_LOBBY) {
         printf("[game] slot=%d opcode=0x%02X (%s) ignored (state=%d)\n",
-               peer_slot, opcode, name ? name : "?",
-               g_peers.peers[peer_slot].state);
+               peer_slot, opcode, name ? name : "?", peer->state);
         return;
     }
 
@@ -266,14 +292,14 @@ static void handle_game_message(const bc_addr_t *from, int peer_slot,
     case BC_MSG_TEAM_CHAT:
         printf("[chat] slot=%d %s len=%d\n",
                peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
-               msg->payload_len);
-        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+               payload_len);
+        relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
     /* --- Python events: relay to all others (reliable) --- */
     case BC_OP_PYTHON_EVENT:
     case BC_OP_PYTHON_EVENT2:
-        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+        relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
     /* --- Weapon/combat events: relay to all others (reliable) --- */
@@ -289,39 +315,39 @@ static void handle_game_message(const bc_addr_t *from, int peer_slot,
     case BC_OP_TORP_TYPE_CHANGE:
     case BC_OP_TORPEDO_FIRE:
     case BC_OP_BEAM_FIRE:
-        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+        relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
     /* --- StateUpdate: relay to all others (unreliable -- high frequency) --- */
     case BC_OP_STATE_UPDATE:
-        relay_to_others(peer_slot, msg->payload, msg->payload_len, false);
+        relay_to_others(peer_slot, payload, payload_len, false);
         break;
 
     /* --- ObjectCreateTeam: relay to all others (reliable) --- */
     case BC_OP_OBJ_CREATE_TEAM:
     case BC_OP_OBJ_CREATE:
         printf("[game] slot=%d object create, relaying\n", peer_slot);
-        relay_to_others(peer_slot, msg->payload, msg->payload_len, true);
+        relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
     /* --- Host message (C->S only, not relayed) --- */
     case BC_OP_HOST_MSG:
-        printf("[game] slot=%d host message len=%d\n", peer_slot, msg->payload_len);
+        printf("[game] slot=%d host message len=%d\n", peer_slot, payload_len);
         break;
 
     /* --- Collision effect (C->S, server would process) --- */
     case BC_OP_UNKNOWN_15:
-        printf("[game] slot=%d collision effect len=%d\n", peer_slot, msg->payload_len);
+        printf("[game] slot=%d collision effect len=%d\n", peer_slot, payload_len);
         break;
 
     /* --- Request object (C->S, server responds with object data) --- */
     case BC_OP_REQUEST_OBJ:
-        printf("[game] slot=%d request object len=%d\n", peer_slot, msg->payload_len);
+        printf("[game] slot=%d request object len=%d\n", peer_slot, payload_len);
         break;
 
     default:
         printf("[game] slot=%d opcode=0x%02X (%s) len=%d (unhandled)\n",
-               peer_slot, opcode, name ? name : "?", msg->payload_len);
+               peer_slot, opcode, name ? name : "?", payload_len);
         break;
     }
 }

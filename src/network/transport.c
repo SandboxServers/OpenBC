@@ -1,6 +1,7 @@
 #include "openbc/transport.h"
 #include "openbc/cipher.h"
 #include <string.h>
+#include <stdio.h>
 
 bool bc_transport_parse(const u8 *data, int len, bc_packet_t *pkt)
 {
@@ -111,4 +112,69 @@ int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags)
     out[5] = flags;
 
     return 6;
+}
+
+/* --- Fragment reassembly --- */
+
+void bc_fragment_reset(bc_fragment_buf_t *frag)
+{
+    frag->active = false;
+    frag->buf_len = 0;
+    frag->frags_expected = 0;
+    frag->frags_received = 0;
+}
+
+bool bc_fragment_receive(bc_fragment_buf_t *frag,
+                         const u8 *payload, int payload_len)
+{
+    if (payload_len < 1) return false;
+
+    if (!frag->active) {
+        /* First fragment: payload[0] = total_frags, rest = data */
+        frag->active = true;
+        frag->frags_expected = payload[0];
+        frag->frags_received = 1;
+        frag->buf_len = 0;
+
+        if (frag->frags_expected < 2) {
+            /* Not actually fragmented -- shouldn't happen but handle it */
+            fprintf(stderr, "[fragment] invalid total_frags=%d\n",
+                    frag->frags_expected);
+            bc_fragment_reset(frag);
+            return false;
+        }
+
+        int data_len = payload_len - 1;
+        if (data_len > BC_FRAGMENT_BUF_SIZE) {
+            fprintf(stderr, "[fragment] first fragment too large (%d)\n", data_len);
+            bc_fragment_reset(frag);
+            return false;
+        }
+
+        memcpy(frag->buf, payload + 1, (size_t)data_len);
+        frag->buf_len = data_len;
+    } else {
+        /* Continuation fragment: payload[0] = frag_idx, rest = data */
+        u8 frag_idx = payload[0];
+        (void)frag_idx; /* Index used for ordering; we trust sequential delivery */
+
+        int data_len = payload_len - 1;
+        if (frag->buf_len + data_len > BC_FRAGMENT_BUF_SIZE) {
+            fprintf(stderr, "[fragment] reassembly buffer overflow (%d + %d)\n",
+                    frag->buf_len, data_len);
+            bc_fragment_reset(frag);
+            return false;
+        }
+
+        memcpy(frag->buf + frag->buf_len, payload + 1, (size_t)data_len);
+        frag->buf_len += data_len;
+        frag->frags_received++;
+    }
+
+    if (frag->frags_received >= frag->frags_expected) {
+        /* All fragments received -- message is complete */
+        return true;
+    }
+
+    return false;
 }

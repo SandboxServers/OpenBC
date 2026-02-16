@@ -64,4 +64,35 @@ int bc_transport_build_reliable(u8 *out, int out_size,
  * Returns total packet length. */
 int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags);
 
+/* --- Fragment reassembly --- */
+
+/* Fragment reassembly buffer for large reliable messages.
+ * BC fragments messages that exceed ~500 bytes (e.g. checksum round 2
+ * with 102 files). Fragments arrive as consecutive reliable messages
+ * with the FRAGMENT flag (0x02) set. */
+#define BC_FRAGMENT_BUF_SIZE  4096
+
+typedef struct {
+    u8   buf[BC_FRAGMENT_BUF_SIZE];  /* Reassembly buffer */
+    int  buf_len;                     /* Current data length in buffer */
+    u8   frags_expected;              /* Total fragments (from first fragment) */
+    u8   frags_received;              /* Fragments received so far */
+    bool active;                      /* Currently reassembling */
+} bc_fragment_buf_t;
+
+/* Reset a fragment reassembly buffer. */
+void bc_fragment_reset(bc_fragment_buf_t *frag);
+
+/* Process a fragment from a reliable message with the FRAGMENT flag set.
+ * Appends payload data to the reassembly buffer.
+ *
+ * For the first fragment: reads total_frags from payload[0], stores payload[1..].
+ * For subsequent fragments: reads frag_idx from payload[0], stores payload[1..].
+ *
+ * Returns:
+ *   true  if all fragments received (complete message in frag->buf, frag->buf_len)
+ *   false if still waiting for more fragments (or on error) */
+bool bc_fragment_receive(bc_fragment_buf_t *frag,
+                         const u8 *payload, int payload_len);
+
 #endif /* OPENBC_TRANSPORT_H */
