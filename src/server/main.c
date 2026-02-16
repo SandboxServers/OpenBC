@@ -14,6 +14,7 @@
 #include "openbc/manifest.h"
 #include "openbc/reliable.h"
 #include "openbc/master.h"
+#include "openbc/game_events.h"
 #include "openbc/log.h"
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
@@ -342,6 +343,25 @@ static void handle_checksum_response(int peer_slot,
     }
 }
 
+/* Return a player's name for log output. Falls back to "slot N" if unnamed. */
+static const char *peer_name(int slot)
+{
+    static char fallback[16];
+    if (slot < 0 || slot >= BC_MAX_PLAYERS) return "???";
+    if (g_peers.peers[slot].name[0] != '\0')
+        return g_peers.peers[slot].name;
+    snprintf(fallback, sizeof(fallback), "slot %d", slot);
+    return fallback;
+}
+
+/* Resolve an object ID to its owning player's name. */
+static const char *object_owner_name(i32 object_id)
+{
+    int slot = bc_object_id_to_slot(object_id);
+    if (slot < 0) return "???";
+    return peer_name(slot);
+}
+
 static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 {
     if (msg->payload_len < 1) return;
@@ -398,12 +418,20 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* --- Chat relay (reliable) --- */
     case BC_MSG_CHAT:
-    case BC_MSG_TEAM_CHAT:
-        LOG_INFO("chat", "slot=%d %s len=%d",
-                 peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
-                 payload_len);
+    case BC_MSG_TEAM_CHAT: {
+        bc_chat_event_t ev;
+        if (bc_parse_chat_message(payload, payload_len, &ev)) {
+            LOG_INFO("chat", "[%s] %s: %s",
+                     opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
+                     peer_name(ev.sender_slot), ev.message);
+        } else {
+            LOG_INFO("chat", "slot=%d %s len=%d",
+                     peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
+                     payload_len);
+        }
         relay_to_others(peer_slot, payload, payload_len, true);
         break;
+    }
 
     /* --- Python events: relay to all others (reliable) --- */
     case BC_OP_PYTHON_EVENT:
@@ -422,22 +450,86 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     case BC_OP_STOP_CLOAK:
     case BC_OP_START_WARP:
     case BC_OP_TORP_TYPE_CHANGE:
-    case BC_OP_TORPEDO_FIRE:
-    case BC_OP_BEAM_FIRE:
         relay_to_others(peer_slot, payload, payload_len, true);
         break;
+
+    case BC_OP_TORPEDO_FIRE: {
+        bc_torpedo_event_t ev;
+        if (bc_parse_torpedo_fire(payload, payload_len, &ev)) {
+            if (ev.has_target)
+                LOG_INFO("combat", "%s fired torpedo -> %s (subsys=%d)",
+                         object_owner_name(ev.shooter_id),
+                         object_owner_name(ev.target_id),
+                         ev.subsys_index);
+            else
+                LOG_INFO("combat", "%s fired torpedo (no lock)",
+                         object_owner_name(ev.shooter_id));
+        }
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+    }
+
+    case BC_OP_BEAM_FIRE: {
+        bc_beam_event_t ev;
+        if (bc_parse_beam_fire(payload, payload_len, &ev)) {
+            if (ev.has_target)
+                LOG_INFO("combat", "%s fired beam -> %s",
+                         object_owner_name(ev.shooter_id),
+                         object_owner_name(ev.target_id));
+            else
+                LOG_INFO("combat", "%s fired beam (no target)",
+                         object_owner_name(ev.shooter_id));
+        }
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+    }
+
+    /* --- Explosion: relay + log damage --- */
+    case BC_OP_EXPLOSION: {
+        bc_explosion_event_t ev;
+        if (bc_parse_explosion(payload, payload_len, &ev)) {
+            LOG_INFO("combat", "Explosion on %s's ship: %.1f damage, radius %.1f",
+                     object_owner_name(ev.object_id), ev.damage, ev.radius);
+        }
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+    }
 
     /* --- StateUpdate: relay to all others (unreliable -- high frequency) --- */
     case BC_OP_STATE_UPDATE:
         relay_to_others(peer_slot, payload, payload_len, false);
         break;
 
-    /* --- ObjectCreateTeam: relay to all others (reliable) --- */
+    /* --- Object creation: relay + log --- */
     case BC_OP_OBJ_CREATE_TEAM:
-    case BC_OP_OBJ_CREATE:
-        LOG_INFO("game", "slot=%d object create, relaying", peer_slot);
+    case BC_OP_OBJ_CREATE: {
+        bc_object_create_header_t hdr;
+        if (bc_parse_object_create_header(payload + 1, payload_len - 1, &hdr)) {
+            if (hdr.has_team)
+                LOG_INFO("game", "%s spawned object (owner=%s, team=%d)",
+                         peer_name(peer_slot),
+                         peer_name(hdr.owner_slot), hdr.team_id);
+            else
+                LOG_INFO("game", "%s spawned object (owner=%s)",
+                         peer_name(peer_slot),
+                         peer_name(hdr.owner_slot));
+        } else {
+            LOG_INFO("game", "%s spawned object", peer_name(peer_slot));
+        }
         relay_to_others(peer_slot, payload, payload_len, true);
         break;
+    }
+
+    /* --- Object destruction: relay + log --- */
+    case BC_OP_DESTROY_OBJ: {
+        bc_destroy_event_t ev;
+        if (bc_parse_destroy_obj(payload, payload_len, &ev)) {
+            LOG_INFO("combat", "%s's ship destroyed",
+                     object_owner_name(ev.object_id));
+        }
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+    }
 
     /* --- Host message (C->S only, not relayed) --- */
     case BC_OP_HOST_MSG:
