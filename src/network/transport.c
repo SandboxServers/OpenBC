@@ -119,6 +119,107 @@ int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags)
     return 6;
 }
 
+/* --- Outbox --- */
+
+void bc_outbox_init(bc_outbox_t *outbox)
+{
+    outbox->pos = 2;        /* Skip direction + msg_count header */
+    outbox->msg_count = 0;
+}
+
+bool bc_outbox_add_unreliable(bc_outbox_t *outbox, const u8 *payload, int len)
+{
+    /* Format: [type=0x00][totalLen][payload...] */
+    int msg_len = 2 + len;  /* type + totalLen + payload */
+    if (outbox->pos + msg_len > BC_MAX_PACKET_SIZE) return false;
+    if (msg_len > 255) return false;
+
+    outbox->buf[outbox->pos++] = 0x00;         /* unreliable type */
+    outbox->buf[outbox->pos++] = (u8)msg_len;  /* totalLen */
+    memcpy(outbox->buf + outbox->pos, payload, (size_t)len);
+    outbox->pos += len;
+    outbox->msg_count++;
+    return true;
+}
+
+bool bc_outbox_add_reliable(bc_outbox_t *outbox, const u8 *payload, int len, u16 seq)
+{
+    /* Format: [0x32][totalLen][flags=0x80][seqHi][seqLo=0x00][payload...] */
+    int msg_len = 5 + len;  /* type + totalLen + flags + seqHi + seqLo + payload */
+    if (outbox->pos + msg_len > BC_MAX_PACKET_SIZE) return false;
+    if (msg_len > 255) return false;
+
+    outbox->buf[outbox->pos++] = BC_TRANSPORT_RELIABLE;
+    outbox->buf[outbox->pos++] = (u8)msg_len;
+    outbox->buf[outbox->pos++] = 0x80;              /* reliable flag */
+    outbox->buf[outbox->pos++] = (u8)(seq & 0xFF);  /* counter → seqHi */
+    outbox->buf[outbox->pos++] = 0;                  /* seqLo always 0 */
+    memcpy(outbox->buf + outbox->pos, payload, (size_t)len);
+    outbox->pos += len;
+    outbox->msg_count++;
+    return true;
+}
+
+bool bc_outbox_add_ack(bc_outbox_t *outbox, u16 seq, u8 flags)
+{
+    /* Format: [0x01][counter][0x00][flags] -- 4 bytes fixed */
+    if (outbox->pos + 4 > BC_MAX_PACKET_SIZE) return false;
+
+    outbox->buf[outbox->pos++] = BC_TRANSPORT_ACK;
+    outbox->buf[outbox->pos++] = (u8)(seq >> 8);  /* counter = high byte of wire seq */
+    outbox->buf[outbox->pos++] = 0x00;
+    outbox->buf[outbox->pos++] = flags;
+    outbox->msg_count++;
+    return true;
+}
+
+bool bc_outbox_add_keepalive(bc_outbox_t *outbox)
+{
+    /* Format: [type=0x00][totalLen=0x02] -- minimal keepalive */
+    if (outbox->pos + 2 > BC_MAX_PACKET_SIZE) return false;
+
+    outbox->buf[outbox->pos++] = BC_TRANSPORT_KEEPALIVE;
+    outbox->buf[outbox->pos++] = 0x02;
+    outbox->msg_count++;
+    return true;
+}
+
+int bc_outbox_flush_to_buf(bc_outbox_t *outbox, u8 *out, int out_size)
+{
+    if (outbox->msg_count == 0) return 0;
+
+    int pkt_len = outbox->pos;
+    if (pkt_len > out_size) {
+        bc_outbox_init(outbox);
+        return -1;
+    }
+
+    /* Set header */
+    outbox->buf[0] = BC_DIR_SERVER;
+    outbox->buf[1] = (u8)outbox->msg_count;
+
+    memcpy(out, outbox->buf, (size_t)pkt_len);
+    bc_outbox_init(outbox);
+    return pkt_len;
+}
+
+void bc_outbox_flush(bc_outbox_t *outbox, bc_socket_t *sock, const bc_addr_t *to)
+{
+    if (outbox->msg_count == 0) return;
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(outbox, pkt, sizeof(pkt));
+    if (len > 0) {
+        alby_rules_cipher(pkt, (size_t)len);
+        bc_socket_send(sock, to, pkt, len);
+    }
+}
+
+bool bc_outbox_pending(const bc_outbox_t *outbox)
+{
+    return outbox->msg_count > 0;
+}
+
 /* --- Fragment reassembly --- */
 
 void bc_fragment_reset(bc_fragment_buf_t *frag)

@@ -69,6 +69,44 @@ int bc_transport_build_reliable(u8 *out, int out_size,
  * Returns total packet length. */
 int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags);
 
+/* --- Outbox: multi-message packet accumulator --- */
+
+/* Outbox accumulates multiple transport messages into a single UDP packet.
+ * The real BC server packs 2-80 messages per packet (57.5% carry 2+).
+ * Call add_* to queue messages, then flush to send them all in one packet. */
+typedef struct {
+    u8  buf[BC_MAX_PACKET_SIZE];
+    int pos;        /* Write cursor (starts at 2, past direction+count) */
+    int msg_count;  /* Messages accumulated */
+} bc_outbox_t;
+
+/* Reset outbox to empty state. */
+void bc_outbox_init(bc_outbox_t *outbox);
+
+/* Queue an unreliable game message. Returns true on success, false if no room. */
+bool bc_outbox_add_unreliable(bc_outbox_t *outbox, const u8 *payload, int len);
+
+/* Queue a reliable game message. Returns true on success, false if no room. */
+bool bc_outbox_add_reliable(bc_outbox_t *outbox, const u8 *payload, int len, u16 seq);
+
+/* Queue an ACK for a received reliable message. Returns true on success. */
+bool bc_outbox_add_ack(bc_outbox_t *outbox, u16 seq, u8 flags);
+
+/* Queue a keepalive message (type 0x00, 2 bytes). Returns true on success. */
+bool bc_outbox_add_keepalive(bc_outbox_t *outbox);
+
+/* Flush accumulated messages to a buffer (for testing without sockets).
+ * Sets buf[0]=BC_DIR_SERVER, buf[1]=msg_count, copies to out.
+ * Returns packet length, or 0 if outbox is empty. Resets outbox. */
+int bc_outbox_flush_to_buf(bc_outbox_t *outbox, u8 *out, int out_size);
+
+/* Flush accumulated messages: builds packet, encrypts, sends via socket.
+ * No-op if outbox is empty. Resets outbox after sending. */
+void bc_outbox_flush(bc_outbox_t *outbox, bc_socket_t *sock, const bc_addr_t *to);
+
+/* Returns true if outbox has pending messages. */
+bool bc_outbox_pending(const bc_outbox_t *outbox);
+
 /* --- Fragment reassembly --- */
 
 /* Fragment reassembly buffer for large reliable messages.

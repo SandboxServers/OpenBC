@@ -1005,6 +1005,128 @@ TEST(transport_ack_round_trip)
     ASSERT_EQ_INT(parsed.msgs[0].seq, 3);
 }
 
+/* === Outbox tests === */
+
+TEST(outbox_single_unreliable)
+{
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    u8 payload[] = { 0x1C, 0x01, 0x02 };  /* StateUpdate */
+    ASSERT(bc_outbox_add_unreliable(&outbox, payload, 3));
+    ASSERT(bc_outbox_pending(&outbox));
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
+    ASSERT(len > 0);
+
+    /* Parse back */
+    bc_packet_t parsed;
+    ASSERT(bc_transport_parse(pkt, len, &parsed));
+    ASSERT_EQ(parsed.direction, BC_DIR_SERVER);
+    ASSERT_EQ_INT(parsed.msg_count, 1);
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_KEEPALIVE);  /* type 0x00 = unreliable */
+    ASSERT_EQ_INT(parsed.msgs[0].payload_len, 3);
+    ASSERT_EQ(parsed.msgs[0].payload[0], 0x1C);
+}
+
+TEST(outbox_multi_message)
+{
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    /* Add unreliable */
+    u8 unreliable[] = { 0x1C, 0xAA };
+    ASSERT(bc_outbox_add_unreliable(&outbox, unreliable, 2));
+
+    /* Add reliable */
+    u8 reliable[] = { 0x00, 0x01 };
+    ASSERT(bc_outbox_add_reliable(&outbox, reliable, 2, 5));
+
+    /* Add ACK */
+    ASSERT(bc_outbox_add_ack(&outbox, 0x0300, 0x80));
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
+    ASSERT(len > 0);
+
+    /* Parse back */
+    bc_packet_t parsed;
+    ASSERT(bc_transport_parse(pkt, len, &parsed));
+    ASSERT_EQ_INT(parsed.msg_count, 3);
+
+    /* Message 0: unreliable */
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_KEEPALIVE);
+    ASSERT_EQ_INT(parsed.msgs[0].payload_len, 2);
+
+    /* Message 1: reliable with seq=5 */
+    ASSERT_EQ(parsed.msgs[1].type, BC_TRANSPORT_RELIABLE);
+    ASSERT_EQ_INT(parsed.msgs[1].payload_len, 2);
+    ASSERT_EQ(parsed.msgs[1].payload[0], 0x00);
+    /* Wire seq: seqHi=5, seqLo=0 → parsed as (5<<8)|0 = 0x0500 */
+    ASSERT_EQ_INT(parsed.msgs[1].seq, 0x0500);
+
+    /* Message 2: ACK for wire seq 0x0300 → counter=3 */
+    ASSERT_EQ(parsed.msgs[2].type, BC_TRANSPORT_ACK);
+    ASSERT_EQ_INT(parsed.msgs[2].seq, 3);
+    ASSERT_EQ(parsed.msgs[2].flags, 0x80);
+}
+
+TEST(outbox_overflow)
+{
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    /* Fill outbox with large unreliable messages until it's full */
+    u8 big_payload[200];
+    memset(big_payload, 0xAA, sizeof(big_payload));
+
+    /* 200 + 2 header = 202 per message. With 2 byte packet header, ~2.5 messages fit */
+    ASSERT(bc_outbox_add_unreliable(&outbox, big_payload, 200));
+    ASSERT(bc_outbox_add_unreliable(&outbox, big_payload, 200));
+    /* Third should fail (2 + 202 + 202 + 202 = 608 > 512) */
+    ASSERT(!bc_outbox_add_unreliable(&outbox, big_payload, 200));
+
+    /* But a small one should still fit */
+    u8 small[] = { 0x01 };
+    ASSERT(bc_outbox_add_unreliable(&outbox, small, 1));
+}
+
+TEST(outbox_empty_flush)
+{
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
+    ASSERT_EQ_INT(len, 0);
+    ASSERT(!bc_outbox_pending(&outbox));
+}
+
+TEST(outbox_reliable_seq_format)
+{
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    u8 payload[] = { 0x20, 0x00 };  /* Checksum request */
+    ASSERT(bc_outbox_add_reliable(&outbox, payload, 2, 7));
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
+    ASSERT(len > 0);
+
+    /* Parse and verify seq wire format */
+    bc_packet_t parsed;
+    ASSERT(bc_transport_parse(pkt, len, &parsed));
+    ASSERT_EQ_INT(parsed.msg_count, 1);
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_RELIABLE);
+    /* seq=7 → seqHi=7, seqLo=0 → parsed as 0x0700 */
+    ASSERT_EQ_INT(parsed.msgs[0].seq, 0x0700);
+    ASSERT_EQ(parsed.msgs[0].flags, 0x80);
+    ASSERT_EQ_INT(parsed.msgs[0].payload_len, 2);
+    ASSERT_EQ(parsed.msgs[0].payload[0], 0x20);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -1091,4 +1213,11 @@ TEST_MAIN_BEGIN()
     RUN(transport_ack_references_seqhi);
     RUN(transport_reliable_parse_round_trip);
     RUN(transport_ack_round_trip);
+
+    /* Outbox */
+    RUN(outbox_single_unreliable);
+    RUN(outbox_multi_message);
+    RUN(outbox_overflow);
+    RUN(outbox_empty_flush);
+    RUN(outbox_reliable_seq_format);
 TEST_MAIN_END()
