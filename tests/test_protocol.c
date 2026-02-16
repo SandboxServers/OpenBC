@@ -1127,6 +1127,46 @@ TEST(outbox_reliable_seq_format)
     ASSERT_EQ(parsed.msgs[0].payload[0], 0x20);
 }
 
+/* === Shutdown notify tests === */
+
+TEST(shutdown_notify_format)
+{
+    u8 pkt[16];
+    /* Slot 1, IP 10.10.10.239 = 0x0A0A0AEF in host order,
+     * but bc_addr_t.ip is network byte order: 0xEF0A0A0A */
+    int len = bc_transport_build_shutdown_notify(pkt, sizeof(pkt), 1, 0xEF0A0A0A);
+    ASSERT_EQ_INT(len, 12);
+    ASSERT_EQ(pkt[0], BC_DIR_SERVER);    /* direction */
+    ASSERT_EQ(pkt[1], 1);                /* msg count */
+    ASSERT_EQ(pkt[2], BC_TRANSPORT_CONNECT_ACK);  /* 0x05 */
+    ASSERT_EQ(pkt[3], 0x0A);             /* totalLen */
+    ASSERT_EQ(pkt[4], 0xC0);             /* flags */
+    ASSERT_EQ(pkt[7], 1);                /* slot */
+    /* IP bytes in network order */
+    ASSERT_EQ(pkt[8],  0x0A);            /* 10 */
+    ASSERT_EQ(pkt[9],  0x0A);            /* 10 */
+    ASSERT_EQ(pkt[10], 0x0A);            /* 10 */
+    ASSERT_EQ(pkt[11], 0xEF);            /* 239 */
+}
+
+TEST(shutdown_notify_ip_encoding)
+{
+    u8 pkt[16];
+    /* IP 192.168.0.196 = network byte order 0xC4A8C0 ... wait.
+     * network byte order for 192.168.0.196 is bytes: C0 A8 00 C4
+     * stored as u32: depends on endianness. On x86 (little-endian),
+     * u32 = 0xC400A8C0 stores as bytes C0 A8 00 C4 in memory.
+     * Our bc_addr_t.ip is in network byte order already. */
+    u32 ip_be = 0xC400A8C0;  /* 192.168.0.196 on little-endian */
+    int len = bc_transport_build_shutdown_notify(pkt, sizeof(pkt), 3, ip_be);
+    ASSERT_EQ_INT(len, 12);
+    ASSERT_EQ(pkt[7], 3);   /* slot */
+    ASSERT_EQ(pkt[8],  0xC0);  /* 192 */
+    ASSERT_EQ(pkt[9],  0xA8);  /* 168 */
+    ASSERT_EQ(pkt[10], 0x00);  /* 0 */
+    ASSERT_EQ(pkt[11], 0xC4);  /* 196 */
+}
+
 TEST(outbox_keepalive)
 {
     bc_outbox_t outbox;
@@ -1241,4 +1281,8 @@ TEST_MAIN_BEGIN()
     RUN(outbox_empty_flush);
     RUN(outbox_reliable_seq_format);
     RUN(outbox_keepalive);
+
+    /* Shutdown notify */
+    RUN(shutdown_notify_format);
+    RUN(shutdown_notify_ip_encoding);
 TEST_MAIN_END()

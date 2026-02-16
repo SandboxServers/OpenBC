@@ -69,6 +69,12 @@ int bc_transport_build_reliable(u8 *out, int out_size,
  * Returns total packet length. */
 int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags);
 
+/* Build a shutdown notification packet (ConnectAck format).
+ * Sent to each peer on graceful server shutdown.
+ * Format: [dir=0x01][count=1][0x05][0x0A][flags][0x00][0x00][slot][ip_be:4]
+ * Returns packet length, or -1 on error. */
+int bc_transport_build_shutdown_notify(u8 *out, int out_size, u8 slot, u32 ip_be);
+
 /* --- Outbox: multi-message packet accumulator --- */
 
 /* Outbox accumulates multiple transport messages into a single UDP packet.

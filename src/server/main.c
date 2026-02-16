@@ -740,6 +740,24 @@ int main(int argc, char **argv)
     }
 
     printf("\nShutting down...\n");
+
+    /* Send ConnectAck shutdown notification to all connected peers.
+     * Real BC server sends ConnectAck (0x05) to each peer on shutdown,
+     * NOT BootPlayer or DeletePlayer. */
+    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+        bc_peer_t *peer = &g_peers.peers[i];
+        if (peer->state == PEER_EMPTY) continue;
+
+        u8 pkt[16];
+        int len = bc_transport_build_shutdown_notify(
+            pkt, sizeof(pkt), (u8)(i + 1), peer->addr.ip);
+        if (len > 0) {
+            alby_rules_cipher(pkt, (size_t)len);
+            bc_socket_send(&g_socket, &peer->addr, pkt, len);
+            printf("[shutdown] Sent ConnectAck to slot %d\n", i);
+        }
+    }
+
     bc_master_shutdown(&g_master, &g_socket);
     bc_socket_close(&g_socket);
     bc_net_shutdown();

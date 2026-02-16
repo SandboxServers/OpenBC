@@ -119,6 +119,30 @@ int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags)
     return 6;
 }
 
+int bc_transport_build_shutdown_notify(u8 *out, int out_size, u8 slot, u32 ip_be)
+{
+    /* Packet format from trace:
+     * [0x01][0x01][0x05][0x0A][0xC0][0x00][0x00][slot][ip:4]
+     * direction=server, count=1, type=ConnectAck, totalLen=10,
+     * flags=0xC0, pad=0x00, pad=0x00, slot, ip in network byte order */
+    if (out_size < 12) return -1;
+
+    out[0]  = BC_DIR_SERVER;
+    out[1]  = 1;                          /* 1 message */
+    out[2]  = BC_TRANSPORT_CONNECT_ACK;   /* 0x05 */
+    out[3]  = 0x0A;                       /* totalLen = 10 */
+    out[4]  = 0xC0;                       /* flags */
+    out[5]  = 0x00;                       /* padding */
+    out[6]  = 0x00;                       /* padding */
+    out[7]  = slot;                       /* player slot */
+    out[8]  = (u8)(ip_be & 0xFF);         /* IP byte 0 (network order) */
+    out[9]  = (u8)((ip_be >> 8) & 0xFF);  /* IP byte 1 */
+    out[10] = (u8)((ip_be >> 16) & 0xFF); /* IP byte 2 */
+    out[11] = (u8)((ip_be >> 24) & 0xFF); /* IP byte 3 */
+
+    return 12;
+}
+
 /* --- Outbox --- */
 
 void bc_outbox_init(bc_outbox_t *outbox)
