@@ -18,6 +18,7 @@ PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c src/protocol/opcodes
 NETWORK_SRC  := src/network/net.c src/network/peer.c src/network/transport.c src/network/gamespy.c src/network/reliable.c src/network/master.c
 JSON_SRC     := src/json/json_parse.c
 MANIFEST_SRC := tools/manifest.c
+LOG_SRC      := src/server/log.c
 SERVER_SRC   := src/server/main.c
 
 # Object files
@@ -26,10 +27,11 @@ PROTOCOL_OBJ := $(PROTOCOL_SRC:%.c=$(BUILD)/%.o)
 NETWORK_OBJ  := $(NETWORK_SRC:%.c=$(BUILD)/%.o)
 JSON_OBJ     := $(JSON_SRC:%.c=$(BUILD)/%.o)
 MANIFEST_OBJ := $(MANIFEST_SRC:%.c=$(BUILD)/%.o)
+LOG_OBJ      := $(LOG_SRC:%.c=$(BUILD)/%.o)
 SERVER_OBJ   := $(SERVER_SRC:%.c=$(BUILD)/%.o)
 
 # All library objects (everything except tools and server main)
-LIB_OBJ      := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(NETWORK_OBJ) $(JSON_OBJ)
+LIB_OBJ      := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(NETWORK_OBJ) $(JSON_OBJ) $(LOG_OBJ)
 
 # Test files
 TEST_SRC     := $(wildcard tests/test_*.c)
