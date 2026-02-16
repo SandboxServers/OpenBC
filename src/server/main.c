@@ -493,9 +493,14 @@ static void usage(const char *prog)
         "  -n <name>          Server name (default: \"OpenBC Server\")\n"
         "  -m <map>           Map name (default: \"DeepSpace9\")\n"
         "  --max <n>          Max players (default: 6)\n"
+        "  --collision        Enable collision damage (default)\n"
+        "  --no-collision     Disable collision damage\n"
+        "  --friendly-fire    Enable friendly fire\n"
+        "  --no-friendly-fire Disable friendly fire (default)\n"
         "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
         "  --no-checksum      Accept all checksums (testing without game files)\n"
-        "  --master <h:p>    Master server address (e.g. master.gamespy.com:27900)\n",
+        "  --master <h:p>     Master server address (e.g. master.gamespy.com:27900)\n"
+        "  -h, --help         Show this help\n",
         prog);
 }
 
@@ -525,6 +530,14 @@ int main(int argc, char **argv)
             manifest_path = argv[++i];
         } else if (strcmp(argv[i], "--no-checksum") == 0) {
             g_no_checksum = true;
+        } else if (strcmp(argv[i], "--collision") == 0) {
+            g_collision_dmg = true;
+        } else if (strcmp(argv[i], "--no-collision") == 0) {
+            g_collision_dmg = false;
+        } else if (strcmp(argv[i], "--friendly-fire") == 0) {
+            g_friendly_fire = true;
+        } else if (strcmp(argv[i], "--no-friendly-fire") == 0) {
+            g_friendly_fire = false;
         } else if (strcmp(argv[i], "--master") == 0 && i + 1 < argc) {
             master_addr = argv[++i];
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -585,7 +598,17 @@ int main(int argc, char **argv)
 
     printf("OpenBC Server v0.1.0\n");
     printf("Listening on port %u (%d max players)\n", port, max_players);
-    printf("Server name: %s\n", name);
+    printf("Server name: %s | Map: %s\n", name, map);
+    printf("Collision damage: %s | Friendly fire: %s\n",
+           g_collision_dmg ? "on" : "off",
+           g_friendly_fire ? "on" : "off");
+    if (g_manifest_loaded) {
+        printf("Checksum validation: on (manifest loaded)\n");
+    } else if (g_no_checksum) {
+        printf("Checksum validation: off (--no-checksum)\n");
+    } else {
+        printf("Checksum validation: off (no manifest loaded)\n");
+    }
     if (g_master.enabled) {
         printf("Master server: heartbeat enabled\n");
     }
