@@ -31,6 +31,7 @@ int bc_peers_add(bc_peer_mgr_t *mgr, const bc_addr_t *addr)
             mgr->peers[i].state = PEER_CONNECTING;
             mgr->peers[i].addr = *addr;
             mgr->peers[i].object_id = -1;
+            bc_outbox_init(&mgr->peers[i].outbox);
             mgr->count++;
             return i;
         }

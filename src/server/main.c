@@ -64,35 +64,46 @@ static void handle_gamespy(const bc_addr_t *from, const u8 *data, int len)
     }
 }
 
-static void send_ack(const bc_addr_t *to, u16 seq)
+/* Queue an ACK into a peer's outbox (piggybacked with next flush). */
+static void queue_ack(int peer_slot, u16 seq)
 {
-    u8 pkt[16];
-    int len = bc_transport_build_ack(pkt, sizeof(pkt), seq, 0x80);
-    if (len > 0) {
-        alby_rules_cipher(pkt, (size_t)len);
-        bc_socket_send(&g_socket, to, pkt, len);
+    bc_peer_t *peer = &g_peers.peers[peer_slot];
+    if (!bc_outbox_add_ack(&peer->outbox, seq, 0x80)) {
+        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+        bc_outbox_add_ack(&peer->outbox, seq, 0x80);
     }
 }
 
-static void send_reliable(const bc_addr_t *to, int peer_slot,
-                          const u8 *payload, int payload_len)
+/* Queue a reliable message into a peer's outbox + track for retransmit. */
+static void queue_reliable(int peer_slot, const u8 *payload, int payload_len)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
     u16 seq = peer->reliable_seq_out++;
-    u8 pkt[BC_MAX_PACKET_SIZE];
-    int len = bc_transport_build_reliable(pkt, sizeof(pkt),
-                                          payload, payload_len, seq);
-    if (len > 0) {
-        /* Track for retransmission */
-        bc_reliable_add(&peer->reliable_out, payload, payload_len,
-                        seq, GetTickCount());
-        alby_rules_cipher(pkt, (size_t)len);
-        bc_socket_send(&g_socket, to, pkt, len);
+
+    /* Track for retransmission */
+    bc_reliable_add(&peer->reliable_out, payload, payload_len,
+                    seq, GetTickCount());
+
+    if (!bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq)) {
+        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+        bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq);
     }
 }
 
-static void send_unreliable(const bc_addr_t *to,
-                            const u8 *payload, int payload_len)
+/* Queue an unreliable message into a peer's outbox. */
+static void queue_unreliable(int peer_slot, const u8 *payload, int payload_len)
+{
+    bc_peer_t *peer = &g_peers.peers[peer_slot];
+    if (!bc_outbox_add_unreliable(&peer->outbox, payload, payload_len)) {
+        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+        bc_outbox_add_unreliable(&peer->outbox, payload, payload_len);
+    }
+}
+
+/* Send a single unreliable message directly (used for one-off sends
+ * to addresses that don't have a peer slot yet, e.g. BootPlayer). */
+static void send_unreliable_direct(const bc_addr_t *to,
+                                   const u8 *payload, int payload_len)
 {
     u8 pkt[BC_MAX_PACKET_SIZE];
     int len = bc_transport_build_unreliable(pkt, sizeof(pkt),
@@ -113,9 +124,9 @@ static void relay_to_others(int sender_slot, const u8 *payload, int payload_len,
         if (g_peers.peers[i].state < PEER_LOBBY) continue;
 
         if (reliable) {
-            send_reliable(&g_peers.peers[i].addr, i, payload, payload_len);
+            queue_reliable(i, payload, payload_len);
         } else {
-            send_unreliable(&g_peers.peers[i].addr, payload, payload_len);
+            queue_unreliable(i, payload, payload_len);
         }
     }
 }
@@ -125,22 +136,22 @@ static void send_to_all(const u8 *payload, int payload_len)
 {
     for (int i = 0; i < BC_MAX_PLAYERS; i++) {
         if (g_peers.peers[i].state < PEER_LOBBY) continue;
-        send_reliable(&g_peers.peers[i].addr, i, payload, payload_len);
+        queue_reliable(i, payload, payload_len);
     }
 }
 
-static void send_checksum_request(const bc_addr_t *to, int peer_slot, int round)
+static void send_checksum_request(int peer_slot, int round)
 {
     u8 payload[256];
     int payload_len = bc_checksum_request_build(payload, sizeof(payload), round);
     if (payload_len > 0) {
         printf("[handshake] slot=%d sending checksum request round %d\n",
                peer_slot, round);
-        send_reliable(to, peer_slot, payload, payload_len);
+        queue_reliable(peer_slot, payload, payload_len);
     }
 }
 
-static void send_settings_and_gameinit(const bc_addr_t *to, int peer_slot)
+static void send_settings_and_gameinit(int peer_slot)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
     u8 payload[512];
@@ -152,7 +163,7 @@ static void send_settings_and_gameinit(const bc_addr_t *to, int peer_slot)
     if (len > 0) {
         printf("[handshake] slot=%d sending Settings (slot=%d, map=%s)\n",
                peer_slot, peer_slot, g_map_name);
-        send_reliable(to, peer_slot, payload, len);
+        queue_reliable(peer_slot, payload, len);
     }
 
     /* UICollisionSetting (opcode 0x16) -- reliable */
@@ -160,14 +171,14 @@ static void send_settings_and_gameinit(const bc_addr_t *to, int peer_slot)
     if (len > 0) {
         printf("[handshake] slot=%d sending UICollisionSetting (collision=%d)\n",
                peer_slot, g_collision_dmg);
-        send_reliable(to, peer_slot, payload, len);
+        queue_reliable(peer_slot, payload, len);
     }
 
     /* GameInit (opcode 0x01) -- reliable */
     len = bc_gameinit_build(payload, sizeof(payload));
     if (len > 0) {
         printf("[handshake] slot=%d sending GameInit\n", peer_slot);
-        send_reliable(to, peer_slot, payload, len);
+        queue_reliable(peer_slot, payload, len);
     }
 
     peer->state = PEER_LOBBY;
@@ -222,12 +233,11 @@ static void handle_connect(const bc_addr_t *from, int len)
     slot = bc_peers_add(&g_peers, from);
     if (slot < 0) {
         printf("[net] Server full, sending BootPlayer to %s\n", addr_str);
-        /* Temporarily add to send BootPlayer, then remove */
         u8 boot_payload[4];
         int boot_len = bc_bootplayer_build(boot_payload, sizeof(boot_payload),
                                             BC_BOOT_SERVER_FULL);
         if (boot_len > 0) {
-            send_unreliable(from, boot_payload, boot_len);
+            send_unreliable_direct(from, boot_payload, boot_len);
         }
         return;
     }
@@ -249,12 +259,12 @@ static void handle_connect(const bc_addr_t *from, int len)
     /* Begin checksum exchange */
     g_peers.peers[slot].state = PEER_CHECKSUMMING;
     g_peers.peers[slot].checksum_round = 0;
-    send_checksum_request(from, slot, 0);
+    send_checksum_request(slot, 0);
 
     (void)len;
 }
 
-static void handle_checksum_response(const bc_addr_t *from, int peer_slot,
+static void handle_checksum_response(int peer_slot,
                                      const bc_transport_msg_t *msg)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
@@ -279,7 +289,7 @@ static void handle_checksum_response(const bc_addr_t *from, int peer_slot,
                    peer_slot, round, msg->payload_len);
             u8 boot[4];
             int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
-            if (blen > 0) send_reliable(from, peer_slot, boot, blen);
+            if (blen > 0) queue_reliable(peer_slot, boot, blen);
             handle_peer_disconnect(peer_slot);
             return;
         }
@@ -294,7 +304,7 @@ static void handle_checksum_response(const bc_addr_t *from, int peer_slot,
                    resp.dir_hash, resp.file_count);
             u8 boot[4];
             int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
-            if (blen > 0) send_reliable(from, peer_slot, boot, blen);
+            if (blen > 0) queue_reliable(peer_slot, boot, blen);
             handle_peer_disconnect(peer_slot);
             return;
         }
@@ -307,23 +317,22 @@ static void handle_checksum_response(const bc_addr_t *from, int peer_slot,
     peer->checksum_round++;
 
     if (peer->checksum_round < BC_CHECKSUM_ROUNDS) {
-        send_checksum_request(from, peer_slot, peer->checksum_round);
+        send_checksum_request(peer_slot, peer->checksum_round);
     } else {
         printf("[handshake] slot=%d all checksums passed\n", peer_slot);
-        send_settings_and_gameinit(from, peer_slot);
+        send_settings_and_gameinit(peer_slot);
     }
 }
 
-static void handle_game_message(const bc_addr_t *from, int peer_slot,
-                                const bc_transport_msg_t *msg)
+static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 {
     if (msg->payload_len < 1) return;
 
     bc_peer_t *peer = &g_peers.peers[peer_slot];
 
-    /* ACK reliable messages */
+    /* ACK reliable messages (piggybacked in outbox with next flush) */
     if (msg->type == BC_TRANSPORT_RELIABLE) {
-        send_ack(from, msg->seq);
+        queue_ack(peer_slot, msg->seq);
     }
 
     /* Handle fragmented messages: accumulate until complete */
@@ -356,7 +365,7 @@ static void handle_game_message(const bc_addr_t *from, int peer_slot,
         bc_transport_msg_t reassembled = *msg;
         reassembled.payload = (u8 *)payload;
         reassembled.payload_len = payload_len;
-        handle_checksum_response(from, peer_slot, &reassembled);
+        handle_checksum_response(peer_slot, &reassembled);
         return;
     }
 
@@ -500,7 +509,7 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
 
         /* Game message (reliable or unreliable) */
         if (msg->payload_len > 0) {
-            handle_game_message(from, slot, msg);
+            handle_game_message(slot, msg);
         }
     }
 }
@@ -637,16 +646,17 @@ int main(int argc, char **argv)
     }
     printf("Press Ctrl+C to stop.\n\n");
 
-    /* Main loop */
+    /* Main loop -- 100ms tick (~10 Hz, matches real BC server) */
     u8 recv_buf[2048];
     u32 last_tick = GetTickCount();
+    u32 tick_counter = 0;
 
     while (g_running) {
+        /* Receive all pending packets */
         bc_addr_t from;
-        int received = bc_socket_recv(&g_socket, &from, recv_buf, sizeof(recv_buf));
-
-        if (received > 0) {
-            /* GameSpy queries are plaintext (not encrypted) */
+        int received;
+        while ((received = bc_socket_recv(&g_socket, &from,
+                                           recv_buf, sizeof(recv_buf))) > 0) {
             if (bc_gamespy_is_query(recv_buf, received)) {
                 handle_gamespy(&from, recv_buf, received);
             } else {
@@ -654,52 +664,64 @@ int main(int argc, char **argv)
             }
         }
 
-        /* Periodic tasks (every ~1 second) */
+        /* Tick at 100ms intervals */
         u32 now = GetTickCount();
-        if (now - last_tick >= 1000) {
+        if (now - last_tick >= 100) {
             /* Advance game clock */
             g_game_time += (f32)(now - last_tick) / 1000.0f;
+            tick_counter++;
 
-            /* Retransmit unACKed reliable messages */
+            /* Every 10 ticks (~1 second): retransmit, timeout, master heartbeat */
+            if (tick_counter % 10 == 0) {
+                /* Retransmit unACKed reliable messages */
+                for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                    bc_peer_t *peer = &g_peers.peers[i];
+                    if (peer->state == PEER_EMPTY) continue;
+
+                    /* Check for dead peers (max retries exceeded) */
+                    if (bc_reliable_check_timeout(&peer->reliable_out)) {
+                        char addr_str[32];
+                        bc_addr_to_string(&peer->addr, addr_str, sizeof(addr_str));
+                        printf("[net] Peer %s (slot %d) timed out (no ACK)\n",
+                               addr_str, i);
+                        handle_peer_disconnect(i);
+                        continue;
+                    }
+
+                    /* Retransmit overdue messages (direct send, not via outbox) */
+                    int idx;
+                    while ((idx = bc_reliable_check_retransmit(
+                                &peer->reliable_out, now)) >= 0) {
+                        bc_reliable_entry_t *e = &peer->reliable_out.entries[idx];
+                        u8 pkt[BC_MAX_PACKET_SIZE];
+                        int len = bc_transport_build_reliable(
+                            pkt, sizeof(pkt), e->payload, e->payload_len, e->seq);
+                        if (len > 0) {
+                            alby_rules_cipher(pkt, (size_t)len);
+                            bc_socket_send(&g_socket, &peer->addr, pkt, len);
+                        }
+                    }
+                }
+
+                /* Timeout stale peers (30 second timeout) */
+                for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                    if (g_peers.peers[i].state == PEER_EMPTY) continue;
+                    if (now - g_peers.peers[i].last_recv_time > 30000) {
+                        printf("[net] Peer slot %d timed out (no packets)\n", i);
+                        handle_peer_disconnect(i);
+                    }
+                }
+
+                /* Master server heartbeat */
+                bc_master_tick(&g_master, &g_socket, now);
+            }
+
+            /* Flush all peer outboxes (sends batched messages) */
             for (int i = 0; i < BC_MAX_PLAYERS; i++) {
                 bc_peer_t *peer = &g_peers.peers[i];
                 if (peer->state == PEER_EMPTY) continue;
-
-                /* Check for dead peers (max retries exceeded) */
-                if (bc_reliable_check_timeout(&peer->reliable_out)) {
-                    char addr_str[32];
-                    bc_addr_to_string(&peer->addr, addr_str, sizeof(addr_str));
-                    printf("[net] Peer %s (slot %d) timed out (no ACK)\n",
-                           addr_str, i);
-                    handle_peer_disconnect(i);
-                    continue;
-                }
-
-                /* Retransmit overdue messages */
-                int idx;
-                while ((idx = bc_reliable_check_retransmit(
-                            &peer->reliable_out, now)) >= 0) {
-                    bc_reliable_entry_t *e = &peer->reliable_out.entries[idx];
-                    u8 pkt[BC_MAX_PACKET_SIZE];
-                    int len = bc_transport_build_reliable(
-                        pkt, sizeof(pkt), e->payload, e->payload_len, e->seq);
-                    if (len > 0) {
-                        alby_rules_cipher(pkt, (size_t)len);
-                        bc_socket_send(&g_socket, &peer->addr, pkt, len);
-                    }
-                }
+                bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
             }
-
-            /* Timeout stale peers (30 second timeout) */
-            for (int i = 0; i < BC_MAX_PLAYERS; i++) {
-                if (g_peers.peers[i].state == PEER_EMPTY) continue;
-                if (now - g_peers.peers[i].last_recv_time > 30000) {
-                    printf("[net] Peer slot %d timed out (no packets)\n", i);
-                    handle_peer_disconnect(i);
-                }
-            }
-            /* Master server heartbeat */
-            bc_master_tick(&g_master, &g_socket, now);
 
             last_tick = now;
         }

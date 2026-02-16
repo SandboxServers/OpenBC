@@ -33,6 +33,7 @@ typedef struct {
     char                name[32];        /* Player name */
     bc_fragment_buf_t   fragment;        /* Fragment reassembly state */
     bc_reliable_queue_t reliable_out;    /* Outgoing reliable delivery queue */
+    bc_outbox_t         outbox;          /* Outgoing message accumulator */
 } bc_peer_t;
 
 typedef struct {
