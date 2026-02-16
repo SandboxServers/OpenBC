@@ -1,24 +1,76 @@
 # OpenBC -- Open Bridge Commander
 
-> **This project is in early planning stages. No code has been written yet. Everything described below represents the design goals and intended architecture, not current functionality.**
+A clean-room, open-source reimplementation of Star Trek: Bridge Commander (2002).
 
-Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002). Clean-room reimplementation that speaks the BC 1.1 wire protocol -- stock clients connect and play without modification. Ships with zero copyrighted content: all game data is provided via hash manifests and data registries.
+Phase 1 server in active development. Stock BC 1.1 clients connect and play.
 
-## Project Status: Planning
+## What Is OpenBC?
 
-**Nothing is implemented.** The repository currently contains design documents and specifications produced through extensive reverse engineering of the original game.
+OpenBC is a from-scratch reimplementation of Star Trek: Bridge Commander in portable C. The goal is a fully playable game -- server, client, and mod support -- built entirely from clean-room reverse engineering. No original source code is used.
 
-What exists today:
-- Design documents in `docs/` describing the server architecture and implementation plan
-- Reverse engineering reference data (verified wire protocol, opcodes, data structures)
-- AI agent configurations in `.claude/` used for analysis and planning
-- This README
+This is not a wrapper, proxy, or compatibility layer around the original engine. OpenBC is a new implementation that speaks the same wire protocol. Stock BC 1.1 clients connect to an OpenBC server today, with no modifications needed. The future game client will load textures, sounds, and models from a legitimate BC install but run on a modern engine.
 
-What does not exist yet:
-- Any C source code
-- Build system
-- A working server or client
-- Tests
+The original Bridge Commander embedded Python 1.5.2 with over 5,700 SWIG-generated API functions that controlled everything from menus to physics. OpenBC takes a different approach: all game functionality is reimplemented natively in C. There is no Python runtime and no script compatibility layer. Ship stats, weapons, maps, and game rules live in data files (TOML/JSON), moddable by default. Menus, UI, and game logic are reimplemented from scratch to match the original experience.
+
+Zero copyrighted content is shipped. The game client will require a legitimate BC 1.1 installation for textures, sounds, and models. The dedicated server needs no game files at all -- it validates clients using precomputed hash manifests.
+
+## Project Status
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **1. Dedicated Server** | | |
+| A. Hash Manifest | Hash algorithms, manifest generator | Complete |
+| B. Protocol Library | Wire cipher, codec, compressed types | Complete |
+| C. Lobby Server | UDP transport, handshake, checksum, chat, GameSpy | Complete |
+| D. Relay Server | Game events, combat relay, object lifecycle | Complete |
+| E. Simulation Server | Server-authoritative physics, damage, game rules | Planned |
+| **2. Game Client** | Rendering, audio, UI, input | Planning |
+
+What works today:
+
+- Stock BC 1.1 clients connect and play multiplayer matches
+- Full handshake: GameSpy discovery, 4-round checksum validation, settings delivery
+- Ship creation, weapons fire, damage, repairs, cloaking, warp -- all relayed
+- Chat (global and team), lobby and in-game
+- GameSpy LAN browser and internet master server registration
+- Reliable delivery with retransmit and sequencing
+- 7 test suites, including a 99-assertion integration test
+
+## Quick Start
+
+Prerequisites: `i686-w64-mingw32-gcc` cross-compiler, Make.
+
+```
+make all     # builds openbc-hash.exe and openbc-server.exe
+make test    # runs all 7 test suites
+```
+
+Run the server:
+
+```
+./build/openbc-server.exe [options]
+
+Options:
+  -p <port>          Listen port (default: 22101)
+  -n <name>          Server name (default: "OpenBC Server")
+  -m <mode>          Game mode
+  --system <n>       Star system index 1-9 (default: 1)
+  --max <n>          Max players (default: 6)
+  --time-limit <n>   Time limit in minutes
+  --frag-limit <n>   Frag/kill limit
+  --collision        Enable collision damage (default)
+  --no-collision     Disable collision damage
+  --friendly-fire    Enable friendly fire
+  --no-friendly-fire Disable friendly fire (default)
+  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)
+  --no-checksum      Accept all checksums (testing without game files)
+  --master <h:p>     Master server address
+  --log-level <lvl>  quiet|error|warn|info|debug|trace (default: info)
+  --log-file <path>  Also write log to file
+  -q / -v / -vv      Shorthand for quiet / debug / trace
+```
+
+Connect a stock BC 1.1 client by pointing it to the server IP via the LAN browser, or register with a master server using the `--master` flag.
 
 ## Architecture
 
@@ -38,103 +90,105 @@ What does not exist yet:
 │  │(wire fmt)│  │(28 actv) │  │        │  │(ships,etc)│  │
 │  └──────────┘  └──────────┘  └────────┘  └───────────┘  │
 └──────────────────────────────────────────────────────────┘
+        ▲                                        ▲
+        │ UDP packets                            │ TOML/JSON
+        ▼                                        │
+  ┌───────────┐                          ┌───────────────┐
+  │ Stock BC  │                          │  Mod Packs    │
+  │  Client   │                          │ (data + hash  │
+  │  (1.1)    │                          │  manifests)   │
+  └───────────┘                          └───────────────┘
+```
+
+UDP packets arrive, get deciphered (AlbyRules XOR), decoded (TGBufferStream wire format), and dispatched to the appropriate opcode handler. Game state is relayed to all connected peers. Hash manifests validate client file integrity without the server needing any game files.
+
+```
+src/
+  checksum/    Hash algorithms, manifest validation
+  network/     UDP transport, peer management, reliability, GameSpy
+  protocol/    Wire codec, opcodes, handshake, game events
+  json/        Lightweight JSON parser
+  server/      Entry point, configuration, logging
+tests/         7 test suites (unit + integration)
+tools/         CLI tools (hash manifest generator, AHK test harness)
+manifests/     Precomputed hash manifests (vanilla-1.1.json)
+docs/          Design documents and protocol reference
 ```
 
 ## Design Principles
 
-- **Protocol-first**: Compatibility means speaking the wire protocol correctly
-- **Zero original content**: No copyrighted STBC material shipped. Game data referenced via hash manifests
-- **Data-driven**: Ship stats, weapons, maps, and game rules live in TOML data files, not code
-- **Mod-native**: Every layer exposes extension points. Mods are first-class data packs
+- **Protocol-first** -- Compatibility means speaking the wire protocol correctly. The stock client is the reference implementation; OpenBC matches its behavior exactly.
+- **Zero original content** -- No copyrighted STBC material is shipped. The server validates clients using precomputed hash manifests, never needing the game files themselves.
+- **Data-driven** -- Ship stats, weapons, maps, and game rules live in data files, not code. Change a ship's hull strength by editing a TOML file, not recompiling.
+- **Mod-native** -- Every data layer is designed for extension. Mods are first-class data packs that overlay or replace base configuration.
 
-## How It Works (Planned)
+## Tech Stack
 
-The original Bridge Commander uses a proprietary multiplayer protocol over raw UDP. OpenBC reimplements this protocol from scratch based on extensive reverse engineering of the original binary (30,000+ captured packets, full Ghidra decompilation).
+**Server (current):**
 
-Instead of running BC's original Python scripts, OpenBC takes a data-driven approach:
-- **Ship definitions** (hull strength, weapons, subsystems, turn rates) come from `ships.toml`
-- **Map definitions** (spawn points, system layout) come from `maps.toml`
-- **Game rules** (frag limits, time limits, respawn) come from `rules.toml`
-- **File verification** uses precomputed hash manifests (JSON) so the server never needs game files
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| Language | C11 | Performance, portability, no runtime dependencies |
+| Build | Make | Simple, proven, cross-compiles from WSL2 to Win32 |
+| Networking | Raw UDP (Winsock) | Wire-compatible with stock BC clients |
+| Config | TOML (human-edited), JSON (machine-generated) | Readable config, structured manifests |
+| Discovery | GameSpy protocol | LAN browser + 333networks-compatible master server |
 
-Stock BC 1.1 clients connect to an OpenBC server just like they would to an original server. The server speaks the same wire protocol, validates the same checksums, and manages the same game lifecycle (lobby -> ship select -> play -> game over -> restart).
+**Client (planned):** The Phase 2 game client will use a modern rendering engine, ECS architecture, and cross-platform audio/input. Technology choices are under evaluation.
 
-## Planned Tech Stack
+## Reverse Engineering
 
-| Component | Choice | Notes |
-|-----------|--------|-------|
-| Language | C (core) + Python 3 (tooling) | C for performance; Python for build/hash tools |
-| Build | Make | Simple, cross-compiles from WSL2 |
-| Config format | TOML (config), JSON (manifests) | Human-readable + machine-friendly |
-| Physics | Custom (Euler + mesh-accurate collision) | Convex hulls from NIF geometry |
-| Networking | Raw UDP (Winsock) | Wire-compatible with stock clients |
-| Internet discovery | GameSpy protocol (333networks compatible) | LAN + master server support |
+All critical protocol reverse engineering is complete, verified against the stock dedicated server with 30,000+ captured packets:
 
-## Planned Development Phases
+- Wire protocol fully reversed: AlbyRules XOR cipher, TGBufferStream codec, three-tier reliability
+- 28 game opcodes identified and documented from the dispatch jump table
+- Hash algorithms reimplemented: StringHash (4-lane Pearson) and FileHash (rotate-XOR)
+- Full handshake sequence traced and reimplemented (GameSpy peek, checksum exchange, settings delivery)
+- Damage pipeline traced: collision, weapon, and explosion paths through subsystem distribution
+- All findings from Ghidra decompilation and packet analysis; no original source code was used
 
-None of these phases have started.
+See the [verified protocol reference](docs/phase1-verified-protocol.md) for the complete wire format specification. The [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) repository contains the RE workspace and a functional DDraw proxy server used for protocol verification.
 
-- **Phase A: Hash Manifest Tool** -- Reimplement StringHash + FileHash algorithms, CLI tool to generate/verify hash manifests from a BC game installation
-- **Phase B: Protocol Library** -- Clean-room AlbyRules cipher, TGBufferStream codec, compressed type encoders/decoders
-- **Phase C: Lobby Server** -- UDP transport, peer management, checksum validation via manifests, settings delivery, chat relay, GameSpy discovery (LAN + master server)
-- **Phase D: Relay Server** -- StateUpdate parsing and relay, weapon fire relay, object creation/destruction, ship data registry
-- **Phase E: Simulation Server** -- Server-authoritative physics, mesh-accurate collision, damage system, subsystem tracking, game rules engine
+## Game Data and Mods
 
-## Planned Project Layout
+- Ship definitions, maps, and game rules are stored in TOML data files
+- The hash manifest system validates any mod combination without needing the actual files
+- `openbc-hash` generates manifests from a BC install or mod pack directory
+- Mods are designed as data packs that overlay base configuration
+- Data registry and mod loader are planned for Phase E
 
-This directory structure is planned but does not exist yet.
+## Documentation
 
-```
-src/
-├── network/       # UDP transport, peer management, reliability
-│   └── legacy/    # AlbyRules cipher, wire format, GameSpy
-├── protocol/      # Opcode handlers, message codec
-├── checksum/      # Hash algorithms, manifest validation
-├── game/          # Game state, object model, lifecycle FSM
-├── physics/       # Movement, collision detection, damage
-├── data/          # Registry loaders (ships, maps, rules)
-├── mod/           # Mod pack loader, overlay system
-└── server/        # Main entry point, config, console
-tools/             # CLI tools (hash manifest generator, NIF collision extractor)
-data/              # Default data files (ships.toml, maps.toml, rules.toml)
-manifests/         # Precomputed hash manifests
-tests/             # Test suite
-docker/            # Server container files
-docs/              # Design and reference documents (exists now)
-```
-
-## Design Documents
-
-- **[Server Architecture RFC](docs/phase1-implementation-plan.md)** -- Complete standalone server design: network, checksum, game state, physics, data registry, mod system
-- **[Requirements](docs/phase1-requirements.md)** -- Functional and non-functional requirements
-- **[Verified Protocol](docs/phase1-verified-protocol.md)** -- Complete wire protocol reference: opcodes, packet formats, handshake, reliable delivery, compressed types
-- **[Engine Architecture](docs/phase1-engine-architecture.md)** -- Original BC engine internals (reverse engineering reference)
-- **[RE Gap Analysis](docs/phase1-re-gaps.md)** -- Reverse engineering status: all critical protocol items fully reversed
-- **[Data Registry](docs/phase1-api-surface.md)** -- Ship, map, rules, and manifest data schemas
-
-## Key Reverse Engineering Facts
-
-All critical reverse engineering is complete (verified against the stock dedicated server with 30,000+ packet captures):
-
-- **Wire protocol**: AlbyRules XOR cipher ("AlbyRules!" 10-byte key), raw UDP, three-tier send queues
-- **Hash algorithms**: StringHash (4-lane Pearson) for filenames, FileHash (rotate-XOR, skips .pyc timestamps) for content
-- **Game opcodes**: 28 active opcodes from jump table at 0x0069F534
-- **Checksum exchange**: 4-round sequential verification (scripts/App.pyc, Autoexec.pyc, ships/*.pyc, mainmenu/*.pyc)
-- **Handshake**: connect -> peek demux -> checksum -> Settings (0x00) -> GameInit (0x01) -> NewPlayerInGame (0x2A)
-- **Damage system**: DoDamage pipeline fully traced (collision, weapon, explosion paths)
-
-## Related Repository
-
-- **[STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server)** -- Functional DDraw proxy dedicated server and reverse engineering workspace. Contains a working headless server, decompiled reference code, protocol documentation, and Ghidra annotation tools. RE findings from this project feed directly into OpenBC's design.
-
-## Legal Basis
-
-This project is a clean-room reimplementation of the BC multiplayer protocol for interoperability. No copyrighted code or assets are distributed. The server ships with zero original STBC content. Legal precedent: Oracle v. Google (2021), Sega v. Accolade (1992), EU Software Directive Article 6.
+- [Server Architecture RFC](docs/phase1-implementation-plan.md) -- Standalone server design: network, checksum, game state, physics, data registry, mod system
+- [Requirements](docs/phase1-requirements.md) -- Functional and non-functional requirements
+- [Verified Protocol](docs/phase1-verified-protocol.md) -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery, compressed types
+- [Engine Architecture](docs/phase1-engine-architecture.md) -- Original BC engine internals (RE reference)
+- [RE Gap Analysis](docs/phase1-re-gaps.md) -- Reverse engineering status (all critical items solved)
+- [Data Registry](docs/phase1-api-surface.md) -- Ship, map, rules, and manifest data schemas
 
 ## Contributing
 
-This project is not yet ready for contributions. The design is still being finalized. Watch this repository for updates.
+Contributions are welcome. The most useful things right now:
+
+- **Testing**: Connect stock BC 1.1 clients, report connection issues or protocol mismatches
+- **Reverse engineering**: Ghidra analysis, packet captures, behavioral documentation
+- **Data files**: Ship stats, map definitions, game rule sets
+- **Code review**: Protocol correctness, edge cases, platform compatibility
+
+Open an issue to discuss before starting large changes.
+
+## Related Projects
+
+- [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) -- Functional DDraw proxy dedicated server, RE workspace, decompiled reference code, and Ghidra annotation tools. RE findings feed directly into OpenBC.
+
+## Legal Basis
+
+OpenBC is a clean-room reimplementation of the Bridge Commander multiplayer protocol, created for interoperability. No copyrighted code or assets are distributed. The server ships with zero original STBC content.
+
+Legal precedent for clean-room reimplementation: *Oracle America v. Google* (2021, U.S. Supreme Court), *Sega v. Accolade* (1992, 9th Circuit), EU Software Directive Article 6.
+
+Star Trek, Bridge Commander, and related marks are trademarks of CBS Studios and Paramount Global. This project is not affiliated with or endorsed by the trademark holders.
 
 ## License
 
-TBD -- License will be selected before any code is written.
+TBD -- License will be selected before the first tagged release.
