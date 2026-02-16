@@ -1,7 +1,7 @@
 # OpenBC Phase 1: Playable Dedicated Server - Requirements Document
 
 ## Document Status
-- **Generated**: 2026-02-07, **Revised**: 2026-02-08
+- **Generated**: 2026-02-07, **Revised**: 2026-02-15 (opcode table corrections, RE risk downgrades)
 - **Source**: Synthesized from 9 specialized agent analyses (gameplay expansion round)
 - **Agents consulted**: openbc-architect, game-reverse-engineer, swig-api-compat, stbc-original-dev, network-protocol, python-migration, flecs-ecs-architect, physics-sim, mod-compat-tester
 
@@ -83,6 +83,8 @@ In the original BC, the host runs the full C++ game engine locally. Events like 
 
 **Phase 2**: The server will parse specific opcodes from the relay stream, synthesize Python events, and feed them to the mission scoring scripts for authoritative score tracking.
 
+**Note**: The STBC-Dedicated-Server project has demonstrated working headless scoring using `ObjectKilledHandler` to send `SCORE_CHANGE_MESSAGE` on kills, implemented via the Appc functional API. This approach can inform Phase 2 design.
+
 ---
 
 ## 3. Functional Requirements
@@ -96,10 +98,11 @@ The server MUST use raw UDP sockets (NOT ENet) to communicate with vanilla BC cl
 Single UDP socket (default port 22101/0x5655) shared between GameSpy and game protocol via peek-based first-byte demultiplexing (`\` = GameSpy, binary = game).
 
 #### REQ-NET-03: Packet Wire Format
+All game packets are encrypted with the AlbyRules stream cipher (XOR with "AlbyRules!" key). After decryption:
 ```
-[senderPeerID: u8] [messageCount: u8] [message[0]...] ... [message[N-1]...]
+[direction: u8] [messageCount: u8] [message[0]...] ... [message[N-1]...]
 ```
-Max 254 messages per packet. Max packet size 512 bytes.
+Direction: 0x01=from server, 0x02=from client, 0xFF=init handshake. Max 254 messages per packet. Default max packet size 512 bytes. See [phase1-verified-protocol.md](phase1-verified-protocol.md) for complete wire format.
 
 #### REQ-NET-04: Message Types
 | Type | Name | Purpose |
@@ -136,33 +139,38 @@ The server MUST clone and forward all incoming game data messages (type 3) to al
 
 **Implementation**: For each received data message, read byte[1] (sender player slot index), iterate all 16 player slots, and for each active slot that is NOT the sender and NOT self, clone the raw message and send via TGNetwork::Send.
 
-#### REQ-RLY-02: 44 Native Opcodes
-The server MUST relay all 44 native message types (opcodes 0x00-0x2B). Key opcodes:
+#### REQ-RLY-02: Game Opcodes (verified from jump table at 0x0069F534)
+The server MUST relay all game message types (opcodes 0x00-0x2A, with gaps). Key opcodes:
 | Opcode | Name | Server Action |
 |--------|------|---------------|
 | 0x00 | Settings | Server generates (post-checksum) |
-| 0x01 | Status | Server generates (post-checksum) |
-| 0x04 | CREATE_OBJECT | Relay + create ship entity |
-| 0x05 | CREATE_PLAYER_OBJECT | Relay + create ship entity |
-| 0x06 | DESTROY_OBJECT | Relay + update ship state |
-| 0x08 | HOST_EVENT | Relay |
-| 0x09-0x0B | START/STOP_FIRING | Pure relay |
-| 0x0C | SUBSYSTEM_STATE | Pure relay |
-| 0x19 | NEW_PLAYER_IN_GAME | Relay |
-| 0x1E | SHIP_UPDATE | Pure relay (unreliable, position/state) |
+| 0x01 | GameInit | Server generates (post-checksum) |
+| 0x02 | ObjectCreate | Relay + optionally create ship entity |
+| 0x03 | ObjectCreateTeam | Relay + create ship entity |
+| 0x04 | BootPlayer | Server generates (reject/kick) |
+| 0x07-0x0C | Event forwards (firing, subsystem, etc.) | Pure relay |
+| 0x14 | DestroyObject | Relay + update ship death state |
+| 0x19 | TorpedoFire | Pure relay |
+| 0x1A | BeamFire | Pure relay |
+| 0x1C | StateUpdate | Pure relay (unreliable, position/state) |
+| 0x2A | NewPlayerInGame | Server generates (player join) |
 | All others | Various | Pure relay |
 
+See [phase1-verified-protocol.md](phase1-verified-protocol.md) for the complete verified opcode table with handler addresses and packet counts.
+
 #### REQ-RLY-03: Python Script Message Relay
-Python-level messages (opcode >= MAX_MESSAGE_TYPES = 0x2C) MUST be relayed according to the script's send pattern:
+Python-level messages (opcode >= MAX_MESSAGE_TYPES = **0x2B**) MUST be relayed according to the script's send pattern:
 | Message | Opcode | Relay Pattern |
 |---------|--------|---------------|
-| CHAT_MESSAGE | 0x2D | Client->Host, Host->Group("NoMe") |
-| TEAM_CHAT_MESSAGE | 0x2E | Client->Host, Host->teammates only |
-| MISSION_INIT_MESSAGE | 0x36 | Host->specific client (on join) |
-| SCORE_CHANGE_MESSAGE | 0x37 | Deferred to Phase 2 |
-| SCORE_MESSAGE | 0x38 | Deferred to Phase 2 |
-| END_GAME_MESSAGE | 0x39 | Host->all (broadcast) |
-| RESTART_GAME_MESSAGE | 0x3A | Host->all (broadcast) |
+| CHAT_MESSAGE | 0x2C | Client->Host, Host->Group("NoMe") |
+| TEAM_CHAT_MESSAGE | 0x2D | Client->Host, Host->teammates only |
+| MISSION_INIT_MESSAGE | 0x35 | Host->specific client (on join) |
+| SCORE_CHANGE_MESSAGE | 0x36 | Deferred to Phase 2 |
+| SCORE_MESSAGE | 0x37 | Deferred to Phase 2 |
+| END_GAME_MESSAGE | 0x38 | Host->all (broadcast) |
+| RESTART_GAME_MESSAGE | 0x39 | Host->all (broadcast) |
+
+See [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 6 for the complete Python message table.
 
 #### REQ-RLY-04: Peer Groups
 The server MUST support named peer groups with at minimum the "NoMe" group (all peers except the host/server). `SendTGMessageToGroup("NoMe", msg)` sends to all connected clients.
@@ -236,8 +244,8 @@ The server MUST create ship entities when clients select ships. These are lightw
 `MultiplayerGame.GetShipFromPlayerID(playerID)` MUST resolve to the correct ship entity via direct array lookup.
 
 #### REQ-SHIP-03: Ship Lifecycle
-- **Create**: On CREATE_PLAYER_OBJECT opcode (0x05) from client
-- **Death**: Tag transition Alive -> Dying -> Dead on DESTROY_OBJECT opcode (0x06)
+- **Create**: On ObjectCreateTeam opcode (**0x03**) from client
+- **Death**: Tag transition Alive -> Dying -> Dead on DestroyObject opcode (**0x14**)
 - **Respawn**: Delete old entity, create new entity with new ObjID
 - **Game restart**: Delete all ship entities via `DeletePlayerShipsAndTorps()`
 
@@ -274,10 +282,10 @@ When a player joins mid-game, `InitNetwork(iToID)` sends current mission config 
 ### REQ-CHAT: Chat System
 
 #### REQ-CHAT-01: Regular Chat
-Client sends CHAT_MESSAGE (0x2D) to host. Host forwards to group "NoMe" (all other clients). Format: `[opcode:1][senderPeerID:4][stringLen:2][string:N]`, reliable.
+Client sends CHAT_MESSAGE (0x2C) to host. Host forwards to group "NoMe" (all other clients). Format: `[opcode:1][senderSlot:1][padding:3][stringLen:2][string:N]`, reliable.
 
 #### REQ-CHAT-02: Team Chat
-Client sends TEAM_CHAT_MESSAGE (0x2E) to host. Host forwards only to teammates.
+Client sends TEAM_CHAT_MESSAGE (0x2D) to host. Host forwards only to teammates. Same format as regular chat.
 
 ### REQ-PY: Python Scripting
 
@@ -436,10 +444,13 @@ The ~200 `Set*` methods across 16 property types can be implemented as a generic
 - `stbc.cfg`
 
 ### RE Data (From STBC-Dedicated-Server)
-- 4x256-byte hash lookup tables from stbc.exe
+- 4x256-byte hash lookup tables from stbc.exe (at 0x0095c888-0x0095cb87)
 - Reference string from PTR_DAT_008d9af4
-- ET_* event type numeric values from Appc.pyd
-- 44 native opcode enumeration (0x00-0x2B)
+- ET_* event type numeric values (confirmed via decompilation, see [phase1-re-gaps.md](phase1-re-gaps.md) Section 1.8)
+- Verified game opcode table (34 opcodes with gaps, NOT sequential 0x00-0x2B)
+- AlbyRules stream cipher key ("AlbyRules!" -- 10-byte XOR)
+- Complete wire format specification (see [phase1-verified-protocol.md](phase1-verified-protocol.md))
+- MAX_MESSAGE_TYPES = 0x2B (43), not 0x2C
 
 ---
 
@@ -470,16 +481,16 @@ The ~200 `Set*` methods across 16 property types can be implemented as a generic
 
 ## 8. Risk Register
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Wire format mismatch | HIGH | HIGH | Wireshark captures as ground truth |
-| Hash algorithm mismatch | MEDIUM | HIGH | Extract exact lookup tables; test known hashes |
-| ACK priority queue stall | HIGH | HIGH | Extensive logging; this was the primary proxy bug |
-| Python 1.5.2 edge cases | MEDIUM | MEDIUM | Test against full vanilla script corpus |
-| ET_* values unknown | HIGH | HIGH | Extract from Appc.pyd binary |
-| Game opcode relay ordering | MEDIUM | MEDIUM | Start pure relay; clients handle simulation |
-| UI stub coverage gaps | HIGH | MEDIUM | Add stubs reactively as crashes found |
-| list.sort(cmp_func) breakage | HIGH | MEDIUM | Compat shim with functools.cmp_to_key |
-| Ship creation protocol unknown | MEDIUM | HIGH | Capture from vanilla session with Wireshark |
-| Late join state sync incomplete | MEDIUM | MEDIUM | InitNetwork sends config; test with vanilla |
-| Scoring not authoritative (Phase 1) | LOW | LOW | Accepted limitation; each client tracks locally |
+| Risk | Probability | Impact | Mitigation | Status |
+|------|-------------|--------|------------|--------|
+| Wire format mismatch | ~~HIGH~~ **LOW** | HIGH | **SOLVED**: Complete wire format verified from 30K+ packet traces. See [phase1-verified-protocol.md](phase1-verified-protocol.md) | Resolved |
+| Hash algorithm mismatch | ~~MEDIUM~~ **LOW** | HIGH | **SOLVED**: 4x256-byte tables extracted, algorithm fully traced (FUN_007202e0) | Resolved |
+| ACK priority queue stall | ~~HIGH~~ **LOW** | HIGH | **SOLVED**: Three-tier queue system fully reverse-engineered with timeouts and retry logic | Resolved |
+| Python 1.5.2 edge cases | MEDIUM | MEDIUM | Test against full vanilla script corpus | Open |
+| ET_* values unknown | ~~HIGH~~ **LOW** | HIGH | **SOLVED**: Key values confirmed via decompilation (see re-gaps.md Section 1.8) | Resolved |
+| Game opcode relay ordering | ~~MEDIUM~~ **LOW** | MEDIUM | **SOLVED**: Complete opcode table with jump table addresses and frequency counts | Resolved |
+| UI stub coverage gaps | HIGH | MEDIUM | Add stubs reactively as crashes found | Open |
+| list.sort(cmp_func) breakage | HIGH | MEDIUM | Compat shim with functools.cmp_to_key | Open |
+| Ship creation protocol unknown | ~~MEDIUM~~ **LOW** | HIGH | **SOLVED**: ObjectCreateTeam (0x03) with vtable+0x10C serialization. Working in STBC-Dedi | Resolved |
+| Late join state sync incomplete | MEDIUM | MEDIUM | InitNetwork sends config; test with vanilla | Open |
+| Scoring not authoritative (Phase 1) | LOW | LOW | Accepted limitation; each client tracks locally | Accepted |

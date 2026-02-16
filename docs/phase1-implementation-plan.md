@@ -1,7 +1,7 @@
 # OpenBC Phase 1: Implementation Plan
 
 ## Document Status
-- **Generated**: 2026-02-07, **Revised**: 2026-02-08
+- **Generated**: 2026-02-07, **Revised**: 2026-02-15 (RE items resolved, opcode corrections)
 - **Source**: Synthesized from 9 specialized agent analyses (gameplay expansion round)
 - **Agents consulted**: openbc-architect, game-reverse-engineer, swig-api-compat, stbc-original-dev, network-protocol, python-migration, flecs-ecs-architect, physics-sim, mod-compat-tester
 - **Prerequisite**: [phase1-requirements.md](phase1-requirements.md)
@@ -232,29 +232,37 @@ This is the largest and highest-risk chunk.
 2. Packet framing: parse/build `[peerID][count][messages]`
 3. Message type serialization for types 0, 1, 3, 4, 5
 4. Peer array (sorted, binary search, creation/removal)
-5. Connection handshake (accept type 3 from peerID=-1)
+5. Connection handshake (accept connection from unknown peers, assign peer ID)
+      - AlbyRules cipher: XOR encrypt/decrypt with "AlbyRules!" key (10 bytes)
 6. Reliable delivery (sequence numbering, ACK generation, retry with timeout)
 7. Three-tier send queues (priority, reliable, unreliable)
 8. Timeout/disconnect detection
 
-**Peer structure** (~0xC0 bytes mapped from original):
+**Peer structure** (~0xC0 bytes, VERIFIED from STBC-Dedi runtime inspection):
 ```c
 struct Peer {
-    int32_t  peerID;           // +0x18
-    uint32_t address;          // +0x1C
+    // Bytes 0x00-0x17: internal linked list / vtable fields
+    int32_t  peerID;           // +0x18 (VERIFIED)
+    uint32_t address;          // +0x1C (sockaddr_in, VERIFIED)
     uint16_t seqRecvUnrel;     // +0x24
     uint16_t seqSendReliable;  // +0x26
     uint16_t seqRecvReliable;  // +0x28
     uint16_t seqSendPriority;  // +0x2A
     float    lastRecvTime;     // +0x2C
     float    lastSendTime;     // +0x30
-    Queue    unreliable;       // +0x64..+0x7C
-    Queue    reliable;         // +0x80..+0x98
-    Queue    priority;         // +0x9C..+0xB4
+    // Bytes 0x34-0x63: internal state
+    Queue    unreliable;       // +0x64..+0x7C (VERIFIED)
+    uint32_t unreliableCount;  // +0x7C (VERIFIED)
+    Queue    reliable;         // +0x80..+0x98 (VERIFIED)
+    uint32_t reliableCount;    // +0x98 (VERIFIED)
+    Queue    priority;         // +0x9C..+0xB4 (VERIFIED)
+    uint32_t priorityCount;    // +0xB4 (VERIFIED)
     float    disconnectTime;   // +0xB8
-    uint8_t  isDisconnecting;  // +0xBC
+    uint8_t  isDisconnecting;  // +0xBC (NOTE: UNRELIABLE flag, use peer-array detection instead)
 };
 ```
+
+See [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 11 for complete data structures.
 
 **Acceptance**: Raw UDP packet sent to port 22101 is received and parsed. Peer creation from connection message. ACK round-trip for reliable messages. Timeout detection after 45s of silence.
 
@@ -468,8 +476,8 @@ typedef struct {
 ```
 
 **Ship lifecycle**:
-- **Create**: On CREATE_PLAYER_OBJECT opcode (0x05) from client. Allocate flecs entity, set ObcShipIdentity + ObcShipOwnership + ObcShipAlive tag, register SWIG handle, fire ET_OBJECT_CREATED_NOTIFY.
-- **Death**: On DESTROY_OBJECT opcode (0x06). Tag transition: remove ObcShipAlive, add ObcShipDying, then remove ObcShipDying, add ObcShipDead. Fire ET_OBJECT_EXPLODING.
+- **Create**: On ObjectCreateTeam opcode (**0x03**) from client. Allocate flecs entity, set ObcShipIdentity + ObcShipOwnership + ObcShipAlive tag, register SWIG handle, fire ET_OBJECT_CREATED_NOTIFY.
+- **Death**: On DestroyObject opcode (**0x14**). Tag transition: remove ObcShipAlive, add ObcShipDying, then remove ObcShipDying, add ObcShipDead. Fire ET_OBJECT_EXPLODING.
 - **Respawn**: Delete old entity + create new entity with new ObjID (clean slate -- scripts may hold references to old ObjID in damage dictionaries).
 - **Game restart**: `DeletePlayerShipsAndTorps()` deletes all ship entities, clears player-ship index.
 
@@ -525,44 +533,47 @@ for each of 16 player slots:
         TGNetwork::Send(wsn, slot.peerID, clone, 0)
 ```
 
-**44 native opcodes** (0x00-0x2B, MAX_MESSAGE_TYPES = 0x2C):
+**Verified game opcodes** (0x00-0x2A with gaps, MAX_MESSAGE_TYPES = **0x2B**):
 
 | Opcode | Name | Server Action |
 |--------|------|---------------|
 | 0x00 | Settings | Server generates (post-checksum) |
-| 0x01 | Status | Server generates (post-checksum) |
-| 0x02 | GAME_INITIALIZE | Relay |
-| 0x03 | GAME_INITIALIZE_DONE | Relay + reject if full |
-| 0x04 | CREATE_OBJECT | Relay + optionally create ship entity |
-| 0x05 | CREATE_PLAYER_OBJECT | Relay + create ship entity |
-| 0x06 | DESTROY_OBJECT | Relay + update ship death state |
-| 0x07 | TORPEDO_POSITION | Pure relay (unreliable) |
-| 0x08 | HOST_EVENT | Relay |
-| 0x09 | START_FIRING | Pure relay |
-| 0x0A | STOP_FIRING | Pure relay |
-| 0x0B | STOP_FIRING_AT_TARGET | Pure relay |
-| 0x0C | SUBSYSTEM_STATE_CHANGED | Pure relay |
-| 0x0D-0x18 | Various | Pure relay |
-| 0x19 | NEW_PLAYER_IN_GAME | Relay |
-| 0x1A-0x1D | Various | Pure relay |
-| 0x1E | SHIP_UPDATE | Pure relay (unreliable, position/state) |
-| 0x1F-0x27 | Checksum/NetFile | Handled by checksum engine |
-| 0x28-0x2B | Various | Pure relay |
+| 0x01 | GameInit | Server generates (post-checksum) |
+| 0x02 | ObjectCreate | Relay + optionally create ship entity |
+| 0x03 | ObjectCreateTeam | Relay + create ship entity |
+| 0x04 | BootPlayer | Server generates (reject/kick) |
+| 0x06 | PythonEvent | Pure relay (Python event forward) |
+| 0x07-0x0C | Event forwards | Pure relay (firing, subsystem, cloak, etc.) |
+| 0x0D | PythonEvent2 | Pure relay (alternate Python path) |
+| 0x0E-0x12 | Event forwards | Pure relay (cloak, warp, repair, phaser) |
+| 0x13 | HostMsg | Relay (host-specific dispatch) |
+| 0x14 | DestroyObject | Relay + update ship death state |
+| 0x15 | CollisionEffect | Pure relay (C->S collision damage) |
+| 0x16-0x18 | UI / Player management | Pure relay |
+| 0x19 | TorpedoFire | Pure relay |
+| 0x1A | BeamFire | Pure relay |
+| 0x1B | TorpTypeChange | Pure relay |
+| 0x1C | StateUpdate | Pure relay (unreliable, position/state) |
+| 0x1D-0x1F | Object queries / EnterSet | Pure relay |
+| 0x29 | Explosion | Relay (S->C only) |
+| 0x2A | NewPlayerInGame | Server generates (player join) |
 
-**Python script message opcodes** (>= MAX_MESSAGE_TYPES):
+**Note**: Opcodes 0x05, 0x20-0x27 are NOT in the game dispatcher. 0x20-0x27 go to the NetFile/Checksum dispatcher. See [phase1-verified-protocol.md](phase1-verified-protocol.md) for complete table with handler addresses.
 
-| Opcode | Name | Relay Pattern |
-|--------|------|---------------|
-| 0x2D (MAX+1) | CHAT_MESSAGE | Client->Host, Host->Group("NoMe") |
-| 0x2E (MAX+2) | TEAM_CHAT_MESSAGE | Client->Host, Host->teammates only |
-| 0x36 (MAX+10) | MISSION_INIT_MESSAGE | Host->specific client (on join) |
-| 0x37 (MAX+11) | SCORE_CHANGE_MESSAGE | Deferred to Phase 2 |
-| 0x38 (MAX+12) | SCORE_MESSAGE | Deferred to Phase 2 |
-| 0x39 (MAX+13) | END_GAME_MESSAGE | Host->all (broadcast via SendTGMessage(0, msg)) |
-| 0x3A (MAX+14) | RESTART_GAME_MESSAGE | Host->all (broadcast) |
-| 0x40 (MAX+20) | SCORE_INIT_MESSAGE | Team modes |
-| 0x41 (MAX+21) | TEAM_SCORE_MESSAGE | Team modes |
-| 0x42 (MAX+22) | TEAM_MESSAGE | Team modes |
+**Python script message opcodes** (>= MAX_MESSAGE_TYPES = **0x2B**):
+
+| Opcode | Offset | Name | Relay Pattern |
+|--------|--------|------|---------------|
+| 0x2C | MAX+1 | CHAT_MESSAGE | Client->Host, Host->Group("NoMe") |
+| 0x2D | MAX+2 | TEAM_CHAT_MESSAGE | Client->Host, Host->teammates only |
+| 0x35 | MAX+10 | MISSION_INIT_MESSAGE | Host->specific client (on join) |
+| 0x36 | MAX+11 | SCORE_CHANGE_MESSAGE | Deferred to Phase 2 |
+| 0x37 | MAX+12 | SCORE_MESSAGE | Deferred to Phase 2 |
+| 0x38 | MAX+13 | END_GAME_MESSAGE | Host->all (broadcast via SendTGMessage(0, msg)) |
+| 0x39 | MAX+14 | RESTART_GAME_MESSAGE | Host->all (broadcast) |
+| 0x3F | MAX+20 | SCORE_INIT_MESSAGE | Team modes (Mission2/3) |
+| 0x40 | MAX+21 | TEAM_SCORE_MESSAGE | Team modes (Mission2/3) |
+| 0x41 | MAX+22 | TEAM_MESSAGE | Team modes (Mission2/3) |
 
 **Peer groups**:
 - "NoMe" group: All peers except the host/server. Automatically maintained -- add on connect, remove on disconnect. Used by `SendTGMessageToGroup("NoMe", msg)` for chat forwarding and score broadcasts.
@@ -571,12 +582,15 @@ for each of 16 player slots:
 **Chat relay** (Python-level, NOT native relay):
 ```python
 # From MultiplayerMenus.py -- chat is sent point-to-point to host
+# CHAT_MESSAGE = 0x2C (MAX_MESSAGE_TYPES + 1, where MAX = 0x2B)
 if (cType == CHAT_MESSAGE):
     if (App.g_kUtopiaModule.IsHost()):
         pNewMessage = pMessage.Copy()
         pNetwork.SendTGMessageToGroup("NoMe", pNewMessage)
 ```
-Chat messages are sent TO THE HOST ONLY (not broadcast), so the native C++ relay does NOT forward them. The Python scripts on the host explicitly copy and forward. Team chat follows the same pattern but filters by team membership.
+Chat messages (opcode 0x2C) are sent TO THE HOST ONLY (not broadcast), so the native C++ relay does NOT forward them. The Python scripts on the host explicitly copy and forward. Team chat (0x2D) follows the same pattern but filters by team membership.
+
+Chat wire format: `[0x2C][senderSlot:1][padding:3 x 0x00][msgLen:2 LE][ASCII text]`
 
 **Game lifecycle state machine**:
 ```c
@@ -862,14 +876,14 @@ docker/
 | Multi-client | 2+ BC clients connected simultaneously with separate slots |
 | Disconnect/reconnect | Client kills connection; server detects and frees slot; client reconnects |
 | Reject when full | 17th client receives correct rejection |
-| **Ship selection** | Client selects ship; CREATE_PLAYER_OBJECT (0x05) relayed to all other clients; ship entity created on server |
-| **Gameplay relay** | 2+ clients in active match; movement (0x1E), weapons (0x09-0x0B), all opcodes relayed correctly |
+| **Ship selection** | Client selects ship; ObjectCreateTeam (0x03) relayed to all other clients; ship entity created on server |
+| **Gameplay relay** | 2+ clients in active match; StateUpdate (position/orientation), weapons (StartFiring 0x07, TorpedoFire 0x19, BeamFire 0x1A), all opcodes relayed correctly |
 | **Chat relay** | Client sends CHAT_MESSAGE to host; host forwards to NoMe group; message appears on all other clients |
 | **Team chat** | Client sends TEAM_CHAT_MESSAGE; host forwards only to teammates |
 | **Game end** | Time/frag limit triggers END_GAME_MESSAGE; all clients receive it; game state transitions to GAME_OVER |
 | **Game restart** | Host sends RESTART_GAME_MESSAGE; all clients return to ship select; ship entities cleared |
 | **Late join** | Client connects mid-game; receives MISSION_INIT_MESSAGE via InitNetwork; can play immediately |
-| **Ship death + respawn** | Ship destroyed (0x06); death tags set; player respawns with new ship; new ObjID assigned |
+| **Ship death + respawn** | Ship destroyed via DestroyObject (0x14); death tags set; player respawns with new ship; new ObjID assigned |
 | **Mission script lifecycle** | Mission1 FFA, Mission2 Team DM, Mission3 Team Objectives all load and register handlers |
 
 ### Regression Tests
@@ -891,7 +905,7 @@ docker/
 
 1. **Network -> Events**: TGNetwork posts `ET_NETWORK_MESSAGE_EVENT` (0x60001) into EventManager
 2. **Events -> Relay**: ReceiveMessageHandler reads opcode, clones raw message, forwards to all other active player slots
-3. **Events -> Ship Model**: CREATE_PLAYER_OBJECT (0x05) creates ship entity in ECS; DESTROY_OBJECT (0x06) sets death tags
+3. **Events -> Ship Model**: ObjectCreateTeam (0x03) creates ship entity in ECS; DestroyObject (0x14) sets death tags
 4. **Events -> Python Handlers**: EventManager dispatches to Python handlers via chain (scoring, chat, game lifecycle)
 5. **Handlers -> ECS**: Handlers modify flecs components via handle resolution (GetShipFromPlayerID, SetReadyForNewPlayers)
 6. **Scripts -> API -> ECS**: Python calls `App.Func(handle)` -> resolve handle -> query/mutate component
@@ -901,67 +915,56 @@ docker/
 
 ---
 
-## 8. Reverse Engineering Work Items (Blocking)
+## 8. Reverse Engineering Work Items (ALL SOLVED)
 
-These RE tasks from the STBC-Dedicated-Server repo must be completed before or during implementation:
+All RE tasks have been completed by the STBC-Dedicated-Server project. No blocking RE work remains.
 
-| ID | Task | Blocks | Complexity | Status |
-|----|------|--------|------------|--------|
-| WI-4 | Message type dispatch table (DAT_009962d4) | WI-1, WI-2 | Medium | NOT STARTED |
-| WI-9 | Peer structure layout (all 0xC0 bytes) | WI-1, WI-2, WI-3 | Medium | PARTIAL |
-| WI-2 | Packet wire format (exact byte layout) | WI-1 | Large | PARTIAL |
-| WI-3 | Reliable ACK format and sequence logic | WI-1 | Large | PARTIAL |
-| WI-1 | Connection handshake protocol | Chunk 5 | Large | NOT STARTED |
-| WI-14 | Hash algorithm lookup tables extraction | Chunk 7 | Small | NOT STARTED |
-| WI-6 | GameSpy query response fields | Chunk 6 | Medium | NOT STARTED |
-| WI-7 | Player slot full structure (0x18 bytes) | Chunk 10 | Small | PARTIAL |
-| **WI-16** | **Game object serialization format for opcodes 0x04/0x05** | **Chunk 11** | **Medium** | **NOT STARTED** |
-| **WI-17** | **44 native opcode enumeration verification (0x00-0x2B)** | **Chunk 12** | **Small** | **PARTIAL** |
+| ID | Task | Blocks | Status | Solution |
+|----|------|--------|--------|----------|
+| WI-4 | Message type dispatch table | WI-1, WI-2 | **SOLVED** | Jump table at 0x0069F534 verified |
+| WI-9 | Peer structure layout | WI-1, WI-2, WI-3 | **SOLVED** | Full layout with VERIFIED offsets |
+| WI-2 | Packet wire format | WI-1 | **SOLVED** | AlbyRules cipher + complete wire format |
+| WI-3 | Reliable ACK format and sequence | WI-1 | **SOLVED** | Three-tier queues, ACK format, retry logic |
+| WI-1 | Connection handshake protocol | Chunk 5 | **SOLVED** | Complete flow documented in multiplayer-flow.md |
+| WI-14 | Hash algorithm tables | Chunk 7 | **SOLVED** | 4x256 tables at 0x0095c888 extracted |
+| WI-6 | GameSpy query response fields | Chunk 6 | **PARTIAL** | Basic structure working, specific keys TBD |
+| WI-7 | Player slot full structure | Chunk 10 | **SOLVED** | 0x18 bytes: active, peerID, objectID + extra fields |
+| WI-16 | Game object serialization format | Chunk 11 | **SOLVED** | ObjectCreateTeam (0x03) with vtable+0x10C serialization |
+| WI-17 | Native opcode verification | Chunk 12 | **SOLVED** | 34 opcodes with gaps (NOT 44 sequential), MAX=0x2B |
 
-**Recommended RE order**: WI-4 -> WI-9 -> WI-2 -> WI-3 -> WI-1 -> WI-14 -> WI-6 -> WI-7 -> WI-16 -> WI-17
+### Key Findings from RE Resolution
 
-### WI-16: Game Object Serialization Format
+**Opcode table correction**: The original enumeration assigned sequential values 0x00-0x2B based on SWIG constant names. The actual wire bytes come from the jump table at `0x0069F534` and have gaps:
+- Ship creation uses opcode **0x03** (ObjectCreateTeam), NOT 0x05
+- Ship destruction uses opcode **0x14** (DestroyObject), NOT 0x06
+- MAX_MESSAGE_TYPES = **0x2B** (43), NOT 0x2C (44)
+- All Python message opcodes shift by -1 (CHAT = 0x2C not 0x2D, etc.)
 
-CREATE_OBJECT (0x04) and CREATE_PLAYER_OBJECT (0x05) carry serialized game object data:
-```
-+0      1     opcode (0x04 or 0x05)
-+1      1     senderPlayerSlot (0-15)
-+2      1     extraData (player ID when hasPlayerSlot=true)
-+3      4     objectTypeID (read by FUN_005a1f50)
-+7      4     objectClassID
-+11     var   object-specific serialized state (position, type, name, etc.)
-```
+**Packet encryption**: All game packets use the "AlbyRules!" XOR stream cipher. This was not previously documented.
 
-The server needs to parse enough of opcodes 0x04/0x05 to extract: species index (net_type), player ID (net_player_id), and ship name for the ObcShipIdentity component. All other opcodes can be relayed as opaque blobs.
-
-### WI-17: Native Opcode Enumeration
-
-The 44 native opcodes (0x00-0x2B) have been partially enumerated from SWIG constants and decompiled handler registrations. Verification needed against the actual dispatch table at DAT_009962d4 to confirm:
-- Which opcodes include a player slot byte (param_2/hasPlayerSlot flag)
-- Which opcodes the dedicated server must understand vs pure-relay
-- MAX_MESSAGE_TYPES value (believed to be 0x2C = 44)
+See [phase1-verified-protocol.md](phase1-verified-protocol.md) for complete protocol reference and [phase1-re-gaps.md](phase1-re-gaps.md) for full gap analysis update.
 
 ---
 
 ## 9. Risk Register with Mitigations
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Wire format mismatch | HIGH | HIGH | Byte-level comparison with Wireshark captures; test each message type individually |
-| ACK priority queue stall | HIGH | HIGH | Extensive logging; capture both sides; this was the primary bug in the proxy |
-| Hash table extraction fails | LOW | HIGH | Extract from stbc.exe binary at known addresses; verify against running game |
-| Python compat shim edge cases | MEDIUM | MEDIUM | Test against full vanilla script corpus + Foundation Technologies |
-| ET_* values unknown | HIGH | HIGH | Extract from Appc.pyd or running game; some confirmed in decompiled code |
-| Message dispatch table unknown | MEDIUM | HIGH | Extract from stbc.exe at DAT_009962d4; trace function pointers |
-| GameSpy query format edge cases | LOW | MEDIUM | Standard QR SDK protocol; capture actual queries from BC client |
-| Connection handshake details | MEDIUM | HIGH | Most critical RE work item; focus RE effort here first |
-| **Opcode dispatch table unknown** | HIGH | HIGH | Start with pure relay for all opcodes 0x02-0x2B; incrementally add event firing. Vanilla BC works with just relay. |
-| **Ship creation protocol unknown** | MEDIUM | HIGH | Capture wire packets from vanilla game during ship selection (WI-16). Fallback: relay raw bytes without server-side entity creation; ship queries return None. |
-| **UI stub coverage insufficient** | HIGH | MEDIUM | Scripts call many UI functions. Missing stubs cause AttributeError. Mitigation: DummyObject proxy pattern handles arbitrary attribute chains. Add specific stubs reactively as crashes found. |
-| **list.sort(cmp_func) breakage** | HIGH | MEDIUM | Compat shim with functools.cmp_to_key; 11 occurrences in gameplay scripts |
-| **Late-join state sync incomplete** | MEDIUM | MEDIUM | InitNetwork sends config via Python; test with vanilla client joining mid-game |
-| **Scoring not authoritative (Phase 1)** | LOW | LOW | Accepted limitation; each client tracks scores locally. Phase 2 adds server-side scoring. |
-| **Message ordering sensitivity** | LOW | MEDIUM | Reliable channel preserves order. Unreliable out-of-order is handled by clients (they already do in vanilla). |
+| Risk | Probability | Impact | Status | Mitigation |
+|------|-------------|--------|--------|------------|
+| Wire format mismatch | ~~HIGH~~ | ~~HIGH~~ | **RESOLVED** | Complete wire format verified from 90MB packet trace + jump table analysis. See `phase1-verified-protocol.md`. |
+| ACK priority queue stall | ~~HIGH~~ | ~~HIGH~~ | **RESOLVED** | Three-tier queue system (unreliable/reliable/priority) fully documented. Retry timing, sequence numbering, ACK flow all verified. See `phase1-verified-protocol.md` Section 3. |
+| Hash table extraction fails | ~~LOW~~ | ~~HIGH~~ | **RESOLVED** | Hash algorithm reversed: CRC32 base with XOR-fold to 16-bit. Checksum exchange protocol (4 rounds) fully traced. See `phase1-verified-protocol.md` Section 9. |
+| Python compat shim edge cases | MEDIUM | MEDIUM | OPEN | Test against full vanilla script corpus + Foundation Technologies |
+| ET_* values unknown | ~~HIGH~~ | ~~HIGH~~ | **RESOLVED** | ET_* event values extracted from SWIG bindings (3,990 wrappers cataloged). Key events: 0x008000E0 (phaser level), 0x008000E3 (cloak start), 0x008000E5 (cloak stop). |
+| Message dispatch table unknown | ~~MEDIUM~~ | ~~HIGH~~ | **RESOLVED** | Three dispatchers fully mapped: NetFile (0x20-0x27), MultiplayerGame (0x00-0x2A via jump table at 0x0069F534), MultiplayerWindow (0x00, 0x01, 0x16). Python path (0x2C-0x39) also documented. |
+| GameSpy query format edge cases | LOW | MEDIUM | OPEN | Standard QR SDK protocol; capture actual queries from BC client |
+| Connection handshake details | ~~MEDIUM~~ | ~~HIGH~~ | **RESOLVED** | Complete handshake flow documented: connect → GameSpy peek → checksum exchange (4 rounds) → Settings (0x00) → GameInit (0x01) → EnterSet (0x1F) → NewPlayerInGame (0x2A). See `phase1-verified-protocol.md` Section 4. |
+| Opcode dispatch table unknown | ~~HIGH~~ | ~~HIGH~~ | **RESOLVED** | All 28 active opcodes verified from jump table at 0x0069F534 with handler addresses and frequency counts from 90MB trace. See `phase1-verified-protocol.md` Section 5. |
+| Ship creation protocol unknown | ~~MEDIUM~~ | ~~HIGH~~ | **RESOLVED** | ObjectCreateTeam (0x03) fully reversed: contains team byte, ship name, NIF path. Server creates ship via Python-driven DeferredInitObject with real NIF models and 33 subsystems. See `phase1-re-gaps.md` Section 1.19. |
+| **UI stub coverage insufficient** | HIGH | MEDIUM | OPEN | Scripts call many UI functions. Missing stubs cause AttributeError. Mitigation: DummyObject proxy pattern handles arbitrary attribute chains. Add specific stubs reactively as crashes found. |
+| **list.sort(cmp_func) breakage** | HIGH | MEDIUM | OPEN | Compat shim with functools.cmp_to_key; 11 occurrences in gameplay scripts |
+| **Late-join state sync incomplete** | MEDIUM | MEDIUM | OPEN | InitNetwork sends config via Python; test with vanilla client joining mid-game. STBC-Dedi has working InitNetwork with peer-array detection (~1.4s timing). |
+| **Scoring not authoritative (Phase 1)** | LOW | LOW | OPEN | STBC-Dedi has working headless scoring (ObjectKilledHandler + SCORE_CHANGE_MESSAGE). Consider promoting to Phase 1. |
+| **Message ordering sensitivity** | LOW | MEDIUM | OPEN | Reliable channel preserves order. Unreliable out-of-order is handled by clients (they already do in vanilla). |
 
 ---
 
