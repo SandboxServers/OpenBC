@@ -1,7 +1,7 @@
 #include "openbc/transport.h"
 #include "openbc/cipher.h"
+#include "openbc/log.h"
 #include <string.h>
-#include <stdio.h>
 
 bool bc_transport_parse(const u8 *data, int len, bc_packet_t *pkt)
 {
@@ -268,15 +268,15 @@ bool bc_fragment_receive(bc_fragment_buf_t *frag,
 
         if (frag->frags_expected < 2) {
             /* Not actually fragmented -- shouldn't happen but handle it */
-            fprintf(stderr, "[fragment] invalid total_frags=%d\n",
-                    frag->frags_expected);
+            LOG_WARN("fragment", "invalid total_frags=%d",
+                     frag->frags_expected);
             bc_fragment_reset(frag);
             return false;
         }
 
         int data_len = payload_len - 1;
         if (data_len > BC_FRAGMENT_BUF_SIZE) {
-            fprintf(stderr, "[fragment] first fragment too large (%d)\n", data_len);
+            LOG_ERROR("fragment", "first fragment too large (%d)", data_len);
             bc_fragment_reset(frag);
             return false;
         }
@@ -290,8 +290,8 @@ bool bc_fragment_receive(bc_fragment_buf_t *frag,
 
         int data_len = payload_len - 1;
         if (frag->buf_len + data_len > BC_FRAGMENT_BUF_SIZE) {
-            fprintf(stderr, "[fragment] reassembly buffer overflow (%d + %d)\n",
-                    frag->buf_len, data_len);
+            LOG_ERROR("fragment", "reassembly buffer overflow (%d + %d)",
+                      frag->buf_len, data_len);
             bc_fragment_reset(frag);
             return false;
         }

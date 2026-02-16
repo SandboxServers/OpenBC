@@ -14,6 +14,7 @@
 #include "openbc/manifest.h"
 #include "openbc/reliable.h"
 #include "openbc/master.h"
+#include "openbc/log.h"
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
 
@@ -145,8 +146,8 @@ static void send_checksum_request(int peer_slot, int round)
     u8 payload[256];
     int payload_len = bc_checksum_request_build(payload, sizeof(payload), round);
     if (payload_len > 0) {
-        printf("[handshake] slot=%d sending checksum request round %d\n",
-               peer_slot, round);
+        LOG_DEBUG("handshake", "slot=%d sending checksum request round %d",
+                  peer_slot, round);
         queue_reliable(peer_slot, payload, payload_len);
     }
 }
@@ -161,35 +162,35 @@ static void send_settings_and_gameinit(int peer_slot)
                                 g_game_time, g_collision_dmg, g_friendly_fire,
                                 (u8)peer_slot, g_map_name);
     if (len > 0) {
-        printf("[handshake] slot=%d sending Settings (slot=%d, map=%s)\n",
-               peer_slot, peer_slot, g_map_name);
+        LOG_DEBUG("handshake", "slot=%d sending Settings (slot=%d, map=%s)",
+                  peer_slot, peer_slot, g_map_name);
         queue_reliable(peer_slot, payload, len);
     }
 
     /* UICollisionSetting (opcode 0x16) -- reliable */
     len = bc_ui_collision_build(payload, sizeof(payload), g_collision_dmg);
     if (len > 0) {
-        printf("[handshake] slot=%d sending UICollisionSetting (collision=%d)\n",
-               peer_slot, g_collision_dmg);
+        LOG_DEBUG("handshake", "slot=%d sending UICollisionSetting (collision=%d)",
+                  peer_slot, g_collision_dmg);
         queue_reliable(peer_slot, payload, len);
     }
 
     /* GameInit (opcode 0x01) -- reliable */
     len = bc_gameinit_build(payload, sizeof(payload));
     if (len > 0) {
-        printf("[handshake] slot=%d sending GameInit\n", peer_slot);
+        LOG_DEBUG("handshake", "slot=%d sending GameInit", peer_slot);
         queue_reliable(peer_slot, payload, len);
     }
 
     peer->state = PEER_LOBBY;
-    printf("[handshake] slot=%d reached LOBBY state\n", peer_slot);
+    LOG_INFO("handshake", "slot=%d reached LOBBY state", peer_slot);
 
     /* Notify all peers (including the new player) about the new player.
      * Opcode 0x2A triggers client-side InitNetwork + object replication.
      * Wire format: [0x2A][0x20] — trailing space byte observed in traces. */
     u8 npig[2] = { BC_OP_NEW_PLAYER_IN_GAME, 0x20 };
     send_to_all(npig, 2);
-    printf("[handshake] slot=%d sent NewPlayerInGame to all\n", peer_slot);
+    LOG_DEBUG("handshake", "slot=%d sent NewPlayerInGame to all", peer_slot);
 }
 
 /* Notify all other peers that a player has left, then remove them. */
@@ -211,12 +212,12 @@ static void handle_peer_disconnect(int slot)
         len = bc_delete_player_anim_build(payload, sizeof(payload));
         if (len > 0) relay_to_others(slot, payload, len, true);
 
-        printf("[net] Sent DeletePlayer notifications for slot %d\n", slot);
+        LOG_DEBUG("net", "Sent DeletePlayer notifications for slot %d", slot);
     }
 
     bc_peers_remove(&g_peers, slot);
-    printf("[net] Player removed: %s (slot %d), %d remaining\n",
-           addr_str, slot, g_peers.count);
+    LOG_INFO("net", "Player removed: %s (slot %d), %d remaining",
+             addr_str, slot, g_peers.count);
 }
 
 static void handle_connect(const bc_addr_t *from, int len)
@@ -226,13 +227,13 @@ static void handle_connect(const bc_addr_t *from, int len)
 
     int slot = bc_peers_find(&g_peers, from);
     if (slot >= 0) {
-        printf("[net] Duplicate connect from %s (slot %d)\n", addr_str, slot);
+        LOG_WARN("net", "Duplicate connect from %s (slot %d)", addr_str, slot);
         return;
     }
 
     slot = bc_peers_add(&g_peers, from);
     if (slot < 0) {
-        printf("[net] Server full, sending BootPlayer to %s\n", addr_str);
+        LOG_WARN("net", "Server full, sending BootPlayer to %s", addr_str);
         u8 boot_payload[4];
         int boot_len = bc_bootplayer_build(boot_payload, sizeof(boot_payload),
                                             BC_BOOT_SERVER_FULL);
@@ -243,8 +244,8 @@ static void handle_connect(const bc_addr_t *from, int len)
     }
 
     g_peers.peers[slot].last_recv_time = GetTickCount();
-    printf("[net] Player connected from %s -> slot %d (%d/%d)\n",
-           addr_str, slot, g_peers.count, g_info.maxplayers);
+    LOG_INFO("net", "Player connected from %s -> slot %d (%d/%d)",
+             addr_str, slot, g_peers.count, g_info.maxplayers);
 
     /* Send a connect acknowledgment.
      * Format: [direction=0x01][count=1][type=0x05][len=2] */
@@ -271,15 +272,15 @@ static void handle_checksum_response(int peer_slot,
 
     /* Handle 0xFF final round response */
     if (peer->state == PEER_CHECKSUMMING_FINAL) {
-        printf("[handshake] slot=%d checksum round 0xFF accepted (len=%d)\n",
-               peer_slot, msg->payload_len);
+        LOG_DEBUG("handshake", "slot=%d checksum round 0xFF accepted (len=%d)",
+                  peer_slot, msg->payload_len);
         send_settings_and_gameinit(peer_slot);
         return;
     }
 
     if (peer->state != PEER_CHECKSUMMING) {
-        printf("[handshake] slot=%d unexpected checksum response (state=%d)\n",
-               peer_slot, peer->state);
+        LOG_WARN("handshake", "slot=%d unexpected checksum response (state=%d)",
+                 peer_slot, peer->state);
         return;
     }
 
@@ -287,14 +288,14 @@ static void handle_checksum_response(int peer_slot,
 
     if (g_no_checksum || !g_manifest_loaded) {
         /* Permissive mode: accept without validation */
-        printf("[handshake] slot=%d checksum round %d accepted (permissive, len=%d)\n",
-               peer_slot, round, msg->payload_len);
+        LOG_DEBUG("handshake", "slot=%d checksum round %d accepted (permissive, len=%d)",
+                  peer_slot, round, msg->payload_len);
     } else {
         /* Parse and validate against manifest */
         bc_checksum_resp_t resp;
         if (!bc_checksum_response_parse(&resp, msg->payload, msg->payload_len)) {
-            printf("[handshake] slot=%d round %d parse error (len=%d)\n",
-                   peer_slot, round, msg->payload_len);
+            LOG_WARN("handshake", "slot=%d round %d parse error (len=%d)",
+                     peer_slot, round, msg->payload_len);
             u8 boot[4];
             int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
             if (blen > 0) queue_reliable(peer_slot, boot, blen);
@@ -306,10 +307,10 @@ static void handle_checksum_response(int peer_slot,
             bc_checksum_response_validate(&resp, &g_manifest.dirs[round]);
 
         if (result != CHECKSUM_OK) {
-            printf("[handshake] slot=%d round %d FAILED: %s "
-                   "(dir=0x%08X, %d files)\n",
-                   peer_slot, round, bc_checksum_result_name(result),
-                   resp.dir_hash, resp.file_count);
+            LOG_WARN("handshake", "slot=%d round %d FAILED: %s "
+                     "(dir=0x%08X, %d files)",
+                     peer_slot, round, bc_checksum_result_name(result),
+                     resp.dir_hash, resp.file_count);
             u8 boot[4];
             int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
             if (blen > 0) queue_reliable(peer_slot, boot, blen);
@@ -317,9 +318,9 @@ static void handle_checksum_response(int peer_slot,
             return;
         }
 
-        printf("[handshake] slot=%d checksum round %d validated "
-               "(%d files, dir=0x%08X)\n",
-               peer_slot, round, resp.file_count, resp.dir_hash);
+        LOG_DEBUG("handshake", "slot=%d checksum round %d validated "
+                  "(%d files, dir=0x%08X)",
+                  peer_slot, round, resp.file_count, resp.dir_hash);
     }
 
     peer->checksum_round++;
@@ -330,8 +331,8 @@ static void handle_checksum_response(int peer_slot,
         /* All 4 regular rounds passed. Send the final 0xFF round.
          * Decompiled code (FUN_006a35b0) shows the server sends
          * [0x20][0xFF] after rounds 0-3 complete. */
-        printf("[handshake] slot=%d rounds 0-3 passed, sending final round 0xFF\n",
-               peer_slot);
+        LOG_DEBUG("handshake", "slot=%d rounds 0-3 passed, sending final round 0xFF",
+                  peer_slot);
         u8 payload[16];
         int plen = bc_checksum_request_final_build(payload, sizeof(payload));
         if (plen > 0) {
@@ -362,8 +363,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             /* Complete reassembled message */
             payload = peer->fragment.buf;
             payload_len = peer->fragment.buf_len;
-            printf("[fragment] slot=%d reassembled %d bytes from %d fragments\n",
-                   peer_slot, payload_len, peer->fragment.frags_expected);
+            LOG_DEBUG("fragment", "slot=%d reassembled %d bytes from %d fragments",
+                      peer_slot, payload_len, peer->fragment.frags_expected);
             bc_fragment_reset(&peer->fragment);
         } else {
             /* Still waiting for more fragments */
@@ -388,8 +389,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* Below here, only accept messages from peers in LOBBY or IN_GAME state */
     if (peer->state < PEER_LOBBY) {
-        printf("[game] slot=%d opcode=0x%02X (%s) ignored (state=%d)\n",
-               peer_slot, opcode, name ? name : "?", peer->state);
+        LOG_DEBUG("game", "slot=%d opcode=0x%02X (%s) ignored (state=%d)",
+                  peer_slot, opcode, name ? name : "?", peer->state);
         return;
     }
 
@@ -398,9 +399,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- Chat relay (reliable) --- */
     case BC_MSG_CHAT:
     case BC_MSG_TEAM_CHAT:
-        printf("[chat] slot=%d %s len=%d\n",
-               peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
-               payload_len);
+        LOG_INFO("chat", "slot=%d %s len=%d",
+                 peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
+                 payload_len);
         relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
@@ -434,28 +435,28 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- ObjectCreateTeam: relay to all others (reliable) --- */
     case BC_OP_OBJ_CREATE_TEAM:
     case BC_OP_OBJ_CREATE:
-        printf("[game] slot=%d object create, relaying\n", peer_slot);
+        LOG_INFO("game", "slot=%d object create, relaying", peer_slot);
         relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
     /* --- Host message (C->S only, not relayed) --- */
     case BC_OP_HOST_MSG:
-        printf("[game] slot=%d host message len=%d\n", peer_slot, payload_len);
+        LOG_DEBUG("game", "slot=%d host message len=%d", peer_slot, payload_len);
         break;
 
     /* --- Collision effect (C->S, server would process) --- */
     case BC_OP_UNKNOWN_15:
-        printf("[game] slot=%d collision effect len=%d\n", peer_slot, payload_len);
+        LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
         break;
 
     /* --- Request object (C->S, server responds with object data) --- */
     case BC_OP_REQUEST_OBJ:
-        printf("[game] slot=%d request object len=%d\n", peer_slot, payload_len);
+        LOG_DEBUG("game", "slot=%d request object len=%d", peer_slot, payload_len);
         break;
 
     default:
-        printf("[game] slot=%d opcode=0x%02X (%s) len=%d (unhandled)\n",
-               peer_slot, opcode, name ? name : "?", payload_len);
+        LOG_DEBUG("game", "slot=%d opcode=0x%02X (%s) len=%d (unhandled)",
+                  peer_slot, opcode, name ? name : "?", payload_len);
         break;
     }
 }
@@ -489,8 +490,8 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
      * Log a warning on mismatch but continue processing (not a hard reject). */
     u8 expected_dir = BC_DIR_CLIENT + (u8)slot;
     if (pkt.direction != expected_dir) {
-        printf("[net] slot=%d direction byte mismatch: got 0x%02X, expected 0x%02X\n",
-               slot, pkt.direction, expected_dir);
+        LOG_WARN("net", "slot=%d direction byte mismatch: got 0x%02X, expected 0x%02X",
+                 slot, pkt.direction, expected_dir);
     }
 
     /* Process each transport message */
@@ -505,7 +506,7 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
         if (msg->type == BC_TRANSPORT_DISCONNECT) {
             char addr_str[32];
             bc_addr_to_string(from, addr_str, sizeof(addr_str));
-            printf("[net] Player disconnected: %s (slot %d)\n", addr_str, slot);
+            LOG_INFO("net", "Player disconnected: %s (slot %d)", addr_str, slot);
             handle_peer_disconnect(slot);
             return;
         }
@@ -526,7 +527,7 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
                 }
                 peer->name[j] = '\0';
                 if (j > 0) {
-                    printf("[net] slot=%d player name: %s\n", slot, peer->name);
+                    LOG_INFO("net", "slot=%d player name: %s", slot, peer->name);
                 }
             }
             continue;
@@ -557,8 +558,25 @@ static void usage(const char *prog)
         "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
         "  --no-checksum      Accept all checksums (testing without game files)\n"
         "  --master <h:p>     Master server address (e.g. master.gamespy.com:27900)\n"
+        "  --log-level <lvl>  Log verbosity: quiet|error|warn|info|debug|trace (default: info)\n"
+        "  --log-file <path>  Also write log to file (append mode)\n"
+        "  -q                 Shorthand for --log-level quiet\n"
+        "  -v                 Shorthand for --log-level debug\n"
+        "  -vv                Shorthand for --log-level trace\n"
         "  -h, --help         Show this help\n",
         prog);
+}
+
+static bc_log_level_t parse_log_level(const char *str)
+{
+    if (strcmp(str, "quiet") == 0) return LOG_QUIET;
+    if (strcmp(str, "error") == 0) return LOG_ERROR;
+    if (strcmp(str, "warn")  == 0) return LOG_WARN;
+    if (strcmp(str, "info")  == 0) return LOG_INFO;
+    if (strcmp(str, "debug") == 0) return LOG_DEBUG;
+    if (strcmp(str, "trace") == 0) return LOG_TRACE;
+    fprintf(stderr, "Unknown log level: %s (using info)\n", str);
+    return LOG_INFO;
 }
 
 int main(int argc, char **argv)
@@ -570,6 +588,8 @@ int main(int argc, char **argv)
     int max_players = BC_MAX_PLAYERS;
     const char *manifest_path = NULL;
     const char *master_addr = NULL;
+    bc_log_level_t log_level = LOG_INFO;
+    const char *log_file_path = NULL;
 
     /* Parse args */
     for (int i = 1; i < argc; i++) {
@@ -597,11 +617,24 @@ int main(int argc, char **argv)
             g_friendly_fire = false;
         } else if (strcmp(argv[i], "--master") == 0 && i + 1 < argc) {
             master_addr = argv[++i];
+        } else if (strcmp(argv[i], "--log-level") == 0 && i + 1 < argc) {
+            log_level = parse_log_level(argv[++i]);
+        } else if (strcmp(argv[i], "--log-file") == 0 && i + 1 < argc) {
+            log_file_path = argv[++i];
+        } else if (strcmp(argv[i], "-q") == 0) {
+            log_level = LOG_QUIET;
+        } else if (strcmp(argv[i], "-vv") == 0) {
+            log_level = LOG_TRACE;
+        } else if (strcmp(argv[i], "-v") == 0) {
+            log_level = LOG_DEBUG;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
         }
     }
+
+    /* Initialize logging (before anything that uses LOG_*) */
+    bc_log_init(log_level, log_file_path);
 
     /* Load manifest */
     if (manifest_path) {
@@ -609,27 +642,30 @@ int main(int argc, char **argv)
             g_manifest_loaded = true;
             bc_manifest_print_summary(&g_manifest);
         } else {
-            fprintf(stderr, "Failed to load manifest: %s\n", manifest_path);
+            LOG_ERROR("init", "Failed to load manifest: %s", manifest_path);
+            bc_log_shutdown();
             return 1;
         }
     }
 
     if (!g_manifest_loaded && !g_no_checksum) {
-        printf("Warning: no manifest loaded, running in permissive mode\n");
-        printf("  Use --manifest <path> to enable checksum validation\n");
-        printf("  Use --no-checksum to suppress this warning\n\n");
+        LOG_WARN("init", "No manifest loaded, running in permissive mode");
+        LOG_WARN("init", "  Use --manifest <path> to enable checksum validation");
+        LOG_WARN("init", "  Use --no-checksum to suppress this warning");
         g_no_checksum = true;
     }
 
     /* Initialize */
     if (!bc_net_init()) {
-        fprintf(stderr, "Failed to initialize networking\n");
+        LOG_ERROR("init", "Failed to initialize networking");
+        bc_log_shutdown();
         return 1;
     }
 
     if (!bc_socket_open(&g_socket, port)) {
-        fprintf(stderr, "Failed to bind port %u\n", port);
+        LOG_ERROR("init", "Failed to bind port %u", port);
         bc_net_shutdown();
+        bc_log_shutdown();
         return 1;
     }
 
@@ -646,13 +682,14 @@ int main(int argc, char **argv)
     /* Master server registration */
     if (master_addr) {
         if (!bc_master_init(&g_master, master_addr, port)) {
-            fprintf(stderr, "Warning: master server registration failed\n");
+            LOG_WARN("init", "Master server registration failed");
         }
     }
 
     /* Register CTRL+C handler */
     SetConsoleCtrlHandler(console_handler, TRUE);
 
+    /* Startup banner (raw printf, not a log message) */
     printf("OpenBC Server v0.1.0\n");
     printf("Listening on port %u (%d max players)\n", port, max_players);
     printf("Server name: %s | Map: %s\n", name, map);
@@ -707,8 +744,8 @@ int main(int argc, char **argv)
                     if (bc_reliable_check_timeout(&peer->reliable_out)) {
                         char addr_str[32];
                         bc_addr_to_string(&peer->addr, addr_str, sizeof(addr_str));
-                        printf("[net] Peer %s (slot %d) timed out (no ACK)\n",
-                               addr_str, i);
+                        LOG_INFO("net", "Peer %s (slot %d) timed out (no ACK)",
+                                 addr_str, i);
                         handle_peer_disconnect(i);
                         continue;
                     }
@@ -732,7 +769,7 @@ int main(int argc, char **argv)
                 for (int i = 0; i < BC_MAX_PLAYERS; i++) {
                     if (g_peers.peers[i].state == PEER_EMPTY) continue;
                     if (now - g_peers.peers[i].last_recv_time > 30000) {
-                        printf("[net] Peer slot %d timed out (no packets)\n", i);
+                        LOG_INFO("net", "Peer slot %d timed out (no packets)", i);
                         handle_peer_disconnect(i);
                     }
                 }
@@ -764,7 +801,7 @@ int main(int argc, char **argv)
         Sleep(1);
     }
 
-    printf("\nShutting down...\n");
+    LOG_INFO("shutdown", "Shutting down...");
 
     /* Send ConnectAck shutdown notification to all connected peers.
      * Real BC server sends ConnectAck (0x05) to each peer on shutdown,
@@ -779,12 +816,13 @@ int main(int argc, char **argv)
         if (len > 0) {
             alby_rules_cipher(pkt, (size_t)len);
             bc_socket_send(&g_socket, &peer->addr, pkt, len);
-            printf("[shutdown] Sent ConnectAck to slot %d\n", i);
+            LOG_INFO("shutdown", "Sent ConnectAck to slot %d", i);
         }
     }
 
     bc_master_shutdown(&g_master, &g_socket);
     bc_socket_close(&g_socket);
     bc_net_shutdown();
+    bc_log_shutdown();
     return 0;
 }

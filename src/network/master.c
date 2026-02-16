@@ -1,4 +1,5 @@
 #include "openbc/master.h"
+#include "openbc/log.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -14,14 +15,14 @@ static bool resolve_address(const char *host_port, bc_addr_t *out)
 
     char *colon = strrchr(buf, ':');
     if (!colon) {
-        fprintf(stderr, "[master] Invalid address (no port): %s\n", host_port);
+        LOG_ERROR("master", "Invalid address (no port): %s", host_port);
         return false;
     }
     *colon = '\0';
     const char *host = buf;
     u16 port = (u16)atoi(colon + 1);
     if (port == 0) {
-        fprintf(stderr, "[master] Invalid port in: %s\n", host_port);
+        LOG_ERROR("master", "Invalid port in: %s", host_port);
         return false;
     }
 
@@ -31,7 +32,7 @@ static bool resolve_address(const char *host_port, bc_addr_t *out)
     hints.ai_socktype = SOCK_DGRAM;
 
     if (getaddrinfo(host, colon + 1, &hints, &result) != 0) {
-        fprintf(stderr, "[master] DNS resolution failed for: %s\n", host);
+        LOG_ERROR("master", "DNS resolution failed for: %s", host);
         return false;
     }
 
@@ -61,7 +62,7 @@ bool bc_master_init(bc_master_t *ms, const char *host_port, u16 game_port)
 
     char addr_str[32];
     bc_addr_to_string(&ms->addr, addr_str, sizeof(addr_str));
-    printf("[master] Registered with master server at %s\n", addr_str);
+    LOG_INFO("master", "Registered with master server at %s", addr_str);
     return true;
 }
 

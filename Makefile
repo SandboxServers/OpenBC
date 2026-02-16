@@ -43,7 +43,7 @@ TEST_BIN     := $(TEST_SRC:tests/%.c=$(BUILD)/tests/%$(EXE))
 all: $(BUILD)/openbc-hash$(EXE) $(BUILD)/openbc-server$(EXE)
 
 # --- Hash manifest tool ---
-$(BUILD)/openbc-hash$(EXE): $(CHECKSUM_OBJ) $(JSON_OBJ) $(MANIFEST_OBJ)
+$(BUILD)/openbc-hash$(EXE): $(CHECKSUM_OBJ) $(JSON_OBJ) $(LOG_OBJ) $(MANIFEST_OBJ)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 

@@ -1,5 +1,6 @@
 #include "openbc/manifest.h"
 #include "openbc/json_parse.h"
+#include "openbc/log.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,8 +19,8 @@ static int parse_files(const json_value_t *arr,
 {
     size_t count = json_array_len(arr);
     if ((int)count > max_files) {
-        fprintf(stderr, "manifest: too many files (%d, max %d)\n",
-                (int)count, max_files);
+        LOG_ERROR("manifest", "too many files (%d, max %d)",
+                  (int)count, max_files);
         return -1;
     }
 
@@ -37,8 +38,8 @@ static int parse_subdirs(const json_value_t *arr,
 {
     size_t count = json_array_len(arr);
     if ((int)count > max_subdirs) {
-        fprintf(stderr, "manifest: too many subdirs (%d, max %d)\n",
-                (int)count, max_subdirs);
+        LOG_ERROR("manifest", "too many subdirs (%d, max %d)",
+                  (int)count, max_subdirs);
         return -1;
     }
 
@@ -61,7 +62,7 @@ bool bc_manifest_load(bc_manifest_t *manifest, const char *path)
     /* Read entire file into memory */
     FILE *fp = fopen(path, "rb");
     if (!fp) {
-        fprintf(stderr, "manifest: cannot open '%s'\n", path);
+        LOG_ERROR("manifest", "cannot open '%s'", path);
         return false;
     }
 
@@ -70,7 +71,7 @@ bool bc_manifest_load(bc_manifest_t *manifest, const char *path)
     fseek(fp, 0, SEEK_SET);
 
     if (size <= 0 || size > 1024 * 1024) {
-        fprintf(stderr, "manifest: invalid file size (%ld)\n", size);
+        LOG_ERROR("manifest", "invalid file size (%ld)", size);
         fclose(fp);
         return false;
     }
@@ -90,7 +91,7 @@ bool bc_manifest_load(bc_manifest_t *manifest, const char *path)
     free(text);
 
     if (!root) {
-        fprintf(stderr, "manifest: JSON parse error in '%s'\n", path);
+        LOG_ERROR("manifest", "JSON parse error in '%s'", path);
         return false;
     }
 
@@ -102,7 +103,7 @@ bool bc_manifest_load(bc_manifest_t *manifest, const char *path)
     const json_value_t *dirs = json_get(root, "directories");
     size_t dir_count = json_array_len(dirs);
     if ((int)dir_count > BC_MANIFEST_MAX_DIRS) {
-        fprintf(stderr, "manifest: too many directories (%d)\n", (int)dir_count);
+        LOG_ERROR("manifest", "too many directories (%d)", (int)dir_count);
         json_free(root);
         return false;
     }
@@ -135,8 +136,8 @@ bool bc_manifest_load(bc_manifest_t *manifest, const char *path)
 void bc_manifest_print_summary(const bc_manifest_t *manifest)
 {
     int total_files = 0;
-    printf("Manifest: version_hash=0x%08X, %d directories\n",
-           manifest->version_hash, manifest->dir_count);
+    LOG_INFO("manifest", "version_hash=0x%08X, %d directories",
+             manifest->version_hash, manifest->dir_count);
 
     for (int i = 0; i < manifest->dir_count; i++) {
         const bc_manifest_dir_t *d = &manifest->dirs[i];
@@ -144,12 +145,12 @@ void bc_manifest_print_summary(const bc_manifest_t *manifest)
         for (int s = 0; s < d->subdir_count; s++) {
             dir_total += d->subdirs[s].file_count;
         }
-        printf("  Round %d: dir_hash=0x%08X, %d files, %d subdirs%s\n",
-               i, d->dir_name_hash, d->file_count, d->subdir_count,
-               d->recursive ? " (recursive)" : "");
+        LOG_INFO("manifest", "  Round %d: dir_hash=0x%08X, %d files, %d subdirs%s",
+                 i, d->dir_name_hash, d->file_count, d->subdir_count,
+                 d->recursive ? " (recursive)" : "");
         total_files += dir_total;
     }
-    printf("  Total: %d files tracked\n", total_files);
+    LOG_INFO("manifest", "  Total: %d files tracked", total_files);
 }
 
 const bc_manifest_file_t *bc_manifest_find_file(

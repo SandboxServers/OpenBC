@@ -1,4 +1,5 @@
 #include "openbc/net.h"
+#include "openbc/log.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -9,7 +10,7 @@ bool bc_net_init(void)
     WSADATA wsa;
     int err = WSAStartup(MAKEWORD(2, 2), &wsa);
     if (err != 0) {
-        fprintf(stderr, "WSAStartup failed: %d\n", err);
+        LOG_ERROR("net", "WSAStartup failed: %d", err);
         return false;
     }
     return true;
@@ -24,7 +25,7 @@ bool bc_socket_open(bc_socket_t *sock, u16 port)
 {
     SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET) {
-        fprintf(stderr, "socket() failed: %d\n", WSAGetLastError());
+        LOG_ERROR("net", "socket() failed: %d", WSAGetLastError());
         return false;
     }
 
@@ -36,7 +37,7 @@ bool bc_socket_open(bc_socket_t *sock, u16 port)
     addr.sin_addr.s_addr = INADDR_ANY;
 
     if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR) {
-        fprintf(stderr, "bind() failed on port %u: %d\n", port, WSAGetLastError());
+        LOG_ERROR("net", "bind() failed on port %u: %d", port, WSAGetLastError());
         closesocket(s);
         return false;
     }
@@ -44,7 +45,7 @@ bool bc_socket_open(bc_socket_t *sock, u16 port)
     /* Set non-blocking */
     u_long mode = 1;
     if (ioctlsocket(s, FIONBIO, &mode) == SOCKET_ERROR) {
-        fprintf(stderr, "ioctlsocket() failed: %d\n", WSAGetLastError());
+        LOG_ERROR("net", "ioctlsocket() failed: %d", WSAGetLastError());
         closesocket(s);
         return false;
     }
