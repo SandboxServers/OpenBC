@@ -1,0 +1,222 @@
+#include "openbc/game_events.h"
+#include "openbc/buffer.h"
+#include "openbc/opcodes.h"
+#include <string.h>
+
+/*
+ * Object ID -> player slot mapping.
+ *
+ * BC assigns object IDs starting at base 0x3FFFFFFF.
+ * Each player slot owns 2^18 (262144) consecutive IDs.
+ *   Slot 0: 0x3FFFFFFF .. 0x4003FFFE
+ *   Slot 1: 0x4003FFFF .. 0x4007FFFE
+ *   etc.
+ */
+int bc_object_id_to_slot(i32 object_id)
+{
+    i32 offset = object_id - 0x3FFFFFFF;
+    if (offset < 0) return -1;
+
+    int slot = (int)((u32)offset >> 18);
+    if (slot >= BC_MAX_PLAYERS) return -1;
+
+    return slot;
+}
+
+/*
+ * TorpedoFire (opcode 0x19)
+ *
+ * Wire format:
+ *   [0x19][object_id:i32][flags1:u8][flags2:u8][velocity:cv3]
+ *   if flags2 bit 1: [target_id:i32][impact_point:cv4]
+ *
+ * Minimum: 1+4+1+1+3 = 10 bytes
+ * With target: 10+4+5 = 19 bytes
+ */
+bool bc_parse_torpedo_fire(const u8 *payload, int len, bc_torpedo_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_TORPEDO_FIRE) return false;
+
+    if (!bc_buf_read_i32(&buf, &out->shooter_id)) return false;
+    if (!bc_buf_read_u8(&buf, &out->subsys_index)) return false;
+    if (!bc_buf_read_u8(&buf, &out->flags)) return false;
+    if (!bc_buf_read_cv3(&buf, &out->vel_x, &out->vel_y, &out->vel_z)) return false;
+
+    /* flags bit 1 = has_target */
+    out->has_target = (out->flags & 0x02) != 0;
+    if (out->has_target) {
+        if (!bc_buf_read_i32(&buf, &out->target_id)) return false;
+        if (!bc_buf_read_cv4(&buf, &out->impact_x, &out->impact_y, &out->impact_z))
+            return false;
+    }
+
+    return true;
+}
+
+/*
+ * BeamFire (opcode 0x1A)
+ *
+ * Wire format:
+ *   [0x1A][object_id:i32][flags:u8][target_pos:cv3][more_flags:u8]
+ *   if more_flags bit 0: [target_id:i32]
+ *
+ * Minimum: 1+4+1+3+1 = 10 bytes
+ * With target: 10+4 = 14 bytes
+ */
+bool bc_parse_beam_fire(const u8 *payload, int len, bc_beam_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_BEAM_FIRE) return false;
+
+    if (!bc_buf_read_i32(&buf, &out->shooter_id)) return false;
+    if (!bc_buf_read_u8(&buf, &out->flags)) return false;
+    if (!bc_buf_read_cv3(&buf, &out->dir_x, &out->dir_y, &out->dir_z)) return false;
+    if (!bc_buf_read_u8(&buf, &out->more_flags)) return false;
+
+    /* more_flags bit 0 = has_target_id */
+    out->has_target = (out->more_flags & 0x01) != 0;
+    if (out->has_target) {
+        if (!bc_buf_read_i32(&buf, &out->target_id)) return false;
+    }
+
+    return true;
+}
+
+/*
+ * Explosion (opcode 0x29)
+ *
+ * Wire format:
+ *   [0x29][object_id:i32][impact:cv4][damage:cf16][radius:cf16]
+ *
+ * Total: 1+4+5+2+2 = 14 bytes
+ */
+bool bc_parse_explosion(const u8 *payload, int len, bc_explosion_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_EXPLOSION) return false;
+
+    if (!bc_buf_read_i32(&buf, &out->object_id)) return false;
+    if (!bc_buf_read_cv4(&buf, &out->impact_x, &out->impact_y, &out->impact_z))
+        return false;
+    if (!bc_buf_read_cf16(&buf, &out->damage)) return false;
+    if (!bc_buf_read_cf16(&buf, &out->radius)) return false;
+
+    return true;
+}
+
+/*
+ * DestroyObject (opcode 0x14)
+ *
+ * Wire format:
+ *   [0x14][object_id:i32]
+ *
+ * Total: 5 bytes
+ */
+bool bc_parse_destroy_obj(const u8 *payload, int len, bc_destroy_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_DESTROY_OBJ) return false;
+
+    if (!bc_buf_read_i32(&buf, &out->object_id)) return false;
+
+    return true;
+}
+
+/*
+ * ObjectCreate / ObjectCreateTeam (opcode 0x02 / 0x03)
+ *
+ * Wire format (header only -- we don't parse serialized object data):
+ *   type_tag=2: [type_tag:u8][owner_slot:u8][serialized_data...]
+ *   type_tag=3: [type_tag:u8][owner_slot:u8][team_id:u8][serialized_data...]
+ */
+bool bc_parse_object_create_header(const u8 *payload, int len,
+                                   bc_object_create_header_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    if (!bc_buf_read_u8(&buf, &out->type_tag)) return false;
+    if (out->type_tag != 2 && out->type_tag != 3) return false;
+
+    if (!bc_buf_read_u8(&buf, &out->owner_slot)) return false;
+
+    if (out->type_tag == 3) {
+        if (!bc_buf_read_u8(&buf, &out->team_id)) return false;
+        out->has_team = true;
+    } else {
+        out->has_team = false;
+    }
+
+    return true;
+}
+
+/*
+ * Chat / Team Chat (opcode 0x2C / 0x2D)
+ *
+ * Wire format:
+ *   [opcode:u8][sender_slot:u8][pad:3bytes][str_len:u16][ascii_text:N]
+ *
+ * Minimum: 7 bytes (empty message)
+ */
+bool bc_parse_chat_message(const u8 *payload, int len, bc_chat_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_MSG_CHAT && opcode != BC_MSG_TEAM_CHAT) return false;
+
+    if (!bc_buf_read_u8(&buf, &out->sender_slot)) return false;
+
+    /* Skip 3 padding bytes */
+    u8 pad[3];
+    if (!bc_buf_read_bytes(&buf, pad, 3)) return false;
+
+    u16 str_len;
+    if (!bc_buf_read_u16(&buf, &str_len)) return false;
+
+    /* Clamp to buffer size */
+    int copy_len = (int)str_len;
+    if (copy_len > 255) copy_len = 255;
+    if ((size_t)copy_len > bc_buf_remaining(&buf))
+        copy_len = (int)bc_buf_remaining(&buf);
+
+    if (copy_len > 0) {
+        if (!bc_buf_read_bytes(&buf, (u8 *)out->message, (size_t)copy_len))
+            return false;
+    }
+    out->message[copy_len] = '\0';
+    out->message_len = copy_len;
+
+    return true;
+}
