@@ -625,8 +625,11 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
             return;
         }
 
-        /* Keepalive: extract player name (UTF-16LE) from handshake.
-         * Format: [0x00][totalLen][flags:1][?:2][slot?:1][ip:4][name_utf16le...] */
+        /* Keepalive with name: during handshake, client sends a keepalive
+         * (type 0x00) with UTF-16LE player name embedded.
+         * Format: [0x00][totalLen][flags:1][?:2][slot?:1][ip:4][name_utf16le...]
+         * After handshake, type 0x00 carries unreliable game data (StateUpdate
+         * etc.) -- so only consume as keepalive while name is still unknown. */
         if (msg->type == BC_TRANSPORT_KEEPALIVE && msg->payload_len >= 8) {
             bc_peer_t *peer = &g_peers.peers[slot];
             if (peer->name[0] == '\0') {
@@ -643,8 +646,9 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
                 if (j > 0) {
                     LOG_INFO("net", "slot=%d player name: %s", slot, peer->name);
                 }
+                continue;  /* Name keepalive handled, skip game processing */
             }
-            continue;
+            /* Name already set -- fall through to game handler */
         }
 
         /* Game message (reliable or unreliable) */

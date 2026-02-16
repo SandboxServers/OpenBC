@@ -1,0 +1,563 @@
+/*
+ * Battle of Valentine's Day -- Integration Test
+ *
+ * Recreates an abridged 3-player battle from real packet traces.
+ * Three headless clients connect to a live OpenBC server, exchange
+ * ships, weapons fire, damage, repairs, collisions, and chat --
+ * all through the wire protocol.
+ *
+ * Source traces: STBC-Dedicated-Server/logs/stock/battle-of-valentines-day/
+ */
+
+#include "test_util.h"
+#include "test_harness.h"
+#include "openbc/game_builders.h"
+#include "openbc/game_events.h"
+#include "openbc/opcodes.h"
+#include <math.h>
+
+/* ======================================================================
+ * Captured payloads (byte-for-byte from packet_trace.log)
+ * ====================================================================== */
+
+/* Ship data blob for Cady2's ship (from line 512, 108 bytes after [03][00][02])
+ * Galaxy-class, slot 0, team 2. Contains serialized class, position,
+ * orientation, subsystem health, weapon loadout. */
+static const u8 CADY_SHIP_DATA[] = {
+    0x08, 0x80, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x3F, 0x01, 0x00, 0x00, 0xB0,
+    0x42, 0x00, 0x00, 0x84, 0xC2, 0x00, 0x00, 0x92, 0xC2, 0xF5, 0x4A, 0x6F,
+    0x3F, 0xFE, 0x8C, 0x96, 0x3E, 0x84, 0xE3, 0x4B, 0x3E, 0x38, 0x78, 0x4E,
+    0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x43, 0x61, 0x64,
+    0x79, 0x32, 0x06, 0x4D, 0x75, 0x6C, 0x74, 0x69, 0x31, 0xFF, 0xFF, 0x64,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0x64, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x64, 0x60, 0x01, 0xFF, 0xFF, 0xFF, 0x64, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0x64, 0x00, 0xFF, 0x64, 0xFF, 0xFF, 0xFF, 0x64, 0x01, 0xFF,
+};
+
+/* Ship data blob for XFS01 Dauntless (from line 5141, 121 bytes after [03][01][03])
+ * Sovereign-class variant, slot 1, team 3. */
+static const u8 DAUNTLESS_SHIP_DATA[] = {
+    0x08, 0x80, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x40, 0x03, 0x00, 0x00, 0x60,
+    0x41, 0x00, 0x00, 0xD8, 0xC1, 0x00, 0x00, 0x90, 0x41, 0xB5, 0xCE, 0x0F,
+    0x3F, 0x39, 0xDC, 0xE3, 0xB3, 0x43, 0xC2, 0x15, 0xBF, 0x43, 0xC2, 0x15,
+    0xBF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x58, 0x46, 0x53,
+    0x30, 0x31, 0x20, 0x44, 0x61, 0x75, 0x6E, 0x74, 0x6C, 0x65, 0x73, 0x73,
+    0x06, 0x4D, 0x75, 0x6C, 0x74, 0x69, 0x31, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x64, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0x64, 0x60, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0x64, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0x64, 0xFF,
+    0xFF, 0xFF, 0x64, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64, 0x01, 0xFF, 0xFF,
+    0x64,
+};
+
+/* StartFiring event data (from line 2178, 24 bytes after opcode 0x07) */
+static const u8 START_FIRING_DATA[] = {
+    0x28, 0x81, 0x00, 0x00, 0xD8, 0x00, 0x80, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x40,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+/* SetPhaserLevel event data (from line 26040, 17 bytes after opcode 0x12) */
+static const u8 SET_PHASER_LEVEL_DATA[] = {
+    0x05, 0x01, 0x00, 0x00, 0xE0, 0x00, 0x80, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x40,
+    0x00,
+};
+
+/* CollisionEffect data (from line 15597, 25 bytes after opcode 0x15) */
+static const u8 COLLISION_EFFECT_DATA[] = {
+    0x24, 0x81, 0x00, 0x00, 0x50, 0x00, 0x80, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x40,
+    0x01, 0x27, 0x77, 0x11, 0xB8, 0x9D, 0x47, 0x25,
+    0x44,
+};
+
+/* Explosion payload from trace (from line 46662, 14 bytes total including opcode)
+ * obj=0x3FFFFFFF, dmg=50.0, radius=5997.8 */
+static const u8 TRACE_EXPLOSION[] = {
+    0x29, 0xFF, 0xFF, 0xFF, 0x3F, 0x1D, 0x7A, 0x0C,
+    0x95, 0x61, 0x1B, 0x57, 0xE2, 0x78,
+};
+
+/* TorpedoFire payload from trace (from line 12318, 18 bytes total) */
+static const u8 TRACE_TORPEDO[] = {
+    0x19, 0x0D, 0x00, 0x00, 0x40, 0x02, 0x01, 0xDF,
+    0x87, 0x11, 0xFF, 0xFF, 0x03, 0x40, 0x00, 0x88,
+    0xD8, 0x5C,
+};
+
+/* ======================================================================
+ * Server + client globals
+ * ====================================================================== */
+
+static bc_test_server_t g_server;
+static bc_test_client_t g_cady, g_kirk, g_sep;
+static int g_assertions = 0;
+
+#define BATTLE_PORT  29876
+#define TIMEOUT      1000  /* ms */
+
+/* Assertion helper that counts */
+#define BATTLE_ASSERT(cond) do { \
+    g_assertions++; \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        goto cleanup; \
+    } \
+} while(0)
+
+/* ======================================================================
+ * Phase implementations
+ * ====================================================================== */
+
+static int run_battle(void)
+{
+    printf("  Battle of Valentine's Day\n");
+
+    /* === Phase 1: CONNECT === */
+    printf("    Phase 1: Connect 3 players...\n");
+
+    BATTLE_ASSERT(bc_net_init());
+    BATTLE_ASSERT(test_server_start(&g_server, BATTLE_PORT));
+
+    BATTLE_ASSERT(test_client_connect(&g_cady, BATTLE_PORT, "Cady2", 0));
+    BATTLE_ASSERT(test_client_connect(&g_kirk, BATTLE_PORT, "Kirk", 1));
+    BATTLE_ASSERT(test_client_connect(&g_sep,  BATTLE_PORT, "Sep", 2));
+
+    /* Small delay for server to process all connections */
+    Sleep(200);
+
+    /* Drain any NewPlayerInGame notifications from other players joining */
+    test_client_drain(&g_cady, 300);
+    test_client_drain(&g_kirk, 300);
+    test_client_drain(&g_sep,  300);
+
+    /* === Phase 2: SPAWN SHIPS === */
+    printf("    Phase 2: Spawn ships (extracted payloads)...\n");
+    {
+        u8 buf[256];
+
+        /* Cady spawns a ship (owner=0, team=2) */
+        int len = bc_build_object_create_team(buf, sizeof(buf), 0, 2,
+                                               CADY_SHIP_DATA,
+                                               sizeof(CADY_SHIP_DATA));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_cady, buf, len));
+
+        /* Kirk spawns a ship (owner=1, team=2) -- same ship class */
+        len = bc_build_object_create_team(buf, sizeof(buf), 1, 2,
+                                           CADY_SHIP_DATA,
+                                           sizeof(CADY_SHIP_DATA));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        /* Sep spawns a Dauntless (owner=2, team=4) */
+        len = bc_build_object_create_team(buf, sizeof(buf), 2, 4,
+                                           DAUNTLESS_SHIP_DATA,
+                                           sizeof(DAUNTLESS_SHIP_DATA));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_sep, buf, len));
+
+        Sleep(200);
+
+        /* Each client should receive the other 2 ObjectCreateTeam messages */
+        int msg_len = 0;
+        const u8 *msg;
+
+        msg = test_client_expect_opcode(&g_cady, BC_OP_OBJ_CREATE_TEAM,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_cady, BC_OP_OBJ_CREATE_TEAM,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+
+        msg = test_client_expect_opcode(&g_kirk, BC_OP_OBJ_CREATE_TEAM,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_kirk, BC_OP_OBJ_CREATE_TEAM,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+
+        msg = test_client_expect_opcode(&g_sep, BC_OP_OBJ_CREATE_TEAM,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_sep, BC_OP_OBJ_CREATE_TEAM,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+    }
+
+    /* === Phase 3: MANEUVER === */
+    printf("    Phase 3: StateUpdate maneuver...\n");
+    {
+        u8 buf[64];
+        u8 field_data[] = { 0x7F, 0x00, 0x00, 0x7F, 0x00, 0x00, 0x00, 0x7F,
+                            0x50, 0x42, 0x00, 0x54 };
+
+        int len = bc_build_state_update(buf, sizeof(buf),
+                                         bc_make_ship_id(0), 10.0f,
+                                         BC_DIRTY_POSITION_DELTA | BC_DIRTY_ORIENT_FWD |
+                                         BC_DIRTY_ORIENT_UP | BC_DIRTY_SPEED,
+                                         field_data, sizeof(field_data));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_unreliable(&g_cady, buf, len));
+
+        len = bc_build_state_update(buf, sizeof(buf),
+                                     bc_make_ship_id(1), 10.0f, 0x1E,
+                                     field_data, sizeof(field_data));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_unreliable(&g_kirk, buf, len));
+
+        len = bc_build_state_update(buf, sizeof(buf),
+                                     bc_make_ship_id(2), 10.0f, 0x1E,
+                                     field_data, sizeof(field_data));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_unreliable(&g_sep, buf, len));
+
+        Sleep(200);
+
+        /* Sep should receive at least 1 StateUpdate (unreliable, may be lost) */
+        int msg_len = 0;
+        const u8 *msg = test_client_expect_opcode(&g_sep, BC_OP_STATE_UPDATE,
+                                                    &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+    }
+
+    /* === Phase 4: POWER ALLOCATION === */
+    printf("    Phase 4: SetPhaserLevel...\n");
+    {
+        u8 buf[32];
+        int len = bc_build_event_forward(buf, sizeof(buf),
+                                          BC_OP_SET_PHASER_LEVEL,
+                                          SET_PHASER_LEVEL_DATA,
+                                          sizeof(SET_PHASER_LEVEL_DATA));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        BATTLE_ASSERT(test_client_send_reliable(&g_cady, buf, len));
+
+        Sleep(200);
+
+        /* Sep receives both */
+        int msg_len = 0;
+        const u8 *msg = test_client_expect_opcode(&g_sep, BC_OP_SET_PHASER_LEVEL,
+                                                    &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_sep, BC_OP_SET_PHASER_LEVEL,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+    }
+
+    /* === Phase 5: FIRST ENGAGEMENT (Kirk fires at Sep) === */
+    printf("    Phase 5: Kirk fires at Sep...\n");
+    {
+        u8 buf[64];
+        int len;
+
+        /* StartFiring */
+        len = bc_build_event_forward(buf, sizeof(buf),
+                                      BC_OP_START_FIRING,
+                                      START_FIRING_DATA,
+                                      sizeof(START_FIRING_DATA));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        /* TorpedoFire x2 (built with proper builder) */
+        len = bc_build_torpedo_fire(buf, sizeof(buf),
+                                     bc_make_ship_id(1), 6,
+                                     0.0f, 0.0f, 1.0f,
+                                     true, bc_make_ship_id(2),
+                                     50.0f, 30.0f, 10.0f);
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        /* BeamFire */
+        len = bc_build_beam_fire(buf, sizeof(buf),
+                                  bc_make_ship_id(1), 0x01,
+                                  0.0f, 0.0f, 1.0f,
+                                  true, bc_make_ship_id(2));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        /* StopFiring */
+        u8 stop_data[] = { 0x28, 0x81, 0x00, 0x00, 0xD8, 0x00, 0x80, 0x00 };
+        len = bc_build_event_forward(buf, sizeof(buf),
+                                      BC_OP_STOP_FIRING,
+                                      stop_data, sizeof(stop_data));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        Sleep(300);
+
+        /* Sep receives all 5 messages */
+        int msg_len = 0;
+        const u8 *msg;
+
+        msg = test_client_expect_opcode(&g_sep, BC_OP_START_FIRING,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+
+        msg = test_client_expect_opcode(&g_sep, BC_OP_TORPEDO_FIRE,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        /* Verify torpedo parses correctly */
+        bc_torpedo_event_t tev;
+        BATTLE_ASSERT(bc_parse_torpedo_fire(msg, msg_len, &tev));
+        BATTLE_ASSERT(bc_object_id_to_slot(tev.shooter_id) == 1);
+        BATTLE_ASSERT(tev.has_target);
+        BATTLE_ASSERT(bc_object_id_to_slot(tev.target_id) == 2);
+
+        msg = test_client_expect_opcode(&g_sep, BC_OP_TORPEDO_FIRE,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+
+        msg = test_client_expect_opcode(&g_sep, BC_OP_BEAM_FIRE,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        bc_beam_event_t bev;
+        BATTLE_ASSERT(bc_parse_beam_fire(msg, msg_len, &bev));
+        BATTLE_ASSERT(bev.has_target);
+
+        msg = test_client_expect_opcode(&g_sep, BC_OP_STOP_FIRING,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+
+        /* Cady (spectator) also receives them */
+        msg = test_client_expect_opcode(&g_cady, BC_OP_START_FIRING,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_cady, BC_OP_TORPEDO_FIRE,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+    }
+
+    /* === Phase 6: TORPEDO IMPACT + DAMAGE === */
+    printf("    Phase 6: Explosion + damage...\n");
+    {
+        u8 buf[64];
+
+        /* Sep reports explosion on own ship */
+        int len = bc_build_explosion(buf, sizeof(buf),
+                                      bc_make_ship_id(2),
+                                      10.0f, 20.0f, 30.0f,
+                                      150.0f, 25.0f);
+        BATTLE_ASSERT(len == 14);
+        BATTLE_ASSERT(test_client_send_reliable(&g_sep, buf, len));
+
+        Sleep(200);
+
+        /* Kirk receives the explosion */
+        int msg_len = 0;
+        const u8 *msg = test_client_expect_opcode(&g_kirk, BC_OP_EXPLOSION,
+                                                    &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+
+        /* Roundtrip verify */
+        bc_explosion_event_t eev;
+        BATTLE_ASSERT(bc_parse_explosion(msg, msg_len, &eev));
+        BATTLE_ASSERT(bc_object_id_to_slot(eev.object_id) == 2);
+        BATTLE_ASSERT(fabsf(eev.damage - 150.0f) < 3.0f);
+        BATTLE_ASSERT(fabsf(eev.radius - 25.0f) < 1.0f);
+    }
+
+    /* === Phase 7: SEP RETALIATES === */
+    printf("    Phase 7: Sep retaliates...\n");
+    {
+        u8 buf[64];
+
+        int len = bc_build_torpedo_fire(buf, sizeof(buf),
+                                         bc_make_ship_id(2), 6,
+                                         1.0f, 0.0f, 0.0f,
+                                         true, bc_make_ship_id(1),
+                                         40.0f, 20.0f, 5.0f);
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_sep, buf, len));
+
+        len = bc_build_beam_fire(buf, sizeof(buf),
+                                  bc_make_ship_id(2), 0x01,
+                                  1.0f, 0.0f, 0.0f,
+                                  true, bc_make_ship_id(1));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_sep, buf, len));
+
+        /* Kirk takes an explosion */
+        len = bc_build_explosion(buf, sizeof(buf),
+                                  bc_make_ship_id(1),
+                                  5.0f, 10.0f, 15.0f,
+                                  120.0f, 30.0f);
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        /* SubsysStatus event from Kirk */
+        u8 subsys_data[] = { 0xFF, 0xFF, 0xFF, 0x3F, 0x05, 0x00, 0xD0, 0x42 };
+        len = bc_build_event_forward(buf, sizeof(buf),
+                                      BC_OP_SUBSYS_STATUS,
+                                      subsys_data, sizeof(subsys_data));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        Sleep(300);
+
+        /* Cady receives torpedo + beam from Sep */
+        int msg_len = 0;
+        const u8 *msg;
+        msg = test_client_expect_opcode(&g_cady, BC_OP_TORPEDO_FIRE,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_cady, BC_OP_BEAM_FIRE,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_cady, BC_OP_EXPLOSION,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+    }
+
+    /* === Phase 8: REPAIR === */
+    printf("    Phase 8: Repair system...\n");
+    {
+        u8 buf[32];
+
+        u8 repair_data[] = { 0xFF, 0xFF, 0xFF, 0x3F, 0x05, 0x00 };
+        int len = bc_build_event_forward(buf, sizeof(buf),
+                                          BC_OP_ADD_REPAIR_LIST,
+                                          repair_data, sizeof(repair_data));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        u8 priority_data[] = { 0xFF, 0xFF, 0xFF, 0x3F, 0x05, 0x01 };
+        len = bc_build_event_forward(buf, sizeof(buf),
+                                      BC_OP_REPAIR_PRIORITY,
+                                      priority_data, sizeof(priority_data));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        Sleep(200);
+
+        int msg_len = 0;
+        const u8 *msg;
+        msg = test_client_expect_opcode(&g_sep, BC_OP_ADD_REPAIR_LIST,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_sep, BC_OP_REPAIR_PRIORITY,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+    }
+
+    /* === Phase 9: COLLISION === */
+    printf("    Phase 9: Collision...\n");
+    {
+        u8 buf[64];
+
+        int len = bc_build_event_forward(buf, sizeof(buf),
+                                          BC_OP_COLLISION_EFFECT,
+                                          COLLISION_EFFECT_DATA,
+                                          sizeof(COLLISION_EFFECT_DATA));
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_cady, buf, len));
+
+        Sleep(200);
+
+        /* Verify byte-identical delivery */
+        int msg_len = 0;
+        const u8 *msg = test_client_expect_opcode(&g_kirk, BC_OP_COLLISION_EFFECT,
+                                                    &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        BATTLE_ASSERT(msg_len == 1 + (int)sizeof(COLLISION_EFFECT_DATA));
+        BATTLE_ASSERT(msg[0] == BC_OP_COLLISION_EFFECT);
+        BATTLE_ASSERT(memcmp(msg + 1, COLLISION_EFFECT_DATA,
+                             sizeof(COLLISION_EFFECT_DATA)) == 0);
+    }
+
+    /* === Phase 10: KILL SHOT + VICTORY === */
+    printf("    Phase 10: Kill shot + gg...\n");
+    {
+        u8 buf[64];
+        int len;
+
+        /* Kirk fires 2 more torpedoes */
+        len = bc_build_torpedo_fire(buf, sizeof(buf),
+                                     bc_make_ship_id(1), 6,
+                                     0.0f, 0.0f, 1.0f,
+                                     true, bc_make_ship_id(2),
+                                     50.0f, 30.0f, 10.0f);
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        /* Sep's ship explodes */
+        len = bc_build_explosion(buf, sizeof(buf),
+                                  bc_make_ship_id(2),
+                                  25.0f, 50.0f, 10.0f,
+                                  200.0f, 50.0f);
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_sep, buf, len));
+
+        /* DestroyObj */
+        len = bc_build_destroy_obj(buf, sizeof(buf), bc_make_ship_id(2));
+        BATTLE_ASSERT(len == 5);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        /* Kirk says "gg" */
+        len = bc_build_chat(buf, sizeof(buf), 1, false, "gg");
+        BATTLE_ASSERT(len > 0);
+        BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
+
+        Sleep(300);
+
+        /* Sep receives DestroyObj */
+        int msg_len = 0;
+        const u8 *msg;
+
+        /* Drain torpedoes first */
+        test_client_expect_opcode(&g_sep, BC_OP_TORPEDO_FIRE, &msg_len, TIMEOUT);
+        test_client_expect_opcode(&g_sep, BC_OP_TORPEDO_FIRE, &msg_len, TIMEOUT);
+
+        msg = test_client_expect_opcode(&g_sep, BC_OP_DESTROY_OBJ,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        bc_destroy_event_t dev;
+        BATTLE_ASSERT(bc_parse_destroy_obj(msg, msg_len, &dev));
+        BATTLE_ASSERT(bc_object_id_to_slot(dev.object_id) == 2);
+
+        /* Sep receives "gg" chat */
+        msg = test_client_expect_opcode(&g_sep, BC_MSG_CHAT,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        bc_chat_event_t cev;
+        BATTLE_ASSERT(bc_parse_chat_message(msg, msg_len, &cev));
+        BATTLE_ASSERT(strcmp(cev.message, "gg") == 0);
+        BATTLE_ASSERT(cev.sender_slot == 1);
+
+        /* Cady also receives DestroyObj and Chat
+         * (expect_opcode skips intermediate torpedo/explosion messages) */
+        msg = test_client_expect_opcode(&g_cady, BC_OP_DESTROY_OBJ,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        msg = test_client_expect_opcode(&g_cady, BC_MSG_CHAT,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+    }
+
+    printf("    All %d assertions passed!\n", g_assertions);
+
+cleanup:
+    test_client_disconnect(&g_cady);
+    test_client_disconnect(&g_kirk);
+    test_client_disconnect(&g_sep);
+    Sleep(100);
+    test_server_stop(&g_server);
+    bc_net_shutdown();
+
+    return (g_assertions > 0 && test_fail == 0) ? 0 : 1;
+}
+
+/* Wrap in test framework */
+TEST(battle_of_valentines_day)
+{
+    ASSERT(run_battle() == 0);
+}
+
+TEST_MAIN_BEGIN()
+    RUN(battle_of_valentines_day);
+TEST_MAIN_END()

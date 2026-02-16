@@ -45,7 +45,7 @@ static bool test_server_start(bc_test_server_t *srv, u16 port)
 
     char cmd[256];
     snprintf(cmd, sizeof(cmd),
-             "build\\openbc-server.exe --no-checksum -q -p %u", port);
+             "build\\openbc-server.exe --no-checksum -v --log-file server_test.log -p %u", port);
 
     STARTUPINFO si;
     memset(&si, 0, sizeof(si));
@@ -122,6 +122,10 @@ typedef struct {
     u8           recv_buf[2048];
     int          recv_len;
     bool         connected;
+    /* Cached parsed packet for multi-message iteration */
+    bc_packet_t  cached_pkt;
+    int          cached_idx;   /* Next message index to check */
+    bool         has_cached;
 } bc_test_client_t;
 
 /* Internal: send a raw packet (encrypt + send) */
@@ -298,50 +302,73 @@ static bool test_client_send_unreliable(bc_test_client_t *c,
     return true;
 }
 
+/* Internal: scan cached_pkt from cached_idx for the next game message.
+ * Auto-ACKs reliables as it scans. Returns game payload or NULL. */
+static const u8 *tc_scan_cached(bc_test_client_t *c, int *out_len)
+{
+    while (c->cached_idx < c->cached_pkt.msg_count) {
+        bc_transport_msg_t *msg = &c->cached_pkt.msgs[c->cached_idx++];
+
+        /* Auto-ACK reliables */
+        if (msg->type == BC_TRANSPORT_RELIABLE) {
+            tc_send_ack(c, msg->seq);
+        }
+
+        /* Skip ACKs and keepalives without payload */
+        if (msg->type == BC_TRANSPORT_ACK) continue;
+        if (msg->payload_len == 0) continue;
+
+        /* Skip keepalives (type 0x00 with small payload, no game opcode) */
+        if (msg->type == BC_TRANSPORT_KEEPALIVE && msg->payload_len <= 2)
+            continue;
+
+        /* Return this game message */
+        *out_len = msg->payload_len;
+        return msg->payload;
+    }
+    c->has_cached = false;
+    return NULL;
+}
+
 /* Receive the next game message (auto-ACKs reliables, skips keepalives/ACKs).
  * Returns pointer to the game payload (within recv_buf), and sets *out_len.
  * Returns NULL on timeout. */
 static const u8 *test_client_recv_msg(bc_test_client_t *c, int *out_len,
                                        int timeout_ms)
 {
+    /* First check if there are remaining messages in the cached packet */
+    if (c->has_cached) {
+        const u8 *result = tc_scan_cached(c, out_len);
+        if (result) return result;
+    }
+
     u32 start = GetTickCount();
 
     while ((int)(GetTickCount() - start) < timeout_ms) {
-        if (tc_recv_raw(c, timeout_ms - (int)(GetTickCount() - start)) <= 0)
+        int remaining = timeout_ms - (int)(GetTickCount() - start);
+        if (remaining <= 0) break;
+
+        if (tc_recv_raw(c, remaining) <= 0)
             return NULL;
 
-        bc_packet_t parsed;
-        if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
+        if (!bc_transport_parse(c->recv_buf, c->recv_len, &c->cached_pkt))
             continue;
 
-        for (int i = 0; i < parsed.msg_count; i++) {
-            bc_transport_msg_t *msg = &parsed.msgs[i];
+        c->cached_idx = 0;
+        c->has_cached = true;
 
-            /* Auto-ACK reliables */
-            if (msg->type == BC_TRANSPORT_RELIABLE) {
-                tc_send_ack(c, msg->seq);
-            }
-
-            /* Skip ACKs and keepalives without payload */
-            if (msg->type == BC_TRANSPORT_ACK) continue;
-            if (msg->payload_len == 0) continue;
-
-            /* Skip keepalives (type 0x00 with small payload, no game opcode) */
-            if (msg->type == BC_TRANSPORT_KEEPALIVE && msg->payload_len <= 2)
-                continue;
-
-            /* Return this game message */
-            *out_len = msg->payload_len;
-            return msg->payload;
-        }
+        const u8 *result = tc_scan_cached(c, out_len);
+        if (result) return result;
     }
 
     return NULL;
 }
 
-/* Drain all pending messages (auto-ACKs reliables). */
+/* Drain all pending messages (auto-ACKs reliables). Clears cached state. */
 static void test_client_drain(bc_test_client_t *c, int timeout_ms)
 {
+    c->has_cached = false;
+
     u32 start = GetTickCount();
     while ((int)(GetTickCount() - start) < timeout_ms) {
         if (tc_recv_raw(c, 50) <= 0) continue;
