@@ -168,6 +168,33 @@ static void send_settings_and_gameinit(const bc_addr_t *to, int peer_slot)
     printf("[handshake] slot=%d sent NewPlayerInGame to all\n", peer_slot);
 }
 
+/* Notify all other peers that a player has left, then remove them. */
+static void handle_peer_disconnect(int slot)
+{
+    if (g_peers.peers[slot].state == PEER_EMPTY) return;
+
+    char addr_str[32];
+    bc_addr_to_string(&g_peers.peers[slot].addr, addr_str, sizeof(addr_str));
+
+    /* Only send delete notifications if the peer had reached LOBBY state */
+    if (g_peers.peers[slot].state >= PEER_LOBBY) {
+        u8 payload[4];
+        int len;
+
+        len = bc_delete_player_ui_build(payload, sizeof(payload));
+        if (len > 0) relay_to_others(slot, payload, len, true);
+
+        len = bc_delete_player_anim_build(payload, sizeof(payload));
+        if (len > 0) relay_to_others(slot, payload, len, true);
+
+        printf("[net] Sent DeletePlayer notifications for slot %d\n", slot);
+    }
+
+    bc_peers_remove(&g_peers, slot);
+    printf("[net] Player removed: %s (slot %d), %d remaining\n",
+           addr_str, slot, g_peers.count);
+}
+
 static void handle_connect(const bc_addr_t *from, int len)
 {
     char addr_str[32];
@@ -181,7 +208,14 @@ static void handle_connect(const bc_addr_t *from, int len)
 
     slot = bc_peers_add(&g_peers, from);
     if (slot < 0) {
-        printf("[net] Server full, rejecting %s\n", addr_str);
+        printf("[net] Server full, sending BootPlayer to %s\n", addr_str);
+        /* Temporarily add to send BootPlayer, then remove */
+        u8 boot_payload[4];
+        int boot_len = bc_bootplayer_build(boot_payload, sizeof(boot_payload),
+                                            BC_BOOT_SERVER_FULL);
+        if (boot_len > 0) {
+            send_unreliable(from, boot_payload, boot_len);
+        }
         return;
     }
 
@@ -230,7 +264,10 @@ static void handle_checksum_response(const bc_addr_t *from, int peer_slot,
         if (!bc_checksum_response_parse(&resp, msg->payload, msg->payload_len)) {
             printf("[handshake] slot=%d round %d parse error (len=%d)\n",
                    peer_slot, round, msg->payload_len);
-            bc_peers_remove(&g_peers, peer_slot);
+            u8 boot[4];
+            int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
+            if (blen > 0) send_reliable(from, peer_slot, boot, blen);
+            handle_peer_disconnect(peer_slot);
             return;
         }
 
@@ -242,7 +279,10 @@ static void handle_checksum_response(const bc_addr_t *from, int peer_slot,
                    "(dir=0x%08X, %d files)\n",
                    peer_slot, round, bc_checksum_result_name(result),
                    resp.dir_hash, resp.file_count);
-            bc_peers_remove(&g_peers, peer_slot);
+            u8 boot[4];
+            int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
+            if (blen > 0) send_reliable(from, peer_slot, boot, blen);
+            handle_peer_disconnect(peer_slot);
             return;
         }
 
@@ -419,7 +459,7 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
             char addr_str[32];
             bc_addr_to_string(from, addr_str, sizeof(addr_str));
             printf("[net] Player disconnected: %s (slot %d)\n", addr_str, slot);
-            bc_peers_remove(&g_peers, slot);
+            handle_peer_disconnect(slot);
             return;
         }
 
@@ -559,7 +599,7 @@ int main(int argc, char **argv)
                     bc_addr_to_string(&peer->addr, addr_str, sizeof(addr_str));
                     printf("[net] Peer %s (slot %d) timed out (no ACK)\n",
                            addr_str, i);
-                    bc_peers_remove(&g_peers, i);
+                    handle_peer_disconnect(i);
                     continue;
                 }
 
@@ -579,9 +619,12 @@ int main(int argc, char **argv)
             }
 
             /* Timeout stale peers (30 second timeout) */
-            int removed = bc_peers_timeout(&g_peers, now, 30000);
-            if (removed > 0) {
-                printf("[net] Timed out %d peer(s)\n", removed);
+            for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                if (g_peers.peers[i].state == PEER_EMPTY) continue;
+                if (now - g_peers.peers[i].last_recv_time > 30000) {
+                    printf("[net] Peer slot %d timed out (no packets)\n", i);
+                    handle_peer_disconnect(i);
+                }
             }
             last_tick = now;
         }

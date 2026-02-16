@@ -44,6 +44,28 @@ int bc_settings_build(u8 *buf, int buf_size,
  * Returns bytes written (always 1), or -1 on error. */
 int bc_gameinit_build(u8 *buf, int buf_size);
 
+/* --- BootPlayer and disconnect messages --- */
+
+/* BootPlayer reasons (opcode 0x04) */
+#define BC_BOOT_GENERIC     0   /* Generic kick */
+#define BC_BOOT_VERSION     1   /* Version mismatch */
+#define BC_BOOT_SERVER_FULL 2   /* Server is full */
+#define BC_BOOT_BANNED      3   /* Player is banned */
+#define BC_BOOT_CHECKSUM    4   /* Checksum validation failed */
+
+/* Build a BootPlayer payload (opcode 0x04).
+ * reason: one of BC_BOOT_* constants.
+ * Returns bytes written, or -1 on error. */
+int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason);
+
+/* Build a DeletePlayerUI payload (opcode 0x17).
+ * Returns bytes written (always 1), or -1 on error. */
+int bc_delete_player_ui_build(u8 *buf, int buf_size);
+
+/* Build a DeletePlayerAnim payload (opcode 0x18).
+ * Returns bytes written (always 1), or -1 on error. */
+int bc_delete_player_anim_build(u8 *buf, int buf_size);
+
 /* --- Checksum response parsing and validation --- */
 
 /* Result of checksum validation */

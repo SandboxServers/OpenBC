@@ -749,6 +749,40 @@ TEST(checksum_resp_validate_file_missing)
     ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_FILE_MISSING);
 }
 
+/* === BootPlayer and disconnect tests === */
+
+TEST(bootplayer_build_server_full)
+{
+    u8 buf[16];
+    int len = bc_bootplayer_build(buf, sizeof(buf), BC_BOOT_SERVER_FULL);
+    ASSERT_EQ_INT(len, 2);
+    ASSERT_EQ(buf[0], BC_OP_BOOT_PLAYER);
+    ASSERT_EQ(buf[1], BC_BOOT_SERVER_FULL);
+}
+
+TEST(bootplayer_build_checksum_fail)
+{
+    u8 buf[16];
+    int len = bc_bootplayer_build(buf, sizeof(buf), BC_BOOT_CHECKSUM);
+    ASSERT_EQ_INT(len, 2);
+    ASSERT_EQ(buf[0], BC_OP_BOOT_PLAYER);
+    ASSERT_EQ(buf[1], BC_BOOT_CHECKSUM);
+}
+
+TEST(delete_player_build)
+{
+    u8 buf[16];
+    int len;
+
+    len = bc_delete_player_ui_build(buf, sizeof(buf));
+    ASSERT_EQ_INT(len, 1);
+    ASSERT_EQ(buf[0], BC_OP_DELETE_PLAYER_UI);
+
+    len = bc_delete_player_anim_build(buf, sizeof(buf));
+    ASSERT_EQ_INT(len, 1);
+    ASSERT_EQ(buf[0], BC_OP_DELETE_PLAYER_ANIM);
+}
+
 /* === Reliable delivery tests === */
 
 TEST(reliable_add_and_ack)
@@ -929,6 +963,11 @@ TEST_MAIN_BEGIN()
     RUN(fragment_three_part_reassembly);
     RUN(fragment_two_part_reassembly);
     RUN(fragment_reset);
+
+    /* BootPlayer and disconnect */
+    RUN(bootplayer_build_server_full);
+    RUN(bootplayer_build_checksum_fail);
+    RUN(delete_player_build);
 
     /* Reliable delivery */
     RUN(reliable_add_and_ack);

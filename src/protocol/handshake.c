@@ -76,6 +76,28 @@ int bc_gameinit_build(u8 *buf, int buf_size)
     return 1;
 }
 
+int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason)
+{
+    if (buf_size < 2) return -1;
+    buf[0] = BC_OP_BOOT_PLAYER;
+    buf[1] = reason;
+    return 2;
+}
+
+int bc_delete_player_ui_build(u8 *buf, int buf_size)
+{
+    if (buf_size < 1) return -1;
+    buf[0] = BC_OP_DELETE_PLAYER_UI;
+    return 1;
+}
+
+int bc_delete_player_anim_build(u8 *buf, int buf_size)
+{
+    if (buf_size < 1) return -1;
+    buf[0] = BC_OP_DELETE_PLAYER_ANIM;
+    return 1;
+}
+
 /* --- Checksum response parsing --- */
 
 /* Parse a file tree from a buffer: [file_count:u16][{name_hash:u32, content_hash:u32}...]
