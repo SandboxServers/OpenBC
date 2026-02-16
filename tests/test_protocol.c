@@ -1187,6 +1187,19 @@ TEST(outbox_keepalive)
     ASSERT_EQ_INT(parsed.msgs[0].payload_len, 0);
 }
 
+/* === Direction byte tests === */
+
+TEST(direction_byte_client_encoding)
+{
+    /* Client direction byte = BC_DIR_CLIENT + slot_index */
+    ASSERT_EQ(BC_DIR_CLIENT + 0, 0x02);
+    ASSERT_EQ(BC_DIR_CLIENT + 1, 0x03);
+    ASSERT_EQ(BC_DIR_CLIENT + 2, 0x04);
+    ASSERT_EQ(BC_DIR_CLIENT + 3, 0x05);
+    ASSERT_EQ(BC_DIR_CLIENT + 4, 0x06);
+    ASSERT_EQ(BC_DIR_CLIENT + 5, 0x07);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -1285,4 +1298,7 @@ TEST_MAIN_BEGIN()
     /* Shutdown notify */
     RUN(shutdown_notify_format);
     RUN(shutdown_notify_ip_encoding);
+
+    /* Direction byte */
+    RUN(direction_byte_client_encoding);
 TEST_MAIN_END()

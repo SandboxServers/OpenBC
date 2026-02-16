@@ -468,6 +468,14 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
 
     if (slot < 0) return;  /* Unknown peer, ignore */
 
+    /* Validate direction byte: client packets use BC_DIR_CLIENT + slot_index.
+     * Log a warning on mismatch but continue processing (not a hard reject). */
+    u8 expected_dir = BC_DIR_CLIENT + (u8)slot;
+    if (pkt.direction != expected_dir) {
+        printf("[net] slot=%d direction byte mismatch: got 0x%02X, expected 0x%02X\n",
+               slot, pkt.direction, expected_dir);
+    }
+
     /* Process each transport message */
     for (int i = 0; i < pkt.msg_count; i++) {
         bc_transport_msg_t *msg = &pkt.msgs[i];
