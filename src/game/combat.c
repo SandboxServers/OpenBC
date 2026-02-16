@@ -313,3 +313,80 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
         }
     }
 }
+
+/* --- Cloaking device --- */
+
+/* Find the cloaking subsystem index, or -1 */
+static int find_cloak_subsys(const bc_ship_class_t *cls)
+{
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        if (strcmp(cls->subsystems[i].type, "cloak") == 0)
+            return i;
+    }
+    return -1;
+}
+
+bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls)
+{
+    if (!ship->alive) return false;
+    if (!cls->can_cloak) return false;
+    if (ship->cloak_state != BC_CLOAK_DECLOAKED) return false;
+
+    /* Cloaking device subsystem must be alive */
+    int ss = find_cloak_subsys(cls);
+    if (ss >= 0 && ship->subsystem_hp[ss] <= 0.0f) return false;
+
+    ship->cloak_state = BC_CLOAK_CLOAKING;
+    ship->cloak_timer = BC_CLOAK_TRANSITION_TIME;
+
+    /* Shields drop immediately */
+    for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++)
+        ship->shield_hp[i] = 0.0f;
+
+    return true;
+}
+
+bool bc_cloak_stop(bc_ship_state_t *ship)
+{
+    if (ship->cloak_state == BC_CLOAK_DECLOAKED) return false;
+    if (ship->cloak_state == BC_CLOAK_DECLOAKING) return false;
+
+    ship->cloak_state = BC_CLOAK_DECLOAKING;
+    ship->cloak_timer = BC_CLOAK_TRANSITION_TIME;
+    return true;
+}
+
+void bc_cloak_tick(bc_ship_state_t *ship, f32 dt)
+{
+    if (dt <= 0.0f) return;
+
+    switch (ship->cloak_state) {
+    case BC_CLOAK_CLOAKING:
+        ship->cloak_timer -= dt;
+        if (ship->cloak_timer <= 0.0f) {
+            ship->cloak_timer = 0.0f;
+            ship->cloak_state = BC_CLOAK_CLOAKED;
+        }
+        break;
+    case BC_CLOAK_DECLOAKING:
+        ship->cloak_timer -= dt;
+        if (ship->cloak_timer <= 0.0f) {
+            ship->cloak_timer = 0.0f;
+            ship->cloak_state = BC_CLOAK_DECLOAKED;
+            /* Shields begin recharging from 0 (handled by shield_tick) */
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+bool bc_cloak_can_fire(const bc_ship_state_t *ship)
+{
+    return ship->cloak_state == BC_CLOAK_DECLOAKED;
+}
+
+bool bc_cloak_shields_active(const bc_ship_state_t *ship)
+{
+    return ship->cloak_state == BC_CLOAK_DECLOAKED;
+}

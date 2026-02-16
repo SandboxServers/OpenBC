@@ -83,4 +83,28 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
                            const bc_ship_class_t *cls,
                            f32 dt);
 
+/* --- Cloaking device --- */
+
+/* Default cloak transition time (seconds).
+ * BC engine uses ~3s; not exposed in hardpoint scripts. */
+#define BC_CLOAK_TRANSITION_TIME  3.0f
+
+/* Begin cloaking. Shields drop immediately, weapons disabled.
+ * Returns false if ship cannot cloak (no device, dead, already cloaking/cloaked). */
+bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls);
+
+/* Begin decloaking. Ship becomes visible but shields/weapons stay offline
+ * until transition completes (vulnerability window).
+ * Returns false if not cloaked/cloaking. */
+bool bc_cloak_stop(bc_ship_state_t *ship);
+
+/* Advance cloak state machine timer. Call each tick. */
+void bc_cloak_tick(bc_ship_state_t *ship, f32 dt);
+
+/* Check if ship can fire weapons (only when fully DECLOAKED). */
+bool bc_cloak_can_fire(const bc_ship_state_t *ship);
+
+/* Check if shields are active (only when fully DECLOAKED). */
+bool bc_cloak_shields_active(const bc_ship_state_t *ship);
+
 #endif /* OPENBC_COMBAT_H */

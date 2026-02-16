@@ -466,6 +466,121 @@ TEST(charge_tick_recharges)
     ASSERT(ship.phaser_charge[0] > 0.0f);
 }
 
+/* === Cloaking tests === */
+
+TEST(cloak_full_cycle)
+{
+    /* BirdOfPrey (species 6) can cloak */
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 6);
+    ASSERT(cls != NULL);
+    ASSERT(cls->can_cloak);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
+
+    /* Start cloaking */
+    ASSERT(bc_cloak_start(&ship, cls));
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKING);
+    ASSERT(ship.shield_hp[0] == 0.0f); /* shields drop immediately */
+
+    /* Can't fire while cloaking */
+    ASSERT(!bc_cloak_can_fire(&ship));
+    ASSERT(!bc_cloak_shields_active(&ship));
+
+    /* Tick through transition */
+    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKED);
+
+    /* Still can't fire while cloaked */
+    ASSERT(!bc_cloak_can_fire(&ship));
+
+    /* Start decloaking */
+    ASSERT(bc_cloak_stop(&ship));
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKING);
+
+    /* Vulnerability window: visible but no shields/weapons */
+    ASSERT(!bc_cloak_can_fire(&ship));
+    ASSERT(!bc_cloak_shields_active(&ship));
+
+    /* Tick through decloak transition */
+    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
+
+    /* Now can fire and shields active again */
+    ASSERT(bc_cloak_can_fire(&ship));
+    ASSERT(bc_cloak_shields_active(&ship));
+}
+
+TEST(non_cloaker_cannot_cloak)
+{
+    /* Galaxy (species 3) has no cloak */
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(!cls->can_cloak);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    ASSERT(!bc_cloak_start(&ship, cls));
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
+}
+
+TEST(cloak_prevents_phaser_fire)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 6);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
+
+    /* Verify can fire when decloaked */
+    ASSERT(bc_combat_can_fire_phaser(&ship, cls, 0));
+
+    /* Cloak and verify can't fire */
+    bc_cloak_start(&ship, cls);
+    ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
+
+    /* Complete cloak, still can't fire */
+    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
+
+    /* Decloak, still can't fire during transition */
+    bc_cloak_stop(&ship);
+    ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
+
+    /* Complete decloak, now can fire */
+    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT(bc_combat_can_fire_phaser(&ship, cls, 0));
+}
+
+TEST(cloak_no_charge_while_cloaked)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 6);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
+
+    ship.phaser_charge[0] = 0.0f;
+    bc_cloak_start(&ship, cls);
+    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f); /* fully cloaked */
+
+    bc_combat_charge_tick(&ship, cls, 1.0f, 5.0f);
+    ASSERT(ship.phaser_charge[0] == 0.0f); /* no recharge while cloaked */
+}
+
+TEST(cloak_disabled_subsystem_prevents_cloak)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 6);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
+
+    /* Find and destroy the cloaking subsystem */
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        if (strcmp(cls->subsystems[i].type, "cloak") == 0) {
+            ship.subsystem_hp[i] = 0.0f;
+            break;
+        }
+    }
+
+    ASSERT(!bc_cloak_start(&ship, cls));
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -499,4 +614,9 @@ TEST_MAIN_BEGIN()
     RUN(hull_zero_means_death);
     RUN(shield_recharge_tick);
     RUN(charge_tick_recharges);
+    RUN(cloak_full_cycle);
+    RUN(non_cloaker_cannot_cloak);
+    RUN(cloak_prevents_phaser_fire);
+    RUN(cloak_no_charge_while_cloaked);
+    RUN(cloak_disabled_subsystem_prevents_cloak);
 TEST_MAIN_END()
