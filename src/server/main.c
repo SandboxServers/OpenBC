@@ -214,19 +214,44 @@ static void handle_checksum_response(const bc_addr_t *from, int peer_slot,
         return;
     }
 
-    /* Accept any checksum response (permissive mode).
-     * A full implementation would parse the response hashes and compare
-     * against the hash manifest. For now we advance unconditionally. */
-    printf("[handshake] slot=%d checksum round %d accepted (len=%d)\n",
-           peer_slot, peer->checksum_round, msg->payload_len);
+    int round = peer->checksum_round;
+
+    if (g_no_checksum || !g_manifest_loaded) {
+        /* Permissive mode: accept without validation */
+        printf("[handshake] slot=%d checksum round %d accepted (permissive, len=%d)\n",
+               peer_slot, round, msg->payload_len);
+    } else {
+        /* Parse and validate against manifest */
+        bc_checksum_resp_t resp;
+        if (!bc_checksum_response_parse(&resp, msg->payload, msg->payload_len)) {
+            printf("[handshake] slot=%d round %d parse error (len=%d)\n",
+                   peer_slot, round, msg->payload_len);
+            bc_peers_remove(&g_peers, peer_slot);
+            return;
+        }
+
+        bc_checksum_result_t result =
+            bc_checksum_response_validate(&resp, &g_manifest.dirs[round]);
+
+        if (result != CHECKSUM_OK) {
+            printf("[handshake] slot=%d round %d FAILED: %s "
+                   "(dir=0x%08X, %d files)\n",
+                   peer_slot, round, bc_checksum_result_name(result),
+                   resp.dir_hash, resp.file_count);
+            bc_peers_remove(&g_peers, peer_slot);
+            return;
+        }
+
+        printf("[handshake] slot=%d checksum round %d validated "
+               "(%d files, dir=0x%08X)\n",
+               peer_slot, round, resp.file_count, resp.dir_hash);
+    }
 
     peer->checksum_round++;
 
     if (peer->checksum_round < BC_CHECKSUM_ROUNDS) {
-        /* Send next checksum request */
         send_checksum_request(from, peer_slot, peer->checksum_round);
     } else {
-        /* All 4 rounds passed -- send Settings + GameInit */
         printf("[handshake] slot=%d all checksums passed\n", peer_slot);
         send_settings_and_gameinit(from, peer_slot);
     }

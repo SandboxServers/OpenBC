@@ -2,6 +2,7 @@
 #include "openbc/cipher.h"
 #include "openbc/buffer.h"
 #include "openbc/transport.h"
+#include "openbc/manifest.h"
 #include "openbc/handshake.h"
 #include "openbc/opcodes.h"
 #include <string.h>
@@ -634,6 +635,119 @@ TEST(gameinit_build_too_small)
     ASSERT_EQ_INT(len, -1);
 }
 
+/* === Checksum response tests === */
+
+/* Helper: build a minimal checksum response for round 0 (scripts/, App.pyc) */
+static int build_round0_response(u8 *buf, int buf_size,
+                                  u32 dir_hash, u32 name_hash, u32 content_hash)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP);  /* opcode */
+    bc_buf_write_u8(&b, 0);                     /* round index */
+    bc_buf_write_u32(&b, 0x12345678);           /* ref_hash */
+    bc_buf_write_u32(&b, dir_hash);             /* dir_hash */
+    bc_buf_write_u16(&b, 1);                    /* file_count */
+    bc_buf_write_u32(&b, name_hash);            /* file name_hash */
+    bc_buf_write_u32(&b, content_hash);         /* file content_hash */
+
+    return (int)b.pos;
+}
+
+TEST(checksum_resp_parse_round0)
+{
+    u8 buf[256];
+    int len = build_round0_response(buf, sizeof(buf),
+                                     0x4DAFCB2F, 0x373EB677, 0xF8A0A740);
+
+    bc_checksum_resp_t resp;
+    ASSERT(bc_checksum_response_parse(&resp, buf, len));
+    ASSERT_EQ(resp.round_index, 0);
+    ASSERT_EQ(resp.dir_hash, 0x4DAFCB2F);
+    ASSERT_EQ_INT(resp.file_count, 1);
+    ASSERT_EQ(resp.files[0].name_hash, 0x373EB677);
+    ASSERT_EQ(resp.files[0].content_hash, 0xF8A0A740);
+}
+
+TEST(checksum_resp_validate_ok)
+{
+    /* Build a manifest dir matching round 0 */
+    bc_manifest_dir_t dir;
+    memset(&dir, 0, sizeof(dir));
+    dir.dir_name_hash = 0x4DAFCB2F;
+    dir.file_count = 1;
+    dir.files[0].name_hash = 0x373EB677;
+    dir.files[0].content_hash = 0xF8A0A740;
+
+    u8 buf[256];
+    int len = build_round0_response(buf, sizeof(buf),
+                                     0x4DAFCB2F, 0x373EB677, 0xF8A0A740);
+    bc_checksum_resp_t resp;
+    ASSERT(bc_checksum_response_parse(&resp, buf, len));
+    ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_OK);
+}
+
+TEST(checksum_resp_validate_content_mismatch)
+{
+    bc_manifest_dir_t dir;
+    memset(&dir, 0, sizeof(dir));
+    dir.dir_name_hash = 0x4DAFCB2F;
+    dir.file_count = 1;
+    dir.files[0].name_hash = 0x373EB677;
+    dir.files[0].content_hash = 0xF8A0A740;
+
+    /* Send wrong content hash */
+    u8 buf[256];
+    int len = build_round0_response(buf, sizeof(buf),
+                                     0x4DAFCB2F, 0x373EB677, 0xDEADBEEF);
+    bc_checksum_resp_t resp;
+    ASSERT(bc_checksum_response_parse(&resp, buf, len));
+    ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_FILE_MISMATCH);
+}
+
+TEST(checksum_resp_validate_dir_mismatch)
+{
+    bc_manifest_dir_t dir;
+    memset(&dir, 0, sizeof(dir));
+    dir.dir_name_hash = 0x4DAFCB2F;
+    dir.file_count = 1;
+    dir.files[0].name_hash = 0x373EB677;
+    dir.files[0].content_hash = 0xF8A0A740;
+
+    /* Send wrong dir hash */
+    u8 buf[256];
+    int len = build_round0_response(buf, sizeof(buf),
+                                     0xBADBAD00, 0x373EB677, 0xF8A0A740);
+    bc_checksum_resp_t resp;
+    ASSERT(bc_checksum_response_parse(&resp, buf, len));
+    ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_DIR_MISMATCH);
+}
+
+TEST(checksum_resp_validate_file_missing)
+{
+    bc_manifest_dir_t dir;
+    memset(&dir, 0, sizeof(dir));
+    dir.dir_name_hash = 0x4DAFCB2F;
+    dir.file_count = 1;
+    dir.files[0].name_hash = 0x373EB677;
+    dir.files[0].content_hash = 0xF8A0A740;
+
+    /* Send response with no files */
+    u8 buf[256];
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, sizeof(buf));
+    bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP);
+    bc_buf_write_u8(&b, 0);
+    bc_buf_write_u32(&b, 0x12345678);
+    bc_buf_write_u32(&b, 0x4DAFCB2F);
+    bc_buf_write_u16(&b, 0);  /* 0 files */
+
+    bc_checksum_resp_t resp;
+    ASSERT(bc_checksum_response_parse(&resp, buf, (int)b.pos));
+    ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_FILE_MISSING);
+}
+
 /* === Fragment reassembly tests === */
 
 TEST(fragment_three_part_reassembly)
@@ -749,6 +863,13 @@ TEST_MAIN_BEGIN()
     /* Handshake: GameInit */
     RUN(gameinit_build);
     RUN(gameinit_build_too_small);
+
+    /* Checksum response */
+    RUN(checksum_resp_parse_round0);
+    RUN(checksum_resp_validate_ok);
+    RUN(checksum_resp_validate_content_mismatch);
+    RUN(checksum_resp_validate_dir_mismatch);
+    RUN(checksum_resp_validate_file_missing);
 
     /* Fragment reassembly */
     RUN(fragment_three_part_reassembly);

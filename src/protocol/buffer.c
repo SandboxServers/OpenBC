@@ -57,15 +57,19 @@ bool bc_buf_write_u16(bc_buffer_t *buf, u16 val)
     return true;
 }
 
-bool bc_buf_write_i32(bc_buffer_t *buf, i32 val)
+bool bc_buf_write_u32(bc_buffer_t *buf, u32 val)
 {
     if (buf->pos + 4 > buf->capacity) return false;
-    u32 v = (u32)val;
-    buf->data[buf->pos++] = (u8)(v & 0xFF);
-    buf->data[buf->pos++] = (u8)((v >> 8) & 0xFF);
-    buf->data[buf->pos++] = (u8)((v >> 16) & 0xFF);
-    buf->data[buf->pos++] = (u8)((v >> 24) & 0xFF);
+    buf->data[buf->pos++] = (u8)(val & 0xFF);
+    buf->data[buf->pos++] = (u8)((val >> 8) & 0xFF);
+    buf->data[buf->pos++] = (u8)((val >> 16) & 0xFF);
+    buf->data[buf->pos++] = (u8)((val >> 24) & 0xFF);
     return true;
+}
+
+bool bc_buf_write_i32(bc_buffer_t *buf, i32 val)
+{
+    return bc_buf_write_u32(buf, (u32)val);
 }
 
 bool bc_buf_write_f32(bc_buffer_t *buf, f32 val)
@@ -140,7 +144,7 @@ bool bc_buf_read_u16(bc_buffer_t *buf, u16 *out)
     return true;
 }
 
-bool bc_buf_read_i32(bc_buffer_t *buf, i32 *out)
+bool bc_buf_read_u32(bc_buffer_t *buf, u32 *out)
 {
     if (buf->pos + 4 > buf->capacity) return false;
     u32 v = (u32)buf->data[buf->pos]
@@ -148,6 +152,14 @@ bool bc_buf_read_i32(bc_buffer_t *buf, i32 *out)
           | ((u32)buf->data[buf->pos + 2] << 16)
           | ((u32)buf->data[buf->pos + 3] << 24);
     buf->pos += 4;
+    *out = v;
+    return true;
+}
+
+bool bc_buf_read_i32(bc_buffer_t *buf, i32 *out)
+{
+    u32 v;
+    if (!bc_buf_read_u32(buf, &v)) return false;
     *out = (i32)v;
     return true;
 }

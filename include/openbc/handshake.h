@@ -3,6 +3,7 @@
 
 #include "openbc/types.h"
 #include "openbc/buffer.h"
+#include "openbc/manifest.h"
 
 /*
  * Connection handshake -- checksum exchange and Settings/GameInit delivery.
@@ -42,5 +43,61 @@ int bc_settings_build(u8 *buf, int buf_size,
 /* Build the GameInit payload (opcode 0x01).
  * Returns bytes written (always 1), or -1 on error. */
 int bc_gameinit_build(u8 *buf, int buf_size);
+
+/* --- Checksum response parsing and validation --- */
+
+/* Result of checksum validation */
+typedef enum {
+    CHECKSUM_OK,           /* All hashes match */
+    CHECKSUM_EMPTY_DIR,    /* Client reported empty directory (0xFF index) */
+    CHECKSUM_DIR_MISMATCH, /* Directory name hash mismatch */
+    CHECKSUM_FILE_MISSING, /* File in manifest not found in response */
+    CHECKSUM_FILE_MISMATCH,/* File content hash mismatch */
+    CHECKSUM_PARSE_ERROR,  /* Malformed response */
+} bc_checksum_result_t;
+
+/* Parsed checksum file entry from client response */
+typedef struct {
+    u32 name_hash;
+    u32 content_hash;
+} bc_checksum_file_t;
+
+/* Parsed checksum response */
+#define BC_CHECKSUM_MAX_RESP_FILES  256
+#define BC_CHECKSUM_MAX_RESP_SUBDIRS 8
+#define BC_CHECKSUM_MAX_SUB_FILES   128
+
+typedef struct {
+    int file_count;
+    bc_checksum_file_t files[BC_CHECKSUM_MAX_SUB_FILES];
+} bc_checksum_subdir_resp_t;
+
+typedef struct {
+    u8   round_index;      /* 0-3, or 0xFF for empty */
+    u32  ref_hash;         /* Reference hash from client */
+    u32  dir_hash;         /* Directory name hash */
+    bool empty;            /* True if client reported empty dir (index=0xFF) */
+    int  file_count;
+    bc_checksum_file_t files[BC_CHECKSUM_MAX_RESP_FILES];
+    int  subdir_count;
+    struct {
+        u32 name_hash;
+        bc_checksum_subdir_resp_t data;
+    } subdirs[BC_CHECKSUM_MAX_RESP_SUBDIRS];
+} bc_checksum_resp_t;
+
+/* Parse a checksum response payload (opcode 0x21) into a structured form.
+ * Returns true on success. */
+bool bc_checksum_response_parse(bc_checksum_resp_t *resp,
+                                const u8 *payload, int payload_len);
+
+/* Validate a parsed checksum response against a manifest directory.
+ * Returns CHECKSUM_OK if all hashes match, otherwise the first error. */
+bc_checksum_result_t bc_checksum_response_validate(
+    const bc_checksum_resp_t *resp,
+    const bc_manifest_dir_t *manifest_dir);
+
+/* Return a human-readable name for a checksum result. */
+const char *bc_checksum_result_name(bc_checksum_result_t result);
 
 #endif /* OPENBC_HANDSHAKE_H */

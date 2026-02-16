@@ -41,6 +41,7 @@ size_t bc_buf_remaining(const bc_buffer_t *buf);
 /* --- Write primitives --- */
 bool bc_buf_write_u8(bc_buffer_t *buf, u8 val);
 bool bc_buf_write_u16(bc_buffer_t *buf, u16 val);
+bool bc_buf_write_u32(bc_buffer_t *buf, u32 val);
 bool bc_buf_write_i32(bc_buffer_t *buf, i32 val);
 bool bc_buf_write_f32(bc_buffer_t *buf, f32 val);
 bool bc_buf_write_bytes(bc_buffer_t *buf, const u8 *src, size_t len);
@@ -49,6 +50,7 @@ bool bc_buf_write_bit(bc_buffer_t *buf, bool val);
 /* --- Read primitives --- */
 bool bc_buf_read_u8(bc_buffer_t *buf, u8 *out);
 bool bc_buf_read_u16(bc_buffer_t *buf, u16 *out);
+bool bc_buf_read_u32(bc_buffer_t *buf, u32 *out);
 bool bc_buf_read_i32(bc_buffer_t *buf, i32 *out);
 bool bc_buf_read_f32(bc_buffer_t *buf, f32 *out);
 bool bc_buf_read_bytes(bc_buffer_t *buf, u8 *dst, size_t len);
