@@ -81,7 +81,9 @@ int bc_transport_build_reliable(u8 *out, int out_size,
                                 const u8 *payload, int payload_len,
                                 u16 seq)
 {
-    /* Format: [direction=0x01][count=1][0x32][totalLen][flags][seqHi][seqLo][payload] */
+    /* Format: [direction=0x01][count=1][0x32][totalLen][flags][seqHi][seqLo][payload]
+     * Wire protocol: seq counter goes in seqHi byte, seqLo is always 0.
+     * Real BC increments by 256 on the wire (only high byte changes). */
     int total_msg_len = 5 + payload_len;  /* type(1) + totalLen(1) + flags(1) + seq(2) + payload */
     int packet_len = 2 + total_msg_len;   /* direction + count + msg */
 
@@ -92,8 +94,8 @@ int bc_transport_build_reliable(u8 *out, int out_size,
     out[2] = BC_TRANSPORT_RELIABLE;
     out[3] = (u8)total_msg_len;
     out[4] = 0x80;  /* reliable flag */
-    out[5] = (u8)(seq >> 8);
-    out[6] = (u8)(seq & 0xFF);
+    out[5] = (u8)(seq & 0xFF);  /* counter → seqHi */
+    out[6] = 0;                  /* seqLo always 0 */
     memcpy(out + 7, payload, (size_t)payload_len);
 
     return packet_len;
@@ -101,13 +103,16 @@ int bc_transport_build_reliable(u8 *out, int out_size,
 
 int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags)
 {
-    /* Format: [direction=0x01][count=1][0x01][seq_lo][0x00][flags] */
+    /* Format: [direction=0x01][count=1][0x01][counter][0x00][flags]
+     * The ACK byte references the seqHi byte of the reliable message.
+     * Since incoming reliable seqs are parsed as (seqHi << 8 | seqLo),
+     * we extract the counter with >> 8. */
     if (out_size < 6) return -1;
 
     out[0] = BC_DIR_SERVER;
     out[1] = 1;
     out[2] = BC_TRANSPORT_ACK;
-    out[3] = (u8)(seq & 0xFF);
+    out[3] = (u8)(seq >> 8);  /* counter = high byte of wire seq */
     out[4] = 0x00;
     out[5] = flags;
 

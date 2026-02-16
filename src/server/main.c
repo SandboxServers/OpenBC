@@ -174,9 +174,10 @@ static void send_settings_and_gameinit(const bc_addr_t *to, int peer_slot)
     printf("[handshake] slot=%d reached LOBBY state\n", peer_slot);
 
     /* Notify all peers (including the new player) about the new player.
-     * Opcode 0x2A triggers client-side InitNetwork + object replication. */
-    u8 npig[1] = { BC_OP_NEW_PLAYER_IN_GAME };
-    send_to_all(npig, 1);
+     * Opcode 0x2A triggers client-side InitNetwork + object replication.
+     * Wire format: [0x2A][0x20] — trailing space byte observed in traces. */
+    u8 npig[2] = { BC_OP_NEW_PLAYER_IN_GAME, 0x20 };
+    send_to_all(npig, 2);
     printf("[handshake] slot=%d sent NewPlayerInGame to all\n", peer_slot);
 }
 
@@ -473,6 +474,28 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
             printf("[net] Player disconnected: %s (slot %d)\n", addr_str, slot);
             handle_peer_disconnect(slot);
             return;
+        }
+
+        /* Keepalive: extract player name (UTF-16LE) from handshake.
+         * Format: [0x00][totalLen][flags:1][?:2][slot?:1][ip:4][name_utf16le...] */
+        if (msg->type == BC_TRANSPORT_KEEPALIVE && msg->payload_len >= 8) {
+            bc_peer_t *peer = &g_peers.peers[slot];
+            if (peer->name[0] == '\0') {
+                const u8 *name_start = msg->payload + 8;
+                int name_bytes = msg->payload_len - 8;
+                int j = 0;
+                for (int k = 0; k + 1 < name_bytes && j < 30; k += 2) {
+                    u8 lo = name_start[k];
+                    u8 hi = name_start[k + 1];
+                    if (lo == 0 && hi == 0) break;
+                    peer->name[j++] = (char)(hi == 0 ? lo : '?');
+                }
+                peer->name[j] = '\0';
+                if (j > 0) {
+                    printf("[net] slot=%d player name: %s\n", slot, peer->name);
+                }
+            }
+            continue;
         }
 
         /* Game message (reliable or unreliable) */

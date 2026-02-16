@@ -8,8 +8,8 @@
  * Master server heartbeat -- registers with a GameSpy-compatible master
  * server for internet play discovery.
  *
- * Heartbeat format: \heartbeat\<port>\gamename\stbc\
- * Shutdown format:  \heartbeat\<port>\gamename\stbc\final\
+ * Heartbeat format: \heartbeat\<port>\gamename\bcommander\
+ * Shutdown format:  \heartbeat\<port>\gamename\bcommander\final\
  *
  * Sent via UDP to the master server at a configurable interval (default 60s).
  * The master server tracks active game servers and responds to GameSpy

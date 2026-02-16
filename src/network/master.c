@@ -73,11 +73,11 @@ static void send_heartbeat(bc_master_t *ms, bc_socket_t *sock, bool final)
     int len;
     if (final) {
         len = snprintf(buf, sizeof(buf),
-                       "\\heartbeat\\%u\\gamename\\stbc\\final\\",
+                       "\\heartbeat\\%u\\gamename\\bcommander\\final\\",
                        ms->game_port);
     } else {
         len = snprintf(buf, sizeof(buf),
-                       "\\heartbeat\\%u\\gamename\\stbc\\",
+                       "\\heartbeat\\%u\\gamename\\bcommander\\",
                        ms->game_port);
     }
 

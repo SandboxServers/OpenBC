@@ -918,6 +918,93 @@ TEST(fragment_reset)
     ASSERT_EQ_INT(frag.frags_received, 0);
 }
 
+/* === Transport wire format tests === */
+
+TEST(transport_reliable_seq_wire_format)
+{
+    u8 pkt[64];
+    u8 payload[] = { 0x20, 0x00 };  /* Checksum request round 0 */
+
+    /* seq=0 → wire [seqHi=0x00][seqLo=0x00] */
+    int len = bc_transport_build_reliable(pkt, sizeof(pkt), payload, 2, 0);
+    ASSERT(len > 0);
+    ASSERT_EQ(pkt[0], BC_DIR_SERVER);
+    ASSERT_EQ(pkt[1], 1);
+    ASSERT_EQ(pkt[2], BC_TRANSPORT_RELIABLE);
+    ASSERT_EQ(pkt[4], 0x80);  /* flags */
+    ASSERT_EQ(pkt[5], 0x00);  /* seqHi = counter 0 */
+    ASSERT_EQ(pkt[6], 0x00);  /* seqLo = 0 */
+
+    /* seq=1 → wire [seqHi=0x01][seqLo=0x00] */
+    len = bc_transport_build_reliable(pkt, sizeof(pkt), payload, 2, 1);
+    ASSERT(len > 0);
+    ASSERT_EQ(pkt[5], 0x01);  /* seqHi = counter 1 */
+    ASSERT_EQ(pkt[6], 0x00);  /* seqLo = 0 */
+
+    /* seq=5 → wire [seqHi=0x05][seqLo=0x00] */
+    len = bc_transport_build_reliable(pkt, sizeof(pkt), payload, 2, 5);
+    ASSERT(len > 0);
+    ASSERT_EQ(pkt[5], 0x05);  /* seqHi = counter 5 */
+    ASSERT_EQ(pkt[6], 0x00);  /* seqLo = 0 */
+}
+
+TEST(transport_ack_references_seqhi)
+{
+    u8 pkt[16];
+
+    /* ACKing a reliable msg with wire seq=0x0000 (counter 0) */
+    int len = bc_transport_build_ack(pkt, sizeof(pkt), 0x0000, 0x80);
+    ASSERT_EQ_INT(len, 6);
+    ASSERT_EQ(pkt[3], 0x00);  /* ACK byte = 0 */
+
+    /* ACKing a reliable msg with wire seq=0x0100 (counter 1) */
+    len = bc_transport_build_ack(pkt, sizeof(pkt), 0x0100, 0x80);
+    ASSERT_EQ_INT(len, 6);
+    ASSERT_EQ(pkt[3], 0x01);  /* ACK byte = 1 */
+
+    /* ACKing a reliable msg with wire seq=0x0500 (counter 5) */
+    len = bc_transport_build_ack(pkt, sizeof(pkt), 0x0500, 0x80);
+    ASSERT_EQ_INT(len, 6);
+    ASSERT_EQ(pkt[3], 0x05);  /* ACK byte = 5 */
+}
+
+TEST(transport_reliable_parse_round_trip)
+{
+    u8 pkt[64];
+    u8 payload[] = { 0x21, 0x00 };  /* Checksum response */
+
+    /* Build reliable with counter=3 */
+    int len = bc_transport_build_reliable(pkt, sizeof(pkt), payload, 2, 3);
+    ASSERT(len > 0);
+
+    /* Parse it back */
+    bc_packet_t parsed;
+    ASSERT(bc_transport_parse(pkt, len, &parsed));
+    ASSERT_EQ_INT(parsed.msg_count, 1);
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_RELIABLE);
+    /* Parsed seq = (seqHi << 8) | seqLo = (3 << 8) | 0 = 0x0300 = 768 */
+    ASSERT_EQ_INT(parsed.msgs[0].seq, 768);
+    ASSERT_EQ_INT(parsed.msgs[0].payload_len, 2);
+    ASSERT_EQ(parsed.msgs[0].payload[0], 0x21);
+}
+
+TEST(transport_ack_round_trip)
+{
+    u8 pkt[16];
+
+    /* Build ACK for wire seq=768 (counter 3) */
+    int len = bc_transport_build_ack(pkt, sizeof(pkt), 768, 0x00);
+    ASSERT_EQ_INT(len, 6);
+
+    /* Parse it back */
+    bc_packet_t parsed;
+    ASSERT(bc_transport_parse(pkt, len, &parsed));
+    ASSERT_EQ_INT(parsed.msg_count, 1);
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_ACK);
+    /* Parsed ACK seq = 1 byte = counter 3 */
+    ASSERT_EQ_INT(parsed.msgs[0].seq, 3);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -998,4 +1085,10 @@ TEST_MAIN_BEGIN()
     RUN(reliable_add_and_ack);
     RUN(reliable_timeout_detection);
     RUN(reliable_retransmit);
+
+    /* Transport wire format */
+    RUN(transport_reliable_seq_wire_format);
+    RUN(transport_ack_references_seqhi);
+    RUN(transport_reliable_parse_round_trip);
+    RUN(transport_ack_round_trip);
 TEST_MAIN_END()

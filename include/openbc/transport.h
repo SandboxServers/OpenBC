@@ -13,13 +13,18 @@
  *   [direction:1][msg_count:1][transport_msg...]
  *
  * Transport message types:
- *   0x01 ACK:      [0x01][seq:1][0x00][flags:1]             (4 bytes fixed)
- *   0x32 Reliable: [0x32][totalLen:1][flags:1][seqHi:1][seqLo:1][payload...]
+ *   0x01 ACK:      [0x01][counter:1][0x00][flags:1]          (4 bytes fixed)
+ *   0x32 Reliable: [0x32][totalLen:1][flags:1][counter:1][0x00][payload...]
  *   Other:         [type:1][totalLen:1][data...]
+ *
+ * Reliable sequence numbering:
+ *   Counter starts at 0 and increments by 1 for each reliable message sent.
+ *   On the wire: seqHi = counter, seqLo = 0 (wire value increments by 256).
+ *   ACK references the counter byte (seqHi).
  *
  * Direction bytes:
  *   0x01 = from server
- *   0x02 = from client
+ *   0x02 = from client (0x02 + peer_index for multiple clients)
  *   0xFF = initial handshake
  */
 
