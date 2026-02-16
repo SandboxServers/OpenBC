@@ -749,6 +749,28 @@ TEST(checksum_resp_validate_file_missing)
     ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_FILE_MISSING);
 }
 
+/* === UICollisionSetting tests === */
+
+TEST(ui_collision_build)
+{
+    u8 buf[16];
+    int len = bc_ui_collision_build(buf, sizeof(buf), true);
+    ASSERT(len > 0);
+    ASSERT_EQ(buf[0], BC_OP_UI_SETTINGS);
+
+    /* Parse back */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode;
+    ASSERT(bc_buf_read_u8(&b, &opcode));
+    ASSERT_EQ(opcode, BC_OP_UI_SETTINGS);
+
+    bool collision;
+    ASSERT(bc_buf_read_bit(&b, &collision));
+    ASSERT(collision == true);
+}
+
 /* === BootPlayer and disconnect tests === */
 
 TEST(bootplayer_build_server_full)
@@ -963,6 +985,9 @@ TEST_MAIN_BEGIN()
     RUN(fragment_three_part_reassembly);
     RUN(fragment_two_part_reassembly);
     RUN(fragment_reset);
+
+    /* UICollisionSetting */
+    RUN(ui_collision_build);
 
     /* BootPlayer and disconnect */
     RUN(bootplayer_build_server_full);

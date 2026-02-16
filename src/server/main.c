@@ -151,6 +151,14 @@ static void send_settings_and_gameinit(const bc_addr_t *to, int peer_slot)
         send_reliable(to, peer_slot, payload, len);
     }
 
+    /* UICollisionSetting (opcode 0x16) -- reliable */
+    len = bc_ui_collision_build(payload, sizeof(payload), g_collision_dmg);
+    if (len > 0) {
+        printf("[handshake] slot=%d sending UICollisionSetting (collision=%d)\n",
+               peer_slot, g_collision_dmg);
+        send_reliable(to, peer_slot, payload, len);
+    }
+
     /* GameInit (opcode 0x01) -- reliable */
     len = bc_gameinit_build(payload, sizeof(payload));
     if (len > 0) {

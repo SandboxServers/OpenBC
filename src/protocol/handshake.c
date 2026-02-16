@@ -76,6 +76,17 @@ int bc_gameinit_build(u8 *buf, int buf_size)
     return 1;
 }
 
+int bc_ui_collision_build(u8 *buf, int buf_size, bool collision_enabled)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_UI_SETTINGS)) return -1;
+    if (!bc_buf_write_bit(&b, collision_enabled)) return -1;
+
+    return (int)b.pos;
+}
+
 int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason)
 {
     if (buf_size < 2) return -1;

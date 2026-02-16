@@ -44,6 +44,13 @@ int bc_settings_build(u8 *buf, int buf_size,
  * Returns bytes written (always 1), or -1 on error. */
 int bc_gameinit_build(u8 *buf, int buf_size);
 
+/* --- UICollisionSetting (opcode 0x16) --- */
+
+/* Build a UICollisionSetting payload (opcode 0x16).
+ * Sends the collision damage enabled flag to the client UI.
+ * Returns bytes written, or -1 on error. */
+int bc_ui_collision_build(u8 *buf, int buf_size, bool collision_enabled);
+
 /* --- BootPlayer and disconnect messages --- */
 
 /* BootPlayer reasons (opcode 0x04) */
