@@ -1,951 +1,854 @@
-# OpenBC Phase 1: SWIG API Surface Catalog
+# OpenBC Phase 1: Data Registry Specification
 
 ## Document Status
-- **Generated**: 2026-02-07
-- **Revised**: 2026-02-08 -- Expanded from lobby-only (~310 functions) to playable dedicated server (~595 functions)
-- **Source**: swig-api-compat agent analysis of App.py (14,078 lines, 630 classes), gameplay-api-expansion analysis, mod-compat-tester gameplay analysis, physics-sim relay analysis
-- **Reference**: `reference/scripts/App.py` from BC game data
+- **Created**: 2026-02-15
+- **Revised**: 2026-02-15 (complete rewrite: verified data only, all hallucinations removed)
+- **Replaces**: SWIG API Surface Catalog (2026-02-08)
+- **Sources**: All data traced to files in `../STBC-Dedicated-Server/reference/scripts/` unless otherwise noted
+- **Context**: Phase 1 is a standalone C server with data-driven configuration. No Python scripting layer. All game data previously loaded via Python scripts is expressed as static data files (TOML for human-authored, JSON for tool-generated).
 
 ---
 
-## 1. Summary
+## 1. Species ID Registry
 
-| Category | Count |
-|----------|-------|
-| Must Implement (full behavior) | ~330 functions |
-| Stub OK (return None/0/no-op) | ~190 functions |
-| Not Needed (client-only) | ~75 functions |
-| **Total Functions** | **~595** |
-| Constants (ET_*, CT_*, SPECIES_*, etc.) | ~345 |
-| Singleton Globals (g_k*) | ~29 |
-| SWIG-Wrapped Classes | 40+ |
+### 1.1 Source
 
-### Delta from Lobby-Only Catalog
+Species numeric IDs are assigned via `SetSpecies()` calls in individual hardpoint scripts (`ships/Hardpoints/*.py`). The definitive mapping is below.
 
-| Category | Lobby-Only | Gameplay Expansion | Combined Total |
-|----------|-----------|-------------------|----------------|
-| Must Implement | ~185 | ~145 | ~330 |
-| Stub OK | ~80 | ~110 | ~190 |
-| Not Needed | ~45 | ~30 | ~75 |
-| Constants (new) | ~280 | ~65 | ~345 |
-| Total Functions | ~310 | ~285 | ~595 |
+### 1.2 Complete Species ID Table
 
-### New Class Categories (Not In Lobby-Only Catalog)
-1. **Ship Object Hierarchy** -- ShipClass, DamageableObject, PhysicsObjectClass, ObjectClass, BaseObjectClass
-2. **Combat/Gameplay Events** -- WeaponHitEvent, ObjectExplodingEvent, ObjectCreatedEvent
-3. **Object Group Management** -- ObjectGroup, ObjectGroupWithInfo
-4. **Property System** -- 16 property types with Create + ~200 Set* methods
-5. **3D Math Types** -- TGPoint3/NiPoint3, TGColorA
-6. **Action/Sequence System** -- TGSequence, TGScriptAction, TGSoundAction, SubtitleAction
-7. **Torpedo Lifecycle** -- Torpedo_Create and related methods
-8. **Proximity/Spatial** -- ProximityManager, SetClass.IsLocationEmptyTG
-9. **Game/Mission Extensions** -- Difficulty system, MultiplayerGame gameplay methods
-10. **UI Stubs** -- ~80 no-op functions for headless mode
+| ID | Ship/Object | Hardpoint File | Faction |
+|----|-------------|----------------|---------|
+| 1 | GenericTemplate | GenericTemplate.py | -- |
+| 101 | Galaxy | galaxy.py | Federation |
+| 102 | Sovereign | sovereign.py | Federation |
+| 103 | Akira | akira.py | Federation |
+| 104 | Ambassador | ambassador.py | Federation |
+| 105 | Nebula | nebula.py | Federation |
+| 105 | Peregrine (alias) | peregrine.py | Federation |
+| 106 | Shuttle | shuttle.py | Federation |
+| 107 | Transport | transport.py | Federation |
+| 108 | Freighter | freighter.py | Federation |
+| 201 | Galor | galor.py | Cardassian |
+| 202 | Keldon | keldon.py | Cardassian |
+| 203 | CardFreighter | cardfreighter.py | Cardassian |
+| 204 | CardHybrid | cardhybrid.py | Cardassian |
+| 301 | Warbird | warbird.py | Romulan |
+| 401 | BirdOfPrey | birdofprey.py | Klingon |
+| 402 | Vor'cha | vorcha.py | Klingon |
+| 501 | KessokHeavy | kessokheavy.py | Kessok |
+| 502 | KessokLight | kessoklight.py | Kessok |
+| 503 | KessokMine | kessokmine.py | Kessok |
+| 601 | Marauder | marauder.py | Ferengi |
+| 701 | FedStarbase | fedstarbase.py | Federation |
+| 702 | FedOutpost | fedoutpost.py | Federation |
+| 703 | CardStarbase | cardstarbase.py | Cardassian |
+| 704 | CardOutpost, CardFacility | cardoutpost.py, cardfacility.py | Cardassian |
+| 705 | CardStation | cardstation.py | Cardassian |
+| 706 | DryDock | drydock.py | Federation |
+| 707 | SpaceFacility | spacefacility.py | -- |
+| 708 | CommArray, CommLight | commarray.py, commlight.py | -- |
+| 710 | Probe | probe.py | -- |
+| 711 | Probe2 | probe2.py | -- |
+| 712 | Asteroid (all types) | asteroid*.py, amagon.py | -- |
+| 713 | SunBuster | sunbuster.py | -- |
+| 714 | EscapePod | escapepod.py | -- |
 
----
+### 1.3 Numbering Scheme
 
-## 2. Class-by-Class Catalog
+- **1xx** = Federation ships
+- **2xx** = Cardassian ships
+- **3xx** = Romulan ships
+- **4xx** = Klingon ships
+- **5xx** = Kessok ships/objects
+- **6xx** = Ferengi ships
+- **7xx** = Stations and fixed objects
+- **710+** = Probes, asteroids, misc objects
 
-### 2.1 TGNetwork (28 methods + 12 constants)
+### 1.4 Shared IDs
 
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| TGNetwork_Update | (self) | Main network tick |
-| TGNetwork_Connect | (self) | Start hosting, returns 0=success |
-| TGNetwork_Disconnect | (self) | Tear down connection |
-| TGNetwork_GetConnectStatus | (self) -> int | 2=hosting, 3=host-active |
-| TGNetwork_CreateLocalPlayer | (self, TGString) -> int | Returns player_id |
-| TGNetwork_DeleteLocalPlayer | (self, ?) | Delete local player |
-| TGNetwork_SetName | (self, TGString) | Set server name |
-| TGNetwork_GetName | (self) -> TGStringPtr | Get server name |
-| TGNetwork_GetCName | (self) -> str | Get C string name |
-| TGNetwork_SendTGMessage | (self, toID, msg) | Send to player (0=all) |
-| TGNetwork_SendTGMessageToGroup | (self, group, msg) | Send to group |
-| TGNetwork_GetNextMessage | (self) -> TGMessagePtr/None | Poll next message |
-| TGNetwork_GetHostID | (self) -> int | Returns 1 when hosting |
-| TGNetwork_GetLocalID | (self) -> int | Local player ID |
-| TGNetwork_IsHost | (self) -> int | 1 if hosting |
-| TGNetwork_GetNumPlayers | (self) -> int | Connected players |
-| TGNetwork_SetPassword | (self, TGString) | Server password |
-| TGNetwork_GetPassword | (self) -> TGStringPtr | Get password |
-| TGNetwork_GetPlayerList | (self) -> TGPlayerListPtr | Player list |
-| TGNetwork_SetSendTimeout | (self, seconds) | Send timeout |
-| TGNetwork_SetConnectionTimeout | (self, seconds) | Connection timeout |
-| TGNetwork_SetBootReason | (self, reason) | Boot reason code |
-| TGNetwork_GetBootReason | (self) -> int | Get boot reason |
-| TGNetwork_GetHostName | (self) -> TGStringPtr | Host player name |
-| TGNetwork_GetLocalIPAddress | (self) -> str | Local IP |
-| TGNetwork_RegisterHandlers | () | Static |
-| TGNetwork_AddClassHandlers | () | Static |
-| TGNetwork_RegisterMessageType | (net, ?) | Register msg type |
+Several objects share species IDs:
+- **105**: Nebula and Peregrine (Peregrine is an alias for Nebula)
+- **704**: CardOutpost and CardFacility
+- **708**: CommArray and CommLight
+- **712**: All asteroid variants (Asteroid, AsteroidField, Amagon, etc.)
 
-**Stub OK**: SetEncryptor, GetEncryptor, AddGroup, DeleteGroup, GetGroup, EnableProfiling, GetIPPacketHeaderSize, GetTimeElapsedSinceLastHostPing
+### 1.5 GlobalPropertyTemplates Discrepancy
 
-**Constants**: TGNETWORK_MAX_SENDS_PENDING, TGNETWORK_INVALID_ID, TGNETWORK_NULL_ID, DEFAULT_BOOT, TIMED_OUT, INCORRECT_PASSWORD, TOO_MANY_PLAYERS, SERVER_BOOTED_YOU, YOU_ARE_BANNED, etc.
+`GlobalPropertyTemplates.py` assigns species IDs that sometimes differ from the hardpoint `SetSpecies()` calls:
+- CardStarbase: template has species 702, hardpoint has 703
+- CardOutpost: template has species 702, hardpoint has 704
+
+The hardpoint `SetSpecies()` values are authoritative -- they are what the game engine uses at runtime.
 
 ---
 
-### 2.2 TGWinsockNetwork (6 methods + 3 constants)
+## 2. Ship Manifest (kSpeciesTuple)
 
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_TGWinsockNetwork | () -> TGWinsockNetwork | Create network object |
-| delete_TGWinsockNetwork | (self) | Destroy |
-| TGWinsockNetwork_SetPortNumber | (self, port) | Set listen port |
-| TGWinsockNetwork_GetPortNumber | (self) -> int | Get port |
-| TGWinsockNetwork_GetLocalIPAddress | (self) -> str | Local IP |
-| TGWinsockNetwork_BanPlayerByIP | (ip) | Static: ban by IP |
-| TGWinsockNetwork_BanPlayerByName | (name) | Static: ban by name |
+### 2.1 Source
+
+`Multiplayer/SpeciesToShip.py` defines `kSpeciesTuple` -- the master table mapping ship script names to species constants, factions, and modifier classes. This is the definitive list of all objects in the multiplayer system.
+
+### 2.2 Key Constants
+
+- `MAX_SHIPS = 46` (total entries in kSpeciesTuple)
+- `MAX_FLYABLE_SHIPS = 16` (first 16 entries are player-selectable ships)
+
+### 2.3 Structure
+
+Each kSpeciesTuple entry is a 4-element tuple:
+```
+(ScriptName, App.SPECIES_*, Faction, ModifierClass)
+```
+
+Exception: CardFreighter has a 5-element tuple (extra display name field).
+
+### 2.4 Critical Finding: All Modifier Classes Are 1
+
+**Every single entry in vanilla kSpeciesTuple has `modifier_class = 1`.** The modifier table has a 3.0 multiplier at position `[2][1]` (class 2 attacker vs class 1 target), but since no vanilla ship is class 2, this multiplier **never triggers** in stock multiplayer. It exists only for potential mod use.
+
+### 2.5 Ship Aliases
+
+kSpeciesTuple contains aliased entries where a script name maps to a different ship's species:
+- `Enterprise` -> `App.SPECIES_SOVEREIGN` (alias for Sovereign)
+- `Geronimo` -> `App.SPECIES_AKIRA` (alias for Akira)
+- `Peregrine` -> `App.SPECIES_NEBULA` (alias for Nebula, species 105)
+- `BiranuStation` -> `App.SPECIES_SPACE_FACILITY` (alias for SpaceFacility)
+- All asteroid variants -> `App.SPECIES_ASTEROID` (species 712)
+
+### 2.6 Flyable Ships (Indices 0-15)
+
+The first 16 entries in kSpeciesTuple are the ships available for player selection in multiplayer. The exact order determines the ship selection index sent over the wire.
 
 ---
 
-### 2.3 TGMessage (47 methods + 3 constants)
+## 3. Modifier Table
 
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_TGMessage | (*args) | Create |
-| delete_TGMessage | (self) | Destroy |
-| TGMessage_Create | () -> TGMessagePtr | Static factory |
-| TGMessage_SetGuaranteed | (self, flag) | Mark reliable |
-| TGMessage_IsGuaranteed | (self) -> int | Check reliable |
-| TGMessage_SetDataFromStream | (self, stream) | Set from buffer |
-| TGMessage_GetBufferStream | (self) -> TGBufferStreamPtr | Get read stream |
-| TGMessage_GetData / SetData | (self, ...) | Raw data access |
-| TGMessage_GetDataLength | (self) -> int | Data length |
-| TGMessage_Copy | (self) -> TGMessagePtr | Copy message |
-| TGMessage_Serialize | (self, stream) | Serialize |
-| TGMessage_UnSerialize | (stream) -> TGMessagePtr | Static: deserialize |
-| TGMessage_GetFromID / SetFromID | (self, ...) | Sender ID |
-| TGMessage_GetToID / SetToID | (self, ...) | Recipient ID |
-| TGMessage_SetHighPriority / IsHighPriority | (self, ...) | Priority flag |
-| TGMessage_SetSequenceNumber / GetSequenceNumber | (self, ...) | Sequence |
+### 3.1 Source
 
-**Stub OK**: SetFirstResendTime, SetBackoffType, SetBackoffFactor, ReadyToResend, SetTimeStamp, SetNumRetries, SetMultiPartSequenceNumber, SetMultiPart, SetAggregate, BreakUpMessage, Merge, OverrideOldPackets
+`Multiplayer/Modifier.py` defines `g_kModifierTable` and `GetModifier()`.
+
+### 3.2 Table
+
+```python
+g_kModifierTable = (
+    (1.0, 1.0, 1.0),   # Class 0 attacking class 0, 1, 2
+    (1.0, 1.0, 1.0),   # Class 1 attacking class 0, 1, 2
+    (1.0, 3.0, 1.0),   # Class 2 attacking class 0, 1, 2
+)
+```
+
+### 3.3 Lookup Function
+
+```python
+def GetModifier(attackerClass, killedClass):
+    return g_kModifierTable[attackerClass][killedClass]
+```
+
+Direct table lookup with **no bounds checking**. Out-of-range indices will crash.
+
+### 3.4 Effective Behavior
+
+Since all vanilla ships are modifier class 1 (Section 2.4), the effective modifier for any vanilla kill is always `g_kModifierTable[1][1] = 1.0`. The 3.0 penalty at `[2][1]` was designed to penalize heavy ships (class 2) killing light ships (class 1), but no vanilla ships are assigned to either class 0 or class 2.
 
 ---
 
-### 2.4 TGMessage Subtypes (6 classes, ~20 methods each)
+## 4. Map Registry
 
-| Class | Key Methods | Purpose |
-|-------|-------------|---------|
-| TGNameChangeMessage | new_, delete_, Copy, Serialize, UnSerialize | Name changes |
-| TGAckMessage | new_, delete_, Copy, Serialize, SetSystemMessage | ACK packets |
-| TGDoNothingMessage | new_, delete_, Copy, Serialize | Keepalive |
-| TGBootPlayerMessage | new_, delete_, Copy, SetBootReason, GetBootReason | Boot players |
-| TGConnectMessage | new_, delete_, Copy, Serialize | Connection |
-| TGDisconnectMessage | new_, delete_, Copy, Serialize | Disconnection |
+### 4.1 Source
 
----
+`Multiplayer/SpeciesToSystem.py` defines the map list.
 
-### 2.5 TGBufferStream (30 methods)
+### 4.2 Map Table
 
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_TGBufferStream | (*args) | Create |
-| delete_TGBufferStream | (self) | Destroy |
-| TGBufferStream_OpenBuffer | (self, size) | Open with size |
-| TGBufferStream_Close | (self) | Close buffer |
-| TGBufferStream_ReadChar / WriteChar | (self, ...) | 1 byte |
-| TGBufferStream_ReadInt / WriteInt | (self, ...) | 4-byte int |
-| TGBufferStream_ReadShort / WriteShort | (self, ...) | 2-byte short |
-| TGBufferStream_ReadFloat / WriteFloat | (self, ...) | 4-byte float |
-| TGBufferStream_ReadBool / WriteBool | (self, ...) | Bool |
-| TGBufferStream_ReadCString / WriteCString | (self, ...) | C string |
-| TGBufferStream_ReadCLine / WriteCLine | (self, ...) | Line |
-| TGBufferStream_GetBuffer | (self) | Raw buffer |
-| TGBufferStream_SetWriteMode / GetWriteMode | (self, ...) | R/W mode |
+| Index | Key | Load Path | Type |
+|-------|-----|-----------|------|
+| 0 | Multi1 | `Systems.Multi1.Multi1` | Multiplayer |
+| 1 | Multi2 | `Systems.Multi2.Multi2` | Multiplayer |
+| 2 | Multi3 | `Systems.Multi3.Multi3` | Multiplayer |
+| 3 | Multi4 | `Systems.Multi4.Multi4` | Multiplayer |
+| 4 | Multi5 | `Systems.Multi5.Multi5` | Multiplayer |
+| 5 | Multi6 | `Systems.Multi6.Multi6` | Multiplayer |
+| 6 | Multi7 | `Systems.Multi7.Multi7` | Multiplayer |
+| 7 | Albirea | `Systems.Albirea.Albirea` | Campaign |
+| 8 | Poseidon | `Systems.Poseidon.Poseidon` | Campaign |
 
-**Stub OK**: ReadDouble/WriteDouble, ReadLong/WriteLong, ReadCWLine/WriteCWLine, ReadWChar/WriteWChar, ReadID/WriteID
+- `MAX_SYSTEMS = 10` (array size, 9 entries used)
+- Module load path format: `Systems.{MapName}.{MapName}`
+- The `protocol_name` sent in the Settings packet (0x00) is this load path string
+
+### 4.3 Notes
+
+- Map display names (e.g., "Vesuvi System" for Multi1) are not in SpeciesToSystem.py. They are set in each map's own script. Extracting display names requires reading each `Systems/Multi*/Multi*.py` script.
+- Spawn point positions must be extracted from each map script's `SetTranslate()` / `SetTranslateXYZ()` calls.
+- Campaign maps (Albirea, Poseidon) are in the array but not normally selectable in multiplayer.
 
 ---
 
-### 2.6 TGEvent System (6 classes, ~60 methods total)
+## 5. Checksum Manifest
 
-**TGEvent** (17 methods) - Must Implement ALL:
+### 5.1 Source
+
+Verified from `../STBC-Dedicated-Server/docs/wire-format-spec.md` and protocol traces.
+
+### 5.2 Checksum Directory Rounds
+
+The server sends 4 sequential checksum requests (opcode 0x20). Each round validates a specific directory scope:
+
+| Round | Directory | Filter | Recursive | Notes |
+|-------|-----------|--------|-----------|-------|
+| 0 | `scripts/` | `App.pyc` | No | Single file |
+| 1 | `scripts/` | `Autoexec.pyc` | No | Single file |
+| 2 | `scripts/ships/` | `*.pyc` | Yes | All ship + hardpoint scripts |
+| 3 | `scripts/mainmenu/` | `*.pyc` | No | Main menu scripts only |
+
+**`scripts/Custom/` is EXEMPT from all checksum validation.** This is where mods install (DedicatedServer.py, Foundation Technologies, NanoFX, etc.).
+
+### 5.3 Hash Algorithms
+
+**StringHash** (FUN_007202e0 at stbc.exe): 4-lane Pearson hash using four 256-byte substitution tables (1,024 bytes total at 0x0095c888-0x0095cc87).
+
+```c
+uint32_t StringHash(const char *str) {
+    uint32_t h0 = 0, h1 = 0, h2 = 0, h3 = 0;
+    while (*str) {
+        uint8_t c = (uint8_t)*str++;
+        h0 = TABLE_0[c ^ h0];
+        h1 = TABLE_1[c ^ h1];
+        h2 = TABLE_2[c ^ h2];
+        h3 = TABLE_3[c ^ h3];
+    }
+    return (h0 << 24) | (h1 << 16) | (h2 << 8) | h3;
+}
 ```
-new_TGEvent, delete_TGEvent, TGEvent_Create(), TGEvent_Cast()
-GetEventType, SetEventType, GetSource, SetSource
-GetDestination, SetDestination, GetTimestamp, SetTimestamp
-Copy, Duplicate, IncRefCount, DecRefCount, GetRefCount
-SetLogged/IsLogged, SetPrivate/IsPrivate
+
+Used for: directory name hashing, filename hashing, version string hashing.
+
+**FileHash** (FUN_006a62f0 at stbc.exe): Rotate-XOR over file contents.
+
+```c
+uint32_t FileHash(const uint8_t *data, size_t len) {
+    uint32_t hash = 0;
+    const uint32_t *dwords = (const uint32_t *)data;
+    size_t count = len / 4;
+    for (size_t i = 0; i < count; i++) {
+        if (i == 1) continue;  // Skip DWORD index 1 (bytes 4-7 = .pyc timestamp)
+        hash ^= dwords[i];
+        hash = (hash << 1) | (hash >> 31);  // ROL 1
+    }
+    // Remaining bytes (len % 4): MOVSX sign-extension before XOR
+    size_t remainder = len % 4;
+    if (remainder > 0) {
+        const uint8_t *tail = data + (count * 4);
+        for (size_t i = 0; i < remainder; i++) {
+            int32_t extended = (int8_t)tail[i];  // MOVSX
+            hash ^= (uint32_t)extended;
+            hash = (hash << 1) | (hash >> 31);
+        }
+    }
+    return hash;
+}
 ```
 
-**Typed Events** - Must Implement:
-| Class | Methods | Used By |
-|-------|---------|---------|
-| TGBoolEvent | new_, GetBool, SetBool, ToggleBool, Create, Cast | Menu toggles |
-| TGIntEvent | new_, GetInt, SetInt, Create, Cast | MissionShared |
-| TGFloatEvent | new_, GetFloat, SetFloat, Create, Cast | Timers |
-| TGStringEvent | new_, GetString, SetString, Create, Cast | Name changes |
-| TGMessageEvent | new_, GetMessage, SetMessage, Create | Network messages |
-| TGPlayerEvent | new_, GetPlayerID, SetPlayerID, Create | Player events |
+Deliberately skips bytes 4-7 (.pyc modification timestamp) so that the same bytecode produces the same hash regardless of compile time.
 
-**Stub OK**: TGCharEvent, TGShortEvent, TGVoidPtrEvent, TGObjPtrEvent
+### 5.4 Version String Gate
+
+- Version string: `"60"` (at PTR_DAT_008d9af4)
+- Version hash: `StringHash("60") = 0x7E0CE243`
+- Checked in the first checksum round (index 0). Version mismatch causes immediate rejection via opcode 0x23.
+
+### 5.5 Hash Manifest JSON Schema
+
+```json
+{
+  "meta": {
+    "name": "Star Trek: Bridge Commander 1.1",
+    "description": "Vanilla BC 1.1 (GOG release)",
+    "generated": "2026-02-15T00:00:00Z",
+    "generator_version": "1.0.0",
+    "game_version": "60"
+  },
+  "version_string": "60",
+  "version_string_hash": "0x7E0CE243",
+  "directories": [
+    {
+      "index": 0,
+      "path": "scripts/",
+      "filter": "App.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x...",
+      "files": [
+        {
+          "filename": "App.pyc",
+          "name_hash": "0x...",
+          "content_hash": "0x..."
+        }
+      ],
+      "subdirs": []
+    },
+    {
+      "index": 1,
+      "path": "scripts/",
+      "filter": "Autoexec.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x...",
+      "files": [
+        {
+          "filename": "Autoexec.pyc",
+          "name_hash": "0x...",
+          "content_hash": "0x..."
+        }
+      ],
+      "subdirs": []
+    },
+    {
+      "index": 2,
+      "path": "scripts/ships/",
+      "filter": "*.pyc",
+      "recursive": true,
+      "dir_name_hash": "0x...",
+      "files": [],
+      "subdirs": [
+        {
+          "name": "Hardpoints",
+          "name_hash": "0x...",
+          "files": [
+            {
+              "filename": "sovereign.pyc",
+              "name_hash": "0x...",
+              "content_hash": "0x..."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "path": "scripts/mainmenu/",
+      "filter": "*.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x...",
+      "files": [
+        {
+          "filename": "mainmenu.pyc",
+          "name_hash": "0x...",
+          "content_hash": "0x..."
+        }
+      ],
+      "subdirs": []
+    }
+  ]
+}
+```
+
+### 5.6 Validation Flow
+
+1. Client connects. Server sends 4x opcode 0x20 (checksum request), one per directory.
+2. Client hashes its local files, sends 4x opcode 0x21 (checksum response trees).
+3. Server walks each response tree against the active manifest(s):
+   - Version string hash checked first (index 0 only) -- reject on mismatch (opcode 0x23)
+   - Directory name hashes compared
+   - File name hashes compared (sorted order)
+   - File content hashes compared
+4. All match any active manifest --> fire ChecksumComplete, send Settings (0x00) + GameInit (0x01)
+5. Mismatch --> send opcode 0x22 (file mismatch) or 0x23 (version mismatch) with failing filename
 
 ---
 
-### 2.7 TGEventHandlerObject (6 methods) - Must Implement ALL
-```
-TGEventHandlerObject_ProcessEvent(self, event)
-TGEventHandlerObject_CallNextHandler(self, event)
-TGEventHandlerObject_AddPythonFuncHandlerForInstance(self, evt_type, 'Module.FuncName')
-TGEventHandlerObject_AddPythonMethodHandlerForInstance(self, evt_type, 'Module.FuncName')
-TGEventHandlerObject_RemoveHandlerForInstance(self, evt_type, ?)
-TGEventHandlerObject_RemoveAllInstanceHandlers(self)
-TGEventHandlerObject_Cast(obj)  # Static
-```
+## 6. Settings Packet (0x00)
+
+### 6.1 Source
+
+Verified from protocol analysis and decompiled MultiplayerWindow opcode handler.
+
+### 6.2 Verified Fields
+
+The Settings packet contains game configuration sent to each connecting client. Verified fields:
+
+- **Game time**: Float, time elapsed in current game
+- **Player slot**: Integer, assigned slot index for this client
+- **Map name**: String, the `Systems.{MapName}.{MapName}` load path (must match what the client expects)
+- **Pass/fail**: Result of checksum validation
+- **Collision toggle**: Bit at DAT_008e5f59, controls whether collision damage is enabled
+- **Friendly fire toggle**: Bit at DAT_0097faa2, controls whether friendly fire is enabled
+
+Both toggles are written as individual bits (not full bytes).
+
+### 6.3 Notes
+
+The complete field layout of the Settings packet requires further extraction from the decompiled MultiplayerWindow handler. The fields listed above are the verified subset. Additional fields (time limit, frag limit, game mode) are present but their exact byte offsets need confirmation.
 
 ---
 
-### 2.8 TGEventManager (4 methods) - Must Implement ALL
-```
-TGEventManager_AddBroadcastPythonFuncHandler(self, evt_type, target, 'Module.Func')
-TGEventManager_AddBroadcastPythonMethodHandler(self, evt_type, target, 'Module.Func')
-TGEventManager_RemoveBroadcastHandler(self, ?)
-TGEventManager_RemoveAllBroadcastHandlersForObject(self, obj)
-TGEventManager_AddEvent(self, event)
-```
+## 7. ObjCreateTeam (0x03) Format
+
+### 7.1 Source
+
+Verified from `../STBC-Dedicated-Server/docs/objcreate-team-format.md`.
+
+### 7.2 Purpose
+
+Sent by the server when a player selects a ship. Creates the ship object for all clients. The packet contains the complete initial state of the ship including all subsystem health values.
+
+### 7.3 Ship Class Identification
+
+Ship classes are identified by their **subsystem data length fingerprint** -- different ship classes have different numbers of subsystems, which produces different packet sizes. The server uses subsystem count from the ship data registry to construct the correct-length packet.
+
+### 7.4 Subsystem Health Encoding
+
+Each subsystem's health is encoded as a single byte (0-255 mapped to 0.0-1.0 condition). At creation time, all subsystems start at full health (0xFF = 1.0).
+
+### 7.5 Notes
+
+The full packet layout is documented in `objcreate-team-format.md` in the STBC-Dedicated-Server repo. Key fields include: object ID, team assignment, species/net type, position, orientation, and the variable-length subsystem health array.
 
 ---
 
-### 2.9 UtopiaModule (~40 methods needed)
+## 8. StateUpdate (0x1C) Format
 
-**Must Implement**:
-```
-InitializeNetwork(self, wsn, TGString_name)  # NOTE: 3 args!
-TerminateNetwork(self), GetNetwork(self) -> TGNetworkPtr
-SetIsHost/IsHost, SetMultiplayer/IsMultiplayer, SetIsClient/IsClient
-GetGameTime/SetGameTime, GetRealTime
-IsGamePaused, SetTimeRate, SetTimeScale, Pause, ForceUnpause
-SetGameName/GetGameName, SetGamePath/GetGamePath, SetDataPath/GetDataPath
-GetCaptainName/SetCaptainName
-SetPlayerNumber/GetPlayerNumber
-SetProcessingPackets/IsProcessingPackets
-SetUnusedClientID/GetUnusedClientID, IncrementClientID
-SetIgnoreClientIDForObjectCreation/IsIgnoreClientIDForObjectCreation
-SetFriendlyFireWarningPoints/GetFriendlyFireWarningPoints
-GetCurrentFriendlyFire/SetCurrentFriendlyFire
-SetMaxFriendlyFire, GetFriendlyFireTolerance
-```
+### 8.1 Source
 
-**Static**: GetNextEventType, GetGameVersion, ConvertGameUnitsToKilometers, ConvertKilometersToGameUnits
+Verified from decompiled StateUpdate handler analysis.
 
-**Stub OK**: GetCamera, RenderDefaultCamera, IsDirectStart, CDCheck, SaveToFile, LoadFromFile, LoadEpisodeSounds, CreateGameSpy, TerminateGameSpy, DetermineModemConnection, GetTestMenuState
+### 8.2 Dirty-Flag Bitmask
 
----
+The StateUpdate message uses a bitmask byte to indicate which fields are present:
 
-### 2.10 TGConfigMapping (10 methods) - Must Implement ALL
-```
-GetIntValue(self, section, key) -> int
-GetFloatValue(self, section, key) -> float
-GetStringValue(self, section, key) -> str
-GetTGStringValue(self, section, key) -> TGStringPtr
-SetIntValue/SetFloatValue/SetStringValue/SetTGStringValue
-HasValue(self, section, key) -> int
-LoadConfigFile(self, filename)
-SaveConfigFile(self, filename)
-```
+| Bit | Flag | Field | Direction |
+|-----|------|-------|-----------|
+| 0x01 | Position | DeltaVector3 or full Vector3 | Both |
+| 0x02 | Orientation | DeltaQuaternion | Both |
+| 0x04 | Speed | LogFloat16 forward speed | Both |
+| 0x08 | Angular velocity | Angular rotation rates | Both |
+| 0x20 | Subsystem health | Round-robin subsystem byte | S->C only |
+| 0x80 | Weapon status | Weapon firing state | C->S only |
 
----
+### 8.3 Direction Split
 
-### 2.11 VarManagerClass (7 methods) - Must Implement ALL
-```
-SetFloatVariable(self, scope, key, float_val)
-GetFloatVariable(self, scope, key) -> float
-SetStringVariable(self, scope, key, TGString_val)
-GetStringVariable(self, scope, key) -> str
-DeleteAllVariables(self)
-DeleteAllScopedVariables(self, scope)
-MakeEpisodeEventType(self, offset) -> int
-```
+- **Client -> Server (0x80 WPN)**: Clients send weapon status flags to the server
+- **Server -> Client (0x20 SUB)**: Server sends subsystem health updates to clients
+
+### 8.4 Subsystem Source
+
+The subsystem list for StateUpdate serialization comes from the ship object at offset `ship+0x284`. Subsystems are serialized in round-robin fashion -- one subsystem per StateUpdate tick, cycling through the full list.
+
+### 8.5 Compressed Types
+
+- **DeltaVector3**: 3-byte delta-encoded position (when changes are small enough to fit)
+- **DeltaQuaternion**: 6-byte compressed rotation
+- **LogFloat16**: 2-byte logarithmic float for speed values
+- **Subsystem health**: 1 byte (0-255 mapped to 0.0-1.0)
+
+Full codec specifications are in [phase1-verified-protocol.md](phase1-verified-protocol.md).
 
 ---
 
-### 2.12 MultiplayerGame (11 methods) - Must Implement ALL
-```
-new_MultiplayerGame(*args), delete_MultiplayerGame(self)
-SetReadyForNewPlayers(self, flag), IsReadyForNewPlayers(self) -> int
-SetMaxPlayers(self, n), GetMaxPlayers(self) -> int
-GetNumberPlayersInGame(self) -> int
-IsPlayerInGame(self, player_id) -> int
-GetPlayerNumberFromID(self, id) -> int
-GetPlayerName(self, player_id) -> TGStringPtr
-MultiplayerGame_Cast(game), MultiplayerGame_Create(game)  # Static
-MultiplayerGame_MAX_PLAYERS  # Constant
-```
+## 9. Ship Physics Data
+
+### 9.1 Source
+
+Impulse engine parameters extracted from hardpoint scripts in `../STBC-Dedicated-Server/reference/scripts/ships/Hardpoints/`. Mass and inertia from `GlobalPropertyTemplates.py`.
+
+### 9.2 Impulse Engine Parameters (27 ships verified)
+
+| Ship | MaxAccel | MaxAngularAccel | MaxAngularVelocity | MaxSpeed |
+|------|----------|-----------------|--------------------|---------:|
+| Sovereign | 1.60 | 0.150 | 0.300 | 7.50 |
+| Vor'cha | 1.30 | 0.110 | 0.220 | 7.60 |
+| Akira | 3.00 | 0.150 | 0.400 | 6.60 |
+| Galaxy | 1.50 | 0.120 | 0.280 | 6.30 |
+| Bird of Prey | 2.50 | 0.350 | 0.500 | 6.20 |
+| Nebula | 1.40 | 0.150 | 0.250 | 6.00 |
+| Peregrine | 1.40 | 0.150 | 0.300 | 6.00 |
+| Keldon | 1.50 | 0.150 | 0.300 | 5.70 |
+| Marauder | 1.60 | 0.190 | 0.360 | 5.50 |
+| Ambassador | 1.00 | 0.110 | 0.260 | 5.50 |
+| Galor | 1.50 | 0.150 | 0.300 | 5.40 |
+| Card Hybrid | 1.40 | 0.160 | 0.280 | 5.40 |
+| Warbird | 1.80 | 0.070 | 0.200 | 4.50 |
+| E2M0 Warbird | 1.00 | 0.070 | 0.200 | 4.50 |
+| Transport | 0.50 | 0.050 | 0.120 | 4.00 |
+| Shuttle | 2.50 | 0.600 | 0.800 | 4.00 |
+| Comm Array | 1.00 | 0.100 | 0.250 | 4.00 |
+| Comm Light | 2.00 | 0.100 | 0.250 | 4.00 |
+| Kessok Light | 0.80 | 0.150 | 0.280 | 3.80 |
+| Kessok Heavy | 2.50 | 0.110 | 0.220 | 3.70 |
+| Freighter | 0.40 | 0.010 | 0.050 | 3.00 |
+| Card Freighter | 0.80 | 0.080 | 0.150 | 3.00 |
+| Sunbuster | 0.20 | 0.010 | 0.150 | 3.00 |
+| Escape Pod | 0.50 | 0.300 | 0.700 | 2.00 |
+| Probe | 3.00 | 0.100 | 0.300 | 8.00 |
+| Probe 2 | 3.00 | 0.100 | 0.300 | 8.00 |
+| Kessok Mine | 0.05 | 0.400 | 0.500 | 0.10 |
+
+GenericTemplate (MaxAccel=20.0, MaxAngularAccel=0.1, MaxAngularVelocity=0.25, MaxSpeed=20.0) is a debug/placeholder entry not used in normal gameplay.
+
+### 9.3 Mass and Inertia (12 ships from GlobalPropertyTemplates.py)
+
+| Ship | Mass | Rotational Inertia | Genus | Species (template) |
+|------|------|--------------------|-------|-------------------|
+| Ambassador | 100.0 | 100.0 | 1 (Ship) | 104 |
+| Bird of Prey | 75.0 | 100.0 | 1 (Ship) | 401 |
+| Marauder | 100.0 | 100.0 | 1 (Ship) | 601 |
+| Nebula | 100.0 | 100.0 | 1 (Ship) | 105 |
+| Warbird | 150.0 | 100.0 | 1 (Ship) | 301 |
+| Shuttle | 10.0 | 10.0 | 1 (Ship) | 106 |
+| Transport | 100.0 | 100.0 | 1 (Ship) | 107 |
+| Kessok Light | 100.0 | 100.0 | 1 (Ship) | 502 |
+| Vor'cha | 150.0 | 100.0 | 1 (Ship) | 402 |
+| Fed Starbase | 1,000,000.0 | 1,000,000.0 | 2 (Station) | 701 |
+| Card Starbase | 1,000,000.0 | 1,000,000.0 | 2 (Station) | 702 |
+| Card Outpost | 500.0 | 100.0 | 2 (Station) | 702 |
+
+**Ships NOT in GlobalPropertyTemplates**: Galaxy, Sovereign, Akira, Keldon, Galor, CardHybrid, KessokHeavy, Freighter, CardFreighter, and all small objects (probes, asteroids, etc.). These likely use engine default values. Exact defaults need extraction from `Appc.pyd` or further RE work.
 
 ---
 
-### 2.13 Game / Episode / Mission
-```
-Game_GetCurrentGame() -> GamePtr          # Static - CRITICAL
-Game_GetCurrentPlayer() -> ShipClassPtr
-Game_Create(*args), GetNextEventType()
-Game_LoadEpisode(self, episode_str)
-Game_GetCurrentEpisode(self) -> EpisodePtr
-Game_Terminate(self), SetGodMode/InGodMode
+## 10. Data File Schemas
 
-Episode_GetCurrentMission(self) -> MissionPtr
-Episode_LoadMission(self, mission_str)
+### 10.1 Overview
 
-LoadEpisodeAction_Create(game), LoadEpisodeAction_Play(self)
+The OpenBC server loads all game data from TOML files at startup. These schemas describe the format for each file.
+
+| File | Format | Purpose | Replaces |
+|------|--------|---------|----------|
+| `data/species.toml` | TOML | Species ID constants and class mappings | `kSpeciesTuple` in SpeciesToShip.py, `SetSpecies()` calls |
+| `data/modifiers.toml` | TOML | Damage/score modifier table | `Multiplayer/Modifier.py` |
+| `data/ships.toml` | TOML | Ship class definitions (stats, subsystems) | Hardpoint scripts in `ships/Hardpoints/*.py` |
+| `data/maps.toml` | TOML | Multiplayer map definitions | `Systems/Multi*/*.py` scripts |
+| `data/rules.toml` | TOML | Game mode configuration | Constants in `Multiplayer/Episode/Mission*.py` |
+| `manifests/*.json` | JSON | Precomputed checksum hashes | Runtime hash computation |
+| `server.toml` | TOML | Server configuration | N/A (new) |
+
+### 10.2 Species Registry (`data/species.toml`)
+
+```toml
+# data/species.toml -- Species ID registry
+# Each [species.<key>] maps a species name to its numeric ID.
+# The numeric ID must match the original App.SPECIES_* constant exactly
+# (transmitted over the network via SetNetType/GetNetType).
+
+[species.generic_template]
+id = 1
+modifier_class = 1
+display_name = "Generic Template"
+
+# --- Federation Ships (1xx) ---
+[species.galaxy]
+id = 101
+modifier_class = 1
+display_name = "Galaxy Class"
+
+[species.sovereign]
+id = 102
+modifier_class = 1
+display_name = "Sovereign Class"
+
+[species.akira]
+id = 103
+modifier_class = 1
+display_name = "Akira Class"
+
+[species.ambassador]
+id = 104
+modifier_class = 1
+display_name = "Ambassador Class"
+
+[species.nebula]
+id = 105
+modifier_class = 1
+display_name = "Nebula Class"
+
+[species.shuttle]
+id = 106
+modifier_class = 1
+display_name = "Shuttle"
+
+[species.transport]
+id = 107
+modifier_class = 1
+display_name = "Transport"
+
+[species.freighter]
+id = 108
+modifier_class = 1
+display_name = "Freighter"
+
+# --- Cardassian Ships (2xx) ---
+[species.galor]
+id = 201
+modifier_class = 1
+display_name = "Galor Class"
+
+[species.keldon]
+id = 202
+modifier_class = 1
+display_name = "Keldon Class"
+
+[species.cardfreighter]
+id = 203
+modifier_class = 1
+display_name = "Cardassian Freighter"
+
+[species.cardhybrid]
+id = 204
+modifier_class = 1
+display_name = "Cardassian Hybrid"
+
+# --- Romulan Ships (3xx) ---
+[species.warbird]
+id = 301
+modifier_class = 1
+display_name = "D'deridex Warbird"
+
+# --- Klingon Ships (4xx) ---
+[species.birdofprey]
+id = 401
+modifier_class = 1
+display_name = "Bird of Prey"
+
+[species.vorcha]
+id = 402
+modifier_class = 1
+display_name = "Vor'cha Class"
+
+# --- Kessok (5xx) ---
+[species.kessokheavy]
+id = 501
+modifier_class = 1
+display_name = "Kessok Heavy Cruiser"
+
+[species.kessoklight]
+id = 502
+modifier_class = 1
+display_name = "Kessok Light Cruiser"
+
+[species.kessokmine]
+id = 503
+modifier_class = 1
+display_name = "Kessok Mine"
+
+# --- Ferengi (6xx) ---
+[species.marauder]
+id = 601
+modifier_class = 1
+display_name = "Marauder"
+
+# --- Stations (7xx) ---
+[species.fedstarbase]
+id = 701
+modifier_class = 1
+display_name = "Federation Starbase"
+
+[species.fedoutpost]
+id = 702
+modifier_class = 1
+display_name = "Federation Outpost"
+
+[species.cardstarbase]
+id = 703
+modifier_class = 1
+display_name = "Cardassian Starbase"
+
+[species.cardoutpost]
+id = 704
+modifier_class = 1
+display_name = "Cardassian Outpost"
+
+[species.cardstation]
+id = 705
+modifier_class = 1
+display_name = "Cardassian Station"
+
+[species.drydock]
+id = 706
+modifier_class = 1
+display_name = "Drydock"
+
+[species.spacefacility]
+id = 707
+modifier_class = 1
+display_name = "Space Facility"
+
+# --- Objects (708+) ---
+[species.commarray]
+id = 708
+modifier_class = 1
+display_name = "Comm Array"
+
+[species.probe]
+id = 710
+modifier_class = 1
+display_name = "Probe"
+
+[species.probe2]
+id = 711
+modifier_class = 1
+display_name = "Probe Type 2"
+
+[species.asteroid]
+id = 712
+modifier_class = 1
+display_name = "Asteroid"
+
+[species.sunbuster]
+id = 713
+modifier_class = 1
+display_name = "Sunbuster"
+
+[species.escapepod]
+id = 714
+modifier_class = 1
+display_name = "Escape Pod"
 ```
+
+### 10.3 Modifier Table (`data/modifiers.toml`)
+
+```toml
+# data/modifiers.toml -- Score modifier table from Modifier.py
+# table[attacker_class][killed_class]
+# All vanilla ships are class 1, so effective modifier is always 1.0.
+
+[modifiers]
+classes = ["class_0", "class_1", "class_2"]
+
+table = [
+    [1.0, 1.0, 1.0],   # Class 0 attacking class 0, 1, 2
+    [1.0, 1.0, 1.0],   # Class 1 attacking class 0, 1, 2
+    [1.0, 3.0, 1.0],   # Class 2 attacking class 0, 1, 2
+]
+```
+
+### 10.4 Map Registry (`data/maps.toml`)
+
+```toml
+# data/maps.toml -- Multiplayer map definitions
+# protocol_name is the string sent in the Settings packet (0x00).
+# It must exactly match what the client expects.
+
+[maps.multi1]
+protocol_name = "Systems.Multi1.Multi1"
+# display_name and spawn_points: extract from Systems/Multi1/Multi1.py
+
+[maps.multi2]
+protocol_name = "Systems.Multi2.Multi2"
+
+[maps.multi3]
+protocol_name = "Systems.Multi3.Multi3"
+
+[maps.multi4]
+protocol_name = "Systems.Multi4.Multi4"
+
+[maps.multi5]
+protocol_name = "Systems.Multi5.Multi5"
+
+[maps.multi6]
+protocol_name = "Systems.Multi6.Multi6"
+
+[maps.multi7]
+protocol_name = "Systems.Multi7.Multi7"
+```
+
+Display names and spawn point coordinates are not included here because they have not been extracted from the individual map scripts yet. They must be extracted from each `Systems/Multi*/Multi*.py` file's `SetTranslate()` calls.
 
 ---
 
-### 2.14 TGPlayerList / TGNetPlayer
-
-**TGPlayerList** (12 methods):
-```
-new/delete, AddPlayer, DeletePlayer, DeletePlayerAtIndex
-GetNumPlayers, GetPlayerAtIndex, GetPlayer, GetPlayerFromAddress
-GetPlayerList, ChangePlayerNetID, DeleteAllPlayers
-```
-
-**TGNetPlayer** (16 methods):
-```
-new/delete, SetName/GetName, SetNetID/GetNetID
-SetNetAddress/GetNetAddress, SetDisconnected/IsDisconnected
-SetConnectUID/GetConnectUID, SetConnectAddress/GetConnectAddress
-GetBytesPerSecondTo/From, Copy, Compare
-```
-
----
-
-### 2.15 TGString (7 methods) - Must Implement ALL
-```
-new_TGString(*args), delete_TGString(self)
-GetLength, SetString, FindC, Find, CompareC, Compare, Append
-```
-
----
-
-### 2.16 TGObject (5 methods) - Must Implement
-```
-GetObjType(self) -> int, IsTypeOf(self, type_id) -> int
-GetObjID(self) -> int, Destroy(self), Print(self)
-```
-
----
-
-### 2.17 TGTimer / TGTimerManager (10 methods)
-```
-new_TGTimer, delete_TGTimer, TGTimer_Create()
-SetTimerStart/GetTimerStart, SetDelay/GetDelay
-SetDuration/GetDuration, SetEvent/GetEvent
-TGTimerManager_AddTimer, RemoveTimer, DeleteTimer
-```
-
----
-
-### 2.18 SetManager / SetClass (~20 methods)
-
-**SetManager**: ClearRenderedSet, DeleteAllSets, AddSet, DeleteSet, GetSet, GetRenderedSet, GetNumSets, MakeRenderedSet, Terminate
-
-**SetClass**: Create, Cast, GetName, SetName, AddObjectToSet, RemoveObjectFromSet, DeleteObjectFromSet, GetObject, GetObjectByID, GetFirstObject, GetNextObject, IsRendered
-
----
-
-### 2.19 TGLocalizationManager (5 methods)
-```
-Load(self, filename) -> TGLocalizationDatabasePtr
-Unload(self, db), GetIfRegistered(self, filename)
-DeleteAll, Purge, RegisterDatabase
-```
-
----
-
-### 2.20 TGSystemWrapperClass (10 methods)
-```
-GetTimeInSeconds, GetTimeInMilliseconds
-GetTimeElapsedInSeconds, GetTimeElapsedInMilliseconds
-GetTimeSinceFrameStart, GetUpdateNumber
-GetRandomNumber(self, max), SetRandomSeed(self, seed)
-GetIniInt/GetIniFloat/GetIniString
-```
-
----
-
-### 2.21 Utility Functions
-```
-IsNull(obj) -> int
-Breakpoint()
-TGScriptAction_Create(module, func)
-```
-
----
-
-### 2.22 Ship Object Hierarchy (~55 functions) -- NEW
-
-These form the inheritance chain: BaseObjectClass -> ObjectClass -> PhysicsObjectClass -> DamageableObject -> ShipClass. The server needs ships as lightweight data containers (~80 bytes) with identity, ownership, and basic state -- NOT simulation objects.
-
-#### BaseObjectClass (inherits TGEventHandlerObject)
-
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| BaseObjectClass_GetName | (self) -> str | Scoring scripts identify ships by name |
-| BaseObjectClass_SetName | (self, name) | Set ship name |
-| BaseObjectClass_GetContainingSet | (self) -> SetClassPtr | Mission5 starbase placement |
-| BaseObjectClass_UpdateNodeOnly | (self) | Called after ship creation |
-| BaseObjectClass_SetTranslate | (self, point) | Mission5 starbase placement |
-| BaseObjectClass_SetTranslateXYZ | (self, x, y, z) | Position setting |
-| BaseObjectClass_SetDeleteMe | (self) | Object deletion request |
-| BaseObjectClass_GetWorldLocation | (self) -> TGPoint3Ptr | Spatial queries |
-| BaseObjectClass_GetTranslate | (self) -> TGPoint3Ptr | Position queries |
-
-**Stub OK**: GetDisplayName, SetDisplayName, Update, SetHidden, IsHidden (return 0), Rotate, SetAngleAxisRotation, SetMatrixRotation, SetScale, GetScale (return 1.0), AlignToVectors, GetRotation, GetWorldRotation, GetWorldForwardTG, AttachObject, DetachObject
-
-#### ObjectClass (inherits BaseObjectClass)
-
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| ObjectClass_GetRadius | (self) -> float | Mission5 placement spacing |
-| ObjectClass_RandomOrientation | (self) | Mission5 starbase |
-| ObjectClass_Cast | (obj) -> ObjectClassPtr | Static cast |
-
-**Stub OK**: PlaceObjectByName, IsTargetable, CanTargetObject, SetHailable, SetScannable, SetCollisionFlags, GetCollisionFlags
-
-#### PhysicsObjectClass (inherits ObjectClass)
-
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| PhysicsObjectClass_SetupModel | (self, name) | Ship creation -- loads model/hardpoints |
-| PhysicsObjectClass_SetNetType | (self, type) | Network species identification |
-| PhysicsObjectClass_GetNetType | (self) -> int | Scoring: identify ship type |
-| PhysicsObjectClass_SetAI | (self, ai) | Mission5 starbase AI |
-| PhysicsObjectClass_Cast | (obj) -> PhysicsObjectClassPtr | Static cast |
-
-**Stub OK**: ClearAI, GetAI (return None), SetStatic, IsStatic, SetDoNetUpdate, IsDoingNetUpdate, SetUsePhysics, IsUsingPhysics, SetVelocity, SetAngularVelocity, SetAcceleration, GetVelocityTG, GetMass, SetMass
-
-#### DamageableObject (inherits PhysicsObjectClass)
-
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| DamageableObject_GetPropertySet | (self) -> TGModelPropertySetPtr | Ship creation hardpoint loading |
-| DamageableObject_SetupProperties | (self) | Finalizes hardpoint setup |
-| DamageableObject_IsDying | (self) -> int | Mission scripts check death state |
-| DamageableObject_IsDead | (self) -> int | Mission scripts check death state |
-
-**Stub OK**: SetDead, SetLifeTime, GetLifeTime, SetCollisionsOn, CanCollide, SetSplashDamage, SetVisibleDamageRadiusModifier, DisableGlowAlphaMaps
-
-#### ShipClass (inherits DamageableObject)
-
-**Must Implement**:
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| ShipClass_Create | (name) -> ShipClassPtr | Static factory -- creates ship objects |
-| ShipClass_Cast | (obj) -> ShipClassPtr | Cast from event source |
-| ShipClass_GetObject | (name) -> ShipClassPtr | Lookup ship by name |
-| ShipClass_SetScript | (self, module) | Ship creation pipeline |
-| ShipClass_GetScript | (self) -> str | Script module lookup |
-| ShipClass_SetNetPlayerID | (self, id) | Associate ship with player |
-| ShipClass_GetNetPlayerID | (self) -> int | Scoring: identify player |
-| ShipClass_IsPlayerShip | (self) -> int | Distinguish player vs NPC ships |
-| ShipClass_GetName | (self) -> str | Ship name for scoring |
-| ShipClass_GetObjID | (self) -> int | Unique object ID |
-| ShipClass_DisableCollisionDamage | (self, flag) | Mission5 starbase |
-| ShipClass_AddSubsystem | (self, subsystem) | Ship creation hardpoint setup |
-
-**Stub OK**: IsCollisionDamageDisabled, SetInvincible, IsInvincible, SetHurtable, IsHurtable, SetTargetable, IsTargetable, GetHull (return None), GetShields (return None), GetAffiliation, SetAffiliation, GetAlertLevel, SetAlertLevel, SetDeathScript, GetDeathScript, SetTarget, StopFiringWeapons, CompleteStop, IncrementAIDoneIgnore, GetShipProperty
-
----
-
-### 2.23 Combat/Gameplay Events (~15 functions) -- NEW
-
-Event types and accessor methods needed for scoring scripts. **Phase 1: stubs** -- events are deferred to Phase 2 when the server can synthesize them from the relay stream.
-
-#### WeaponHitEvent
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| WeaponHitEvent_GetDamage | (self) -> float | Damage amount from weapon hit |
-| WeaponHitEvent_IsHullHit | (self) -> int | 0=shield, 1=hull |
-| WeaponHitEvent_GetFiringPlayerID | (self) -> int | Who fired the weapon |
-| WeaponHitEvent_Create | () -> WeaponHitEventPtr | Static factory |
-| WeaponHitEvent_Cast | (obj) -> WeaponHitEventPtr | Static cast |
-
-#### ObjectExplodingEvent
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| ObjectExplodingEvent_GetFiringPlayerID | (self) -> int | Who dealt killing blow |
-| ObjectExplodingEvent_Create | () -> ObjectExplodingEventPtr | Static factory |
-| ObjectExplodingEvent_Cast | (obj) -> ObjectExplodingEventPtr | Static cast |
-
-#### ObjectCreatedEvent
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| ObjectCreatedEvent_Create | () -> ObjectCreatedEventPtr | Static factory |
-| ObjectCreatedEvent_Cast | (obj) -> ObjectCreatedEventPtr | Static cast |
-
-**Phase 1 Implementation Note**: These event classes must exist so that handler registration does not crash. The actual events will not fire on a relay server (no C++ damage pipeline). Phase 2 will parse relay opcodes and synthesize these events.
-
----
-
-### 2.24 Object Group Management (~12 functions) -- NEW
-
-Used by Mission1-5 for tracking enemy/friendly teams.
-
-#### ObjectGroup (inherits TGEventHandlerObject)
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_ObjectGroup | (*args) | Constructor |
-| delete_ObjectGroup | (self) | Destructor |
-| ObjectGroup_AddName | (self, name) | Add ship name to group |
-| ObjectGroup_RemoveName | (self, name) | Remove ship from group |
-| ObjectGroup_RemoveAllNames | (self) | Clear group |
-| ObjectGroup_IsNameInGroup | (self, name) -> int | Check membership |
-| ObjectGroup_GetNumActiveObjects | (self) -> int | Count active members |
-
-**Stub OK**: SetEventFlag, ClearEventFlag, IsEventFlagSet (return 0)
-
-#### ObjectGroupWithInfo (inherits ObjectGroup)
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_ObjectGroupWithInfo | (*args) | Mission5 creates these |
-| delete_ObjectGroupWithInfo | (self) | Destructor |
-
-#### Mission Group Access
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| Mission_GetEnemyGroup | (self) -> ObjectGroupPtr | C++ native, confirmed in decompiled code |
-| Mission_GetFriendlyGroup | (self) -> ObjectGroupPtr | C++ native, confirmed in decompiled code |
-
----
-
-### 2.25 Property System (~18 Create + ~200 Set*) -- NEW
-
-The property system is used by hardpoint files (e.g., sovereign.py) to configure ship subsystems. The server needs these to exist so scripts do not crash, but the relay server does not use them for damage calculation.
-
-**IMPLEMENTATION NOTE**: Create a generic property base class that accepts any Set*/Get* method call as a no-op. This avoids implementing ~200 individual methods. Store values in a dict if Get* calls need to return them; otherwise just ignore.
-
-#### Property Create Functions (16 types, all return PropertyPtr)
-| Function | Classification | Notes |
-|----------|---------------|-------|
-| TorpedoTubeProperty_Create(name) | MUST IMPLEMENT | Data container |
-| PhaserProperty_Create(name) | MUST IMPLEMENT | Data container |
-| PulseWeaponProperty_Create(name) | MUST IMPLEMENT | Data container |
-| TractorBeamProperty_Create(name) | MUST IMPLEMENT | Data container |
-| ShieldProperty_Create(name) | MUST IMPLEMENT | Data container |
-| HullProperty_Create(name) | MUST IMPLEMENT | Data container |
-| PowerProperty_Create(name) | MUST IMPLEMENT | Data container |
-| EngineProperty_Create(name) | MUST IMPLEMENT | Data container |
-| ImpulseEngineProperty_Create(name) | MUST IMPLEMENT | Data container |
-| WarpEngineProperty_Create(name) | MUST IMPLEMENT | Data container |
-| SensorProperty_Create(name) | MUST IMPLEMENT | Data container |
-| RepairSubsystemProperty_Create(name) | MUST IMPLEMENT | Data container |
-| ShipProperty_Create(name) | MUST IMPLEMENT | Data container |
-| CloakingSubsystemProperty_Create(name) | MUST IMPLEMENT | Data container |
-| WeaponSystemProperty_Create(name) | MUST IMPLEMENT | Data container |
-| TorpedoSystemProperty_Create(name) | MUST IMPLEMENT | Data container |
-
-#### Property Set* Methods (~200 total)
-All Set* methods across all 16 property types are **STUB OK** -- no-op on the relay server. Each property type has 10-30 Set* methods for damage, range, fire rate, shield facing HP, hull HP, etc. Called by hardpoint files during ship creation.
-
-#### TGModelPropertyManager
-| Function | Classification | Notes |
-|----------|---------------|-------|
-| RegisterLocalTemplate(self, prop) | MUST IMPLEMENT | Hardpoint files register each property |
-| RegisterGlobalTemplate(self, prop) | STUB OK | |
-| ClearLocalTemplates(self) | MUST IMPLEMENT | Called before loading new hardpoint |
-
-#### TGModelPropertySet
-| Function | Classification | Notes |
-|----------|---------------|-------|
-| GetPropertySet(self) | MUST IMPLEMENT | Returns property set for ship |
-| SetupProperties(self) | MUST IMPLEMENT | Finalizes hardpoint setup |
-
----
-
-### 2.26 Torpedo Lifecycle (~5 functions) -- NEW
-
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| Torpedo_Create | (name) -> TorpedoPtr | SpeciesToTorp creates torpedoes |
-| Torpedo_Cast | (obj) -> TorpedoPtr | Static cast |
-| Torpedo_SetScript | (self, module) | Torpedo script module |
-| Torpedo_GetObjID | (self) -> int | Unique object ID |
-
-**Stub OK**: SetDamage, SetLifetime, SetParent, SetTarget, SetMaxAngularAccel, SetGuidanceLifetime, SetPlayerID, GetTargetID, GetParentID, GetLaunchSpeed, CreateDisruptorModel, CreateTorpedoModel
-
-**Phase 1 Note**: No torpedo entities needed on the server. All scoring-relevant data (damage, firing player ID, hull hit flag) is embedded in network messages.
-
----
-
-### 2.27 3D Math Types (~25 functions) -- NEW
-
-Used by Mission5 for starbase placement and by hardpoint files for property configuration.
-
-#### TGPoint3 (inherits NiPoint3)
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_TGPoint3 | (*args) | Constructor (0-arg, 3-float, copy) |
-| delete_TGPoint3 | (self) | Destructor |
-| TGPoint3_GetX | (self) -> float | X component |
-| TGPoint3_GetY | (self) -> float | Y component |
-| TGPoint3_GetZ | (self) -> float | Z component |
-| TGPoint3_SetX | (self, val) | Set X |
-| TGPoint3_SetY | (self, val) | Set Y |
-| TGPoint3_SetZ | (self, val) | Set Z |
-| TGPoint3_SetXYZ | (self, x, y, z) | Set all three |
-| TGPoint3_Set | (self, other) | Copy from another TGPoint3 |
-| TGPoint3_Add | (self, other) | Vector addition |
-| TGPoint3_Unitize | (self) | Normalize to unit length |
-| TGPoint3_Length | (self) -> float | Vector magnitude |
-
-**Stub OK**: Subtract, Scale, Cross, UnitCross, MultMatrix, LoadBinary, SaveBinary
-
-#### NiPoint3 (base class)
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_NiPoint3 | (*args) | Constructor |
-| delete_NiPoint3 | (self) | Destructor |
-| NiPoint3_x_get/set | property | X accessor |
-| NiPoint3_y_get/set | property | Y accessor |
-| NiPoint3_z_get/set | property | Z accessor |
-
-#### TGColorA
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| new_TGColorA | (*args) | Hardpoint files create colors |
-| delete_TGColorA | (self) | Destructor |
-| TGColorA_SetRGBA | (self, r, g, b, a) | Set all components |
-| TGColorA_GetRed | (self) -> float | Red component |
-| TGColorA_GetGreen | (self) -> float | Green component |
-| TGColorA_GetBlue | (self) -> float | Blue component |
-| TGColorA_GetAlpha | (self) -> float | Alpha component |
-
----
-
-### 2.28 Action/Sequence System (~20 functions) -- NEW
-
-Used by MissionShared.py for game flow (end game sequences, announcements).
-
-#### TGSequence (inherits TGAction)
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| TGSequence_Create | () -> TGSequencePtr | Static factory |
-| TGSequence_AddAction | (self, action) | Add action to sequence |
-| TGSequence_AppendAction | (self, action) | Append action |
-| TGSequence_Play | (self) | Execute sequence |
-| TGSequence_Delete | (self) | Destroy sequence |
-
-**Stub OK**: Skip, GetNumActions, GetAction, Cast
-
-#### TGScriptAction (inherits TGAction)
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| TGScriptAction_Create | (module, func, ...) -> TGScriptActionPtr | Variable args; module+func are required |
-
-**NOTE**: When the action fires, it calls the named Python function. On the server, the action system's update must be driven by the game loop tick.
-
-#### TGAction (base class)
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| TGAction_Play | (self) | MUST IMPLEMENT -- needed by sequences |
-| TGAction_Completed | (self) | Marks action done |
-| TGAction_AddCompletedEvent | (self, event) | Chain actions |
-
-**Stub OK**: IsPlaying, SetSkippable, IsSkippable, Skip, Abort, SetUseRealTime, GetSequence, Cast, CreateNull
-
-#### SubtitleAction -- STUB (no-op on headless)
-| Function | Notes |
-|----------|-------|
-| SubtitleAction_CreateC(string) | Returns stub action object |
-| SubtitleAction_Create(db, name) | Returns stub action object |
-| SubtitleAction.SetDuration(self, secs) | No-op |
-
-#### TGSoundAction -- STUB (no-op on headless)
-| Function | Notes |
-|----------|-------|
-| TGSoundAction_Create(name) | Returns stub action object |
-
----
-
-### 2.29 Game/Mission Extensions (~20 functions) -- NEW
-
-Additional methods needed for gameplay flow beyond the lobby catalog.
-
-#### Game Difficulty System
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| Game_GetCurrentGame | () -> GamePtr | Static -- CRITICAL (already in 2.13) |
-| Game_GetDifficulty | () -> int | Difficulty level |
-| Game_GetOffensiveDifficultyMultiplier | () -> float | Damage scaling |
-| Game_GetDefensiveDifficultyMultiplier | () -> float | Defense scaling |
-
-**Stub OK**: SetDifficultyMultipliers, SetDefaultDifficultyMultipliers, SetDifficultyReallyIMeanIt, SetPlayerHardpointFileName
-
-#### MultiplayerGame -- Additional Gameplay Methods
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| MultiplayerGame_GetShipFromPlayerID | (self, playerID) -> ShipClassPtr | Critical for scoring |
-| MultiplayerGame_SetPlayer | (self, ship) | Set player's ship |
-| MultiplayerGame_DeletePlayerShipsAndTorps | (self) | End game cleanup |
-| MultiplayerGame_GetPlayerShipID | (self, playerID) -> int | Ship ID lookup |
-| MultiplayerGame_DeleteObjectFromGame | (self, obj) | Mission5 starbase cleanup |
-
-#### Mission -- Additional Methods
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| Mission_GetScript | (self) -> str | Mission script name |
-| Mission_GetEnemyGroup | (self) -> ObjectGroupPtr | C++ native (see 2.24) |
-| Mission_GetFriendlyGroup | (self) -> ObjectGroupPtr | C++ native (see 2.24) |
-
-#### MissionLib Module Functions
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| MissionLib.CreateTimer | (eventType, handler, ...) | Timer creation helper |
-| MissionLib.GetMission | () -> MissionPtr | Convenience: Game -> Episode -> Mission |
-
----
-
-### 2.30 Proximity/Spatial (~8 functions) -- NEW
-
-Used by Mission5 for starbase placement.
-
-#### ProximityManager
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| ProximityManager_SetPlayerCollisionsEnabled | (flag) | Stub -- server does not simulate collisions |
-| ProximityManager_SetMultiplayerPlayerCollisionsEnabled | (flag) | Stub |
-| ProximityManager_UpdateObject | (self, obj) | Mission5: update after placement |
-
-**Stub OK**: AddObject, RemoveObject, GetNearObjects, Update
-
-#### SetClass -- Additional Methods
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| SetClass_IsLocationEmptyTG | (self, point, radius, flag) -> int | Mission5: check placement spot |
-| SetClass_GetProximityManager | (self) -> ProximityManagerPtr | Mission5 |
-
-#### PlacementObject
-| Function | Signature | Notes |
-|----------|-----------|-------|
-| PlacementObject_GetObject | (self) -> ObjectClassPtr | Object retrieval |
-
----
-
-### 2.31 UI Stubs (~80 functions) -- NEW
-
-MissionMenusShared.py and other scripts reference UI classes. On a headless server, these must return **dummy callable objects (NOT None)** so that method calls like `pButton.SetEnabled(0)` do not crash with AttributeError.
-
-#### Must Return Dummy Objects
-| Function | Notes |
-|----------|-------|
-| TopWindow_GetTopWindow() | Returns dummy object with chainable methods |
-| MultiplayerWindow_Cast(obj) | Returns dummy object |
-| SortedRegionMenu_GetWarpButton() | Returns dummy with AddPythonFuncHandlerForInstance as no-op |
-| STTargetMenu_GetTargetMenu() | Returns dummy or None (code checks for None) |
-
-#### No-Op Functions
-| Function | Notes |
-|----------|-------|
-| DynamicMusic.PlayFanfare() | No-op on headless |
-| LoadBridge.CreateCharacterMenus() | No-op on headless |
-| Game.LoadDatabaseSoundInGroup() | No-op on headless (audio) |
-| Game.LoadSoundInGroup() | No-op on headless (audio) |
-
-#### Stub Classes (return dummy objects accepting any method call)
-All of the following should return dummy objects or be no-ops:
-- STButton, STRoundedButton, STMenu, STSubMenu
-- TGPane, StylizedWindow
-- ScoreWindow, ChatWindow
-- All other UI widget constructors referenced by multiplayer scripts
-
----
-
-## 3. Required Constants
-
-### 3.1 Network Event Types (~20)
-```
-ET_NETWORK_MESSAGE_EVENT, ET_NETWORK_CONNECT_EVENT
-ET_NETWORK_DISCONNECT_EVENT, ET_NETWORK_NEW_PLAYER
-ET_NETWORK_DELETE_PLAYER, ET_NETWORK_GAMESPY_MESSAGE
-ET_NETWORK_NAME_CHANGE_EVENT, FIRST_TGNETWORK_MODULE_EVENT_TYPE
-```
-
-### 3.2 Server/Multiplayer Event Types (~30)
-```
-ET_CREATE_SERVER, ET_CREATE_CLIENT, ET_START, ET_KILL_GAME
-ET_EXIT_GAME, ET_EXIT_PROGRAM
-ET_CHECKSUM_COMPLETE, ET_SYSTEM_CHECKSUM_COMPLETE, ET_SYSTEM_CHECKSUM_FAILED
-ET_LOAD_EPISODE, ET_LOAD_MISSION, ET_EPISODE_START, ET_MISSION_START
-ET_SET_PLAYER, ET_NEW_MULTIPLAYER_GAME, ET_NEW_PLAYER_IN_GAME
-ET_CANCEL, ET_OKAY, ET_CANCEL_CONNECT
-ET_SET_MISSION_NAME, ET_SET_GAME_MODE
-ET_LOCAL_INTERNET_HOST, ET_END_GAME_OKAY, ET_SELECT_MISSION
-ET_FRIENDLY_FIRE_DAMAGE, ET_FRIENDLY_FIRE_REPORT, ET_FRIENDLY_FIRE_GAME_OVER
-ET_OBJECT_DELETED, ET_OBJECT_CREATED, ET_OBJECT_CREATED_NOTIFY
-ET_OBJECT_DESTROYED, ET_OBJECT_EXPLODING
-```
-
-### 3.3 Combat Event Types -- NEW (~5)
-```
-ET_WEAPON_HIT
-ET_OBJECT_EXPLODING   (also in 3.2 above)
-ET_OBJECT_CREATED_NOTIFY
-ET_DELETE_OBJECT_PUBLIC
-ET_SCAN, ET_WARP_BUTTON_PRESSED
-ET_INPUT_TOGGLE_SCORE_WINDOW, ET_INPUT_TOGGLE_CHAT_WINDOW
-```
-
-### 3.4 Class Type Constants (~20)
-```
-CT_MULTIPLAYER_GAME, CT_GAME, CT_EPISODE, CT_MISSION, CT_SET
-CT_SHIP, CT_TORPEDO, CT_OBJECT, CT_PHYSICS_OBJECT, CT_DAMAGEABLE_OBJECT
-CT_NETWORK, CT_MESSAGE_EVENT, CT_PLAYER_EVENT
-CT_TGEVENT, CT_TGEVENTHANDLEROBJECT, CT_TGTIMER
-CT_VAR_MANAGER
-CT_SUBSYSTEM_PROPERTY, CT_ENERGY_WEAPON, CT_SHIELD_SUBSYSTEM
-```
-
-### 3.5 Species Constants (~35) -- EXPANDED
-```
-SPECIES_UNKNOWN, SPECIES_GALAXY, SPECIES_SOVEREIGN, SPECIES_NEBULA
-SPECIES_DEFIANT, SPECIES_AKIRA, SPECIES_STEAMRUNNER, SPECIES_INTREPID
-SPECIES_SABRE, SPECIES_AMBASSADOR, SPECIES_MIRANDA, SPECIES_EXCELSIOR
-SPECIES_WARBIRD, SPECIES_GALOR, SPECIES_KELDON
-SPECIES_KVORT, SPECIES_NEGHVAR, SPECIES_VORCHA
-SPECIES_BIRD_OF_PREY, SPECIES_MARAUDER
-SPECIES_CARDHYBRID, SPECIES_KESSOK_HEAVY, SPECIES_KESSOK_LIGHT
-SPECIES_SHUTTLE, SPECIES_CARDFREIGHTER, SPECIES_FREIGHTER
-SPECIES_TRANSPORT, SPECIES_SPACE_FACILITY, SPECIES_COMMARRAY
-SPECIES_COMMLIGHT, SPECIES_DRYDOCK, SPECIES_PROBE, SPECIES_PROBETYPE2
-SPECIES_SUNBUSTER, SPECIES_CARD_OUTPOST, SPECIES_CARD_STARBASE
-SPECIES_CARD_STATION, SPECIES_FED_OUTPOST, SPECIES_FED_STARBASE
-SPECIES_ASTEROID, SPECIES_ESCAPEPOD, SPECIES_KESSOKMINE, SPECIES_BORG
-MAX_SHIPS
-```
-
-### 3.6 Network Connection Status Constants -- NEW
-```
-TGNETWORK_CONNECTED
-TGNETWORK_CONNECT_IN_PROGRESS
-TGNETWORK_DISCONNECTED
-TGNETWORK_NOT_CONNECTED
-```
-
-### 3.7 Other Constants
-```
-NULL_ID, MAX_MESSAGE_TYPES, NULL_STRING_INDEX
-PI, TWO_PI, HALF_PI, FOURTH_PI
-TEAM_* (all 10 team constants)
-GENUS_* (UNKNOWN, SHIP, STATION, ASTEROID)
-MWT_MULTIPLAYER (and other main window types)
-ShieldProperty.FRONT_SHIELDS (and 5 other shield facing constants)
-WG_INVALID, WG_PRIMARY, WG_SECONDARY, WG_TERTIARY, WG_TRACTOR
-GREEN_ALERT, YELLOW_ALERT, RED_ALERT
-CFB_NO_COLLISIONS, CFB_IN_PROXIMITY_MANAGER, CFB_DEFAULTS
-DIRECTION_MODEL_SPACE, DIRECTION_WORLD_SPACE
-GROUP_CHANGED, ENTERED_SET, EXITED_SET, DESTROYED
-GLOBAL_TEMPLATES, LOCAL_TEMPLATES
+## 11. Server Configuration (`server.toml`)
+
+```toml
+[server]
+name = "OpenBC Deathmatch"
+port = 22101                       # Default BC port (0x5655)
+max_players = 8                    # 1-16
+tick_rate = 30                     # Hz
+
+[server.game]
+map = "multi1"                     # Key from maps.toml
+game_mode = "deathmatch"           # Key from rules.toml
+
+[server.network]
+lan_discovery = true
+
+[server.network.master_server]
+enabled = true
+address = "master.333networks.com"
+port = 28900
+heartbeat_interval = 60
+
+[checksum]
+manifests = ["manifests/vanilla-1.1.json"]
+
+[mods]
+active = []
 ```
 
 ---
 
-## 4. Singleton Globals
+## 12. Mod Pack Structure
 
-The following App module globals MUST be defined:
+### 12.1 Directory Layout
 
-| Global | Type | Phase 1 Implementation |
-|--------|------|------------------------|
-| g_kUtopiaModule | UtopiaModule | Full implementation |
-| g_kEventManager | TGEventManager | Full implementation |
-| g_kTimerManager | TGTimerManager | Full implementation |
-| g_kRealtimeTimerManager | TGTimerManager | Full implementation |
-| g_kVarManager | VarManagerClass | Full implementation |
-| g_kSetManager | SetManager | Basic implementation |
-| g_kConfigMapping | TGConfigMapping | Full implementation |
-| g_kLocalizationManager | TGLocalizationManager | Stub/basic |
-| g_kModelPropertyManager | TGModelPropertyManager | Stub (accepts RegisterLocalTemplate, ClearLocalTemplates) |
-| g_kSystemWrapper | TGSystemWrapperClass | Time functions + GetRandomNumber |
-| g_kRaceManager | -- | Stub (None) |
-| g_kMissionDatabase | -- | Stub (None) |
-| g_kTacticalControlWindow | -- | Stub (None) |
-| g_kSoundManager | -- | Stub (None) |
+```
+mods/
+  my-mod/
+    mod.toml               # Mod metadata (required)
+    ships.toml              # Additional/modified ship definitions (optional)
+    maps.toml               # Additional maps (optional)
+    rules.toml              # Custom game rules (optional)
+    species.toml            # Additional species definitions (optional)
+    modifiers.toml          # Replacement modifier table (optional)
+```
 
----
+### 12.2 Merge Semantics
 
-## 5. Implementation Priority
+| Data Type | Merge Behavior |
+|-----------|---------------|
+| `ships.toml` | Additive with override. New keys added, existing keys fully replaced. |
+| `maps.toml` | Additive with override. |
+| `rules.toml` | Additive with override. |
+| `species.toml` | Additive. Duplicate species IDs are an error. |
+| `modifiers.toml` | Full replacement. Last-loaded table wins entirely. |
 
-### Tier A - Bootstrap (must work first)
-1. All constants (ET_*, CT_*, SPECIES_*, MWT_*, etc.)
-2. TGString
-3. TGObject
-4. TGEvent + typed events
-5. TGEventHandlerObject + TGEventManager
-6. Singleton globals
+### 12.3 Client-Side Behavior
 
-### Tier B - Network
-7. TGWinsockNetwork
-8. TGNetwork
-9. TGMessage + subtypes
-10. TGBufferStream
-11. TGPlayerList + TGNetPlayer
-12. UtopiaModule
-
-### Tier C - Game Flow
-13. TGConfigMapping
-14. VarManagerClass
-15. Game / MultiplayerGame
-16. Episode / Mission
-17. TGTimer / TGTimerManager
-18. SetManager / SetClass
-
-### Tier D - Ship & Gameplay (NEW)
-19. ShipClass + full object hierarchy (BaseObjectClass through ShipClass)
-20. Property system (16 Create functions + generic Set* stub mechanism)
-21. TGModelPropertyManager (RegisterLocalTemplate, ClearLocalTemplates)
-22. ObjectGroup / ObjectGroupWithInfo
-23. Ship lifecycle (Create, SetScript, SetNetType, SetupModel, SetupProperties, UpdateNodeOnly)
-24. TGPoint3 / TGColorA (3D math types)
-25. MultiplayerGame gameplay methods (GetShipFromPlayerID, DeletePlayerShipsAndTorps, etc.)
-26. Mission group access (GetEnemyGroup, GetFriendlyGroup)
-
-### Tier E - Stubs (NEW)
-27. UI no-ops (TopWindow, MultiplayerWindow, SortedRegionMenu, all widget stubs)
-28. Action/Sequence system (TGSequence, TGScriptAction -- needed for game flow)
-29. Combat event stubs (WeaponHitEvent, ObjectExplodingEvent -- classes exist but events deferred)
-30. Audio stubs (TGSoundAction, SubtitleAction, DynamicMusic, LoadDatabaseSoundInGroup)
-31. Proximity/spatial stubs (ProximityManager, IsLocationEmptyTG)
-32. Torpedo lifecycle stubs
-33. Difficulty system (GetOffensiveDifficultyMultiplier, GetDefensiveDifficultyMultiplier)
+- Mods affecting only server-side data (stats, rules, modifiers) require **no** client changes.
+- Mods adding new ships require matching client scripts/models. The mod's hash manifest validates this.
+- Mods in `scripts/Custom/` bypass checksumming entirely.
 
 ---
 
-## 6. Key Behavioral Insights
+## 13. Confidence Annotations
 
-1. **UtopiaModule_InitializeNetwork takes 3 args** (self, wsn, TGString_name), not 2. Many references show only 2 args; the third is the server name string.
+Every data point in this document is sourced from the STBC-Dedicated-Server repository. Confidence levels:
 
-2. **TGNetwork_GetConnectStatus returns 2 for hosting** (counterintuitive -- 2=HOST, 3=CLIENT, 4=DISCONNECTED). Scripts check `GetConnectStatus() == 2` to verify hosting.
+### Verified (high confidence)
 
-3. **TGMessage.SetGuaranteed(1)** is the primary way scripts mark messages as reliable. This maps to message+0x3A in the original.
+| Data | Source File |
+|------|-------------|
+| Species IDs (Section 1) | `ships/Hardpoints/*.py` SetSpecies() calls |
+| kSpeciesTuple structure (Section 2) | `Multiplayer/SpeciesToShip.py` |
+| All modifier classes = 1 (Section 2.4) | `Multiplayer/SpeciesToShip.py` |
+| Modifier table (Section 3) | `Multiplayer/Modifier.py` |
+| Map list (Section 4) | `Multiplayer/SpeciesToSystem.py` |
+| Checksum directories (Section 5.2) | `wire-format-spec.md` + protocol traces |
+| StringHash algorithm (Section 5.3) | Ghidra decompile of FUN_007202e0 |
+| FileHash algorithm (Section 5.3) | Ghidra decompile of FUN_006a62f0 |
+| Version string + hash (Section 5.4) | Extracted from stbc.exe + verified in protocol |
+| Impulse engine parameters (Section 9.2) | `ships/Hardpoints/*.py` ImpulseEngineProperty calls |
+| Mass/inertia for 12 ships (Section 9.3) | `GlobalPropertyTemplates.py` |
+| Settings packet toggles (Section 6.2) | Decompiled opcode handler |
 
-4. **MultiplayerGame_Cast(game)** is called to downcast a Game pointer to MultiplayerGame. This is essentially a type check + reinterpret.
+### Needs Further Extraction
 
-5. **VarManagerClass_MakeEpisodeEventType(offset)** generates unique event type IDs for mission scripts. Each mission gets a range of event types starting from a base offset.
-
-6. **TGPlayerList is returned by reference from TGNetwork_GetPlayerList**. The list is owned by the network object and should not be deleted by Python code.
-
-7. **App.py wraps Appc functions with shadow classes**. Python code calls `pMessage.SetGuaranteed(1)` which internally calls `Appc.TGMessage_SetGuaranteed(self.this, 1)`. Our reimplemented App.py must maintain this wrapping pattern.
-
-8. **IsNull checks the SWIG pointer string format**. A null handle looks like `_ffffffff_p_void` or similar. The `IsNull()` function checks for the `ffffffff` prefix.
-
-9. **Ship entities are lightweight data containers (~80 bytes), not simulation objects**. The relay server tracks identity (name, ObjID, NetType), ownership (NetPlayerID, IsPlayerShip), and death state (IsDying, IsDead). No physics, no position updates, no subsystem state.
-
-10. **No torpedo entities needed on the server**. All scoring-relevant data (damage amount, firing player ID, hull hit flag) is embedded in network messages relayed between clients. The server does not need to track torpedo objects.
-
-11. **Generic property base class handles ~200 Set* methods as no-ops**. The 16 property types each have 10-30 Set* methods called by hardpoint files during ship creation. A single base class with `__getattr__` returning a no-op callable handles all of them without individual method implementations.
-
-12. **UI stubs must return dummy callable objects, NOT None**. Functions like `TopWindow_GetTopWindow()` and `SortedRegionMenu_GetWarpButton()` must return objects whose methods can be called without crashing. `RestartGame()`, `SetupEventHandlers()`, and other gameplay-critical functions access widget methods. Returning None causes AttributeError crashes that the original DedicatedServer.py mod catches with broad try/except blocks.
-
-13. **Score tracking stays in Python dictionaries, not mirrored in ECS**. The scoring scripts maintain `g_kScoresDictionary`, `g_kDeathsDictionary`, etc. as plain Python dicts keyed by player ID. These do not need to be synchronized with ECS state -- they are purely Python-side bookkeeping that gets broadcast via SCORE_CHANGE_MESSAGE.
-
-14. **The server IS the host**. `IsHost()` returns True, `IsClient()` returns False, `IsMultiplayer()` returns True. All host-side code paths in mission scripts (scoring handlers, message creation, game flow) execute on the dedicated server.
+| Data | What's Missing | Where to Get It |
+|------|---------------|-----------------|
+| Map display names | Not in SpeciesToSystem.py | Each `Systems/Multi*/Multi*.py` script |
+| Map spawn points | Coordinate data | Each map script's SetTranslate() calls |
+| Ship mass for ~20 ships | Not in GlobalPropertyTemplates | Engine defaults in Appc.pyd or hardpoints |
+| Ship subsystem counts | Per-ship subsystem list | Each hardpoint script's subsystem creation calls |
+| Settings packet full layout | Complete byte-level format | Decompiled MultiplayerWindow handler |
+| ObjCreateTeam full layout | Packet byte map | `objcreate-team-format.md` (partially documented) |
+| Hull HP for most ships | Only Galaxy (15000) and BoP (4000) extracted | Each hardpoint script's HullProperty calls |
+| Weapon parameters | Only partial (Sovereign phasers, Galaxy torpedoes, BoP disruptors) | Each hardpoint script's weapon property calls |
+| Game mode constants | Frag limits, time limits from Mission*.py | `Multiplayer/Episode/Mission*/Mission*.py` |
