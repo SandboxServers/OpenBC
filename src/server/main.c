@@ -269,6 +269,14 @@ static void handle_checksum_response(int peer_slot,
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
 
+    /* Handle 0xFF final round response */
+    if (peer->state == PEER_CHECKSUMMING_FINAL) {
+        printf("[handshake] slot=%d checksum round 0xFF accepted (len=%d)\n",
+               peer_slot, msg->payload_len);
+        send_settings_and_gameinit(peer_slot);
+        return;
+    }
+
     if (peer->state != PEER_CHECKSUMMING) {
         printf("[handshake] slot=%d unexpected checksum response (state=%d)\n",
                peer_slot, peer->state);
@@ -319,8 +327,17 @@ static void handle_checksum_response(int peer_slot,
     if (peer->checksum_round < BC_CHECKSUM_ROUNDS) {
         send_checksum_request(peer_slot, peer->checksum_round);
     } else {
-        printf("[handshake] slot=%d all checksums passed\n", peer_slot);
-        send_settings_and_gameinit(peer_slot);
+        /* All 4 regular rounds passed. Send the final 0xFF round.
+         * Decompiled code (FUN_006a35b0) shows the server sends
+         * [0x20][0xFF] after rounds 0-3 complete. */
+        printf("[handshake] slot=%d rounds 0-3 passed, sending final round 0xFF\n",
+               peer_slot);
+        u8 payload[16];
+        int plen = bc_checksum_request_final_build(payload, sizeof(payload));
+        if (plen > 0) {
+            queue_reliable(peer_slot, payload, plen);
+        }
+        peer->state = PEER_CHECKSUMMING_FINAL;
     }
 }
 

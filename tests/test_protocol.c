@@ -1200,6 +1200,17 @@ TEST(direction_byte_client_encoding)
     ASSERT_EQ(BC_DIR_CLIENT + 5, 0x07);
 }
 
+/* === 5th checksum round tests === */
+
+TEST(checksum_round_0xff_build)
+{
+    u8 buf[16];
+    int len = bc_checksum_request_final_build(buf, sizeof(buf));
+    ASSERT_EQ_INT(len, 2);
+    ASSERT_EQ(buf[0], BC_OP_CHECKSUM_REQ);
+    ASSERT_EQ(buf[1], 0xFF);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -1301,4 +1312,7 @@ TEST_MAIN_BEGIN()
 
     /* Direction byte */
     RUN(direction_byte_client_encoding);
+
+    /* 5th checksum round */
+    RUN(checksum_round_0xff_build);
 TEST_MAIN_END()

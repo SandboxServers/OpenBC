@@ -15,11 +15,12 @@
  */
 
 typedef enum {
-    PEER_EMPTY,         /* Slot is available */
-    PEER_CONNECTING,    /* Connection handshake in progress */
-    PEER_CHECKSUMMING,  /* Running 4-round checksum validation */
-    PEER_LOBBY,         /* In lobby, waiting for game start */
-    PEER_IN_GAME,       /* Actively playing */
+    PEER_EMPTY,               /* Slot is available */
+    PEER_CONNECTING,          /* Connection handshake in progress */
+    PEER_CHECKSUMMING,        /* Running 4-round checksum validation */
+    PEER_CHECKSUMMING_FINAL,  /* Waiting for 0xFF checksum round response */
+    PEER_LOBBY,               /* In lobby, waiting for game start */
+    PEER_IN_GAME,             /* Actively playing */
 } peer_state_t;
 
 typedef struct {

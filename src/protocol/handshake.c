@@ -42,6 +42,19 @@ int bc_checksum_request_build(u8 *buf, int buf_size, int round)
     return (int)b.pos;
 }
 
+int bc_checksum_request_final_build(u8 *buf, int buf_size)
+{
+    /* 5th checksum round (0xFF): observed in decompiled code (FUN_006a35b0).
+     * The real server sends [0x20][0xFF] possibly followed by version strings.
+     * We send the minimal form; the client responds with [0x21][0xFF][...].
+     * TODO: RE needed -- determine if additional data (strings) is required
+     * for vanilla client compatibility. */
+    if (buf_size < 2) return -1;
+    buf[0] = BC_OP_CHECKSUM_REQ;
+    buf[1] = 0xFF;
+    return 2;
+}
+
 int bc_settings_build(u8 *buf, int buf_size,
                       f32 game_time,
                       bool collision_dmg,
