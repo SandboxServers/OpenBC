@@ -1,5 +1,8 @@
 #include "test_util.h"
 #include "openbc/ship_data.h"
+#include "openbc/ship_state.h"
+#include "openbc/game_builders.h"
+#include "openbc/opcodes.h"
 #include <string.h>
 #include <math.h>
 
@@ -143,6 +146,76 @@ TEST(galaxy_subsystem_phaser)
     ASSERT(phaser->max_damage_distance > 0);
 }
 
+/* === Ship state === */
+
+TEST(ship_init_galaxy)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship;
+    i32 oid = bc_make_ship_id(0);
+    bc_ship_init(&ship, cls, 2, oid, 0, 1);
+
+    ASSERT(ship.alive);
+    ASSERT(fabsf(ship.hull_hp - 15000.0f) < 1.0f);
+    ASSERT(fabsf(ship.shield_hp[0] - 8000.0f) < 1.0f);
+    ASSERT_EQ(ship.owner_slot, 0);
+    ASSERT_EQ(ship.team_id, 1);
+    ASSERT_EQ(ship.cloak_state, BC_CLOAK_DECLOAKED);
+    ASSERT_EQ(ship.tractor_target_id, -1);
+
+    /* All subsystems at full HP */
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        ASSERT(fabsf(ship.subsystem_hp[i] - cls->subsystems[i].max_condition) < 1.0f);
+    }
+}
+
+TEST(ship_init_all_types)
+{
+    /* Init all 16 ship types, verify HP matches registry */
+    for (int i = 0; i < g_reg.ship_count; i++) {
+        const bc_ship_class_t *cls = bc_registry_get_ship(&g_reg, i);
+        bc_ship_state_t ship;
+        bc_ship_init(&ship, cls, i, bc_make_ship_id(i), (u8)i, 0);
+        ASSERT(ship.alive);
+        ASSERT(fabsf(ship.hull_hp - cls->hull_hp) < 1.0f);
+    }
+}
+
+TEST(ship_serialize_galaxy)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 1);
+    ship.pos = (bc_vec3_t){100.0f, 200.0f, 300.0f};
+
+    u8 blob[1024];
+    int len = bc_ship_serialize(&ship, cls, blob, (int)sizeof(blob));
+    ASSERT(len > 0);
+    /* Minimum: 4(oid) + 2(species) + 12(pos) + 16(quat) + 24(fwd+up)
+     * + 4(speed) + 4(hull) + 24(shields) + 2(ss_count) + 4*N(ss_hp) + 2 */
+    ASSERT(len > 80);
+}
+
+TEST(ship_create_packet)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 1);
+
+    u8 pkt[1024];
+    int len = bc_ship_build_create_packet(&ship, cls, pkt, (int)sizeof(pkt));
+    ASSERT(len > 0);
+    ASSERT_EQ(pkt[0], BC_OP_OBJ_CREATE_TEAM);
+    ASSERT_EQ(pkt[1], 0); /* owner slot */
+    ASSERT_EQ(pkt[2], 1); /* team id */
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -157,4 +230,8 @@ TEST_MAIN_BEGIN()
     RUN(kessok_disruptor_massive);
     RUN(all_projectiles_present);
     RUN(galaxy_subsystem_phaser);
+    RUN(ship_init_galaxy);
+    RUN(ship_init_all_types);
+    RUN(ship_serialize_galaxy);
+    RUN(ship_create_packet);
 TEST_MAIN_END()
