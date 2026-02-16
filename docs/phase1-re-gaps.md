@@ -1,8 +1,9 @@
 # OpenBC Phase 1: Reverse Engineering Gap Analysis
 
 ## Document Status
-- **Generated**: 2026-02-07, **Revised**: 2026-02-15 (major update with STBC-Dedi verified findings)
+- **Generated**: 2026-02-07, **Revised**: 2026-02-15 (major update with STBC-Dedi verified findings; framing updated for standalone server architecture)
 - **Source**: game-reverse-engineer agent analysis + STBC-Dedicated-Server verified results
+- **Architecture**: OpenBC is a standalone C server with data-driven configuration (no Python, no SWIG, no ECS). See [phase1-implementation-plan.md](phase1-implementation-plan.md) for the RFC.
 - **Reference repo**: `../STBC-Dedicated-Server/`
 - **Cross-reference**: [phase1-verified-protocol.md](phase1-verified-protocol.md) for complete wire format
 
@@ -523,15 +524,33 @@ No further RE work is required for Phase 1 implementation. The remaining partial
 | `(objID - 0x3FFFFFFF) >> 18` | Extract player slot from object ID |
 | 262,143 IDs per player | Maximum objects per player |
 
-### Hash Function (FUN_007202e0)
+### Hash Functions
+
+Two distinct hash algorithms are used in the checksum system:
+
+**StringHash (FUN_007202e0)** -- 4-lane Pearson hash for name matching:
 ```c
 // 4-table byte-XOR substitution hash
 // Tables at 0x0095c888, 0x0095c988, 0x0095ca88, 0x0095cb88
 // Each table: 256 bytes
-// Input: filename or file content as byte string
+// Input: directory name or filename string
 // Output: 32-bit hash (a<<24 | b<<16 | c<<8 | d)
+// Purpose: Match directories/files between client and server by name
 // NOT MD5, NOT CRC32
 ```
+
+**FileHash (FUN_006a62f0)** -- Rotate-XOR for content integrity:
+```c
+// Reads file contents as DWORD array
+// hash = (hash ^ dword[i]) ROL 1, for each DWORD
+// Deliberately SKIPS DWORD index 1 (bytes 4-7 = .pyc modification timestamp)
+// Remaining bytes (file_size % 4) use MOVSX sign-extension before XOR
+// Input: file contents (typically .pyc bytecode)
+// Output: 32-bit content hash
+// Purpose: Verify file integrity (same bytecode = same hash regardless of compile time)
+```
+
+These are distinct algorithms serving different purposes. StringHash identifies files/directories by name; FileHash verifies file content integrity. The skip-bytes-4-7 behavior in FileHash is deliberate -- it makes the hash insensitive to .pyc recompilation timestamps.
 
 ---
 

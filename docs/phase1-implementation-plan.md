@@ -98,7 +98,34 @@ OpenBC is a fully open-source, mod-extensible multiplayer server for Star Trek: 
 
 **Mod extension points:**
 - Custom server info fields (mod name, version, custom rules)
-- Master server registration (internet play, not just LAN)
+
+### 3.4 Master Server (Internet Play)
+
+**Responsibility**: Register with GameSpy-compatible master servers for internet game discovery.
+
+**Protocol**: Standard GameSpy heartbeat/query protocol, compatible with modern community-maintained replacements (333networks, OpenSpy, etc.).
+- Heartbeat: periodic UDP to master server (configurable URL/IP)
+- Query response: same format as LAN discovery
+- NAT-friendly: master server facilitates client discovery
+
+**Reimplementation scope**: ~400 LOC (heartbeat sender + master server query handler)
+
+**Server config**:
+```toml
+[network]
+port = 22101
+lan_discovery = true
+
+[network.master_server]
+enabled = true
+address = "master.333networks.com"
+port = 28900
+heartbeat_interval = 60  # seconds
+```
+
+**Mod extension points:**
+- Multiple master server registrations
+- Custom server metadata for master server listings
 
 ## 4. Checksum Validation Layer
 
@@ -293,7 +320,7 @@ Ship:
 
 **Responsibility**: Process incoming game messages and generate responses.
 
-All 41 game opcodes (0x00-0x2A) plus 8 Python messages (0x2C-0x39):
+All 28 game opcodes (0x00-0x2A) plus 8 Python messages (0x2C-0x39):
 
 **Server-generated (S→C):**
 
@@ -356,17 +383,16 @@ All 41 game opcodes (0x00-0x2A) plus 8 Python messages (0x2C-0x39):
 
 **Responsibility**: Detect when ships overlap and trigger damage.
 
-**Simplified approach** (bounding spheres):
-- Each ship class has a precomputed bounding radius (from NIF geometry, stored in data registry)
-- Sphere-sphere intersection test: `distance(A, B) < radius_A + radius_B`
-- On collision: compute damage based on relative velocity and ship mass
+**Two-phase approach** (broad + narrow):
+- **Broad phase**: Bounding sphere test per ship class (precomputed radius from NIF geometry, stored in data registry). `distance(A, B) < radius_A + radius_B` filters obvious non-collisions cheaply.
+- **Narrow phase**: Mesh-accurate collision using convex hull data extracted from NIF model geometry. A build-time tool parses NIF files and generates collision mesh data (convex hulls) stored in the data registry alongside ship definitions.
 
-**Stock BC uses**: NetImmerse proximity manager with mesh-accurate collision. This is the biggest fidelity tradeoff. Spheres work for gameplay but aren't shape-accurate.
+**Stock BC uses**: NetImmerse proximity manager with mesh-accurate collision. OpenBC matches this fidelity.
 
-**Reimplementation scope**: ~500 LOC for sphere collision, ~2,000 LOC for mesh-accurate
+**Reimplementation scope**: ~2,500 LOC (broad-phase sphere + narrow-phase convex hull, NIF collision mesh extractor tool)
 
 **Mod extension points:**
-- Custom collision shapes per ship (spheres, boxes, convex hulls)
+- Custom collision shapes per ship (auto-generated from NIF or hand-authored)
 - Collision layers (allies don't collide, etc.)
 - Custom collision response (bounce, grapple, tractor lock)
 
@@ -574,18 +600,19 @@ Clients can connect to either — they speak the same protocol.
 | Build | **Make** (existing) | Already works, cross-compiles from WSL2 |
 | Config format | **TOML** | Human-readable, supports nested tables, widely supported |
 | Manifest format | **JSON** | Machine-generated, easy to validate, tool-friendly |
-| Physics | **Custom** (Euler integration + sphere collision) | Sufficient for BC gameplay; avoid heavy dependencies |
+| Physics | **Custom** (Euler integration + mesh-accurate collision) | Matches original BC fidelity; convex hulls from NIF geometry |
 | Networking | **Winsock UDP** (Win32) | Must match client platform; could abstract for Linux later |
+| Collision meshes | **NIF parser** (build-time tool) | Extract convex hulls from ship NIF models |
 
-## 11. Open Questions
+## 11. Resolved Design Decisions
 
-1. **Version string at `PTR_DAT_008d9af4`**: Identified as `"60"`. Hash: `StringHash("60") = 0x7E0CE243`. Used as version gate in checksum exchange.
+1. **Version string at `PTR_DAT_008d9af4`**: Identified as `"60"`. Hash: `StringHash("60") = 0x7E0CE243`. Used as version gate in checksum exchange. **RESOLVED** -- implemented in manifest system.
 
-2. **StateUpdate direction split**: Server sends subsystem health (flag 0x20), client sends weapon status (flag 0x80). Verified as mutually exclusive by direction in multiplayer (10,459 C→S packets all use 0x80, 19,997 S→C packets all use 0x20). This is enforced by the `DAT_0097fa8a` (IsMultiplayer) flag differing between client and server code paths.
+2. **StateUpdate direction split**: Server sends subsystem health (flag 0x20), client sends weapon status (flag 0x80). Verified as mutually exclusive by direction in multiplayer (10,459 C→S packets all use 0x80, 19,997 S→C packets all use 0x20). This is enforced by the `DAT_0097fa8a` (IsMultiplayer) flag differing between client and server code paths. **RESOLVED** -- documented fact, no design choice needed.
 
-3. **Mesh-accurate collision**: Is bounding-sphere collision good enough long-term, or should OpenBC eventually parse NIF models for convex hull extraction? This affects the data registry design (radius only vs. collision mesh reference).
+3. **Mesh-accurate collision**: **YES.** OpenBC will implement mesh-accurate collisions by extracting convex hull data from NIF model geometry. Bounding spheres are used as a broad-phase pass, with NIF-derived collision meshes for narrow-phase. The data registry includes collision mesh references per ship class, not just radius. This requires a NIF geometry parser as part of the asset pipeline tooling.
 
-4. **Internet play**: GameSpy master server is long dead. Should OpenBC include a custom master server protocol for internet game discovery?
+4. **Internet play**: **YES.** OpenBC will implement the GameSpy master server protocol for internet game discovery, compatible with modern drop-in replacement services like 333networks and other community-maintained GameSpy reimplementations. The server will support both LAN broadcast discovery and master server registration/heartbeat. Master server URL is configurable.
 
 ## 12. Files Referenced
 

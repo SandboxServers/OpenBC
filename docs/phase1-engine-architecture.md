@@ -1,10 +1,10 @@
 # OpenBC Phase 1: Bridge Commander Engine Architecture Reference
 
 ## Document Status
-- **Created**: 2026-02-15
+- **Created**: 2026-02-15, **Updated**: 2026-02-15 (framing updated for standalone server architecture)
 - **Source**: STBC-Dedicated-Server reverse engineering (Ghidra decompilation, RTTI catalog, function tracing)
-- **Purpose**: Provide implementors with a clear understanding of BC's engine layers, so OpenBC can reimplement the relevant parts
-- **Cross-reference**: [phase1-verified-protocol.md](phase1-verified-protocol.md) for wire format, [phase1-re-gaps.md](phase1-re-gaps.md) for gap analysis
+- **Purpose**: Provide implementors with a clear understanding of BC's original engine layers, so OpenBC can reimplement the protocol-relevant parts. OpenBC is a standalone C server with data-driven configuration -- it does not embed Python, use SWIG, or replicate the original engine's class hierarchy. This document is preserved as reference for understanding the original engine's behavior and wire protocol semantics.
+- **Cross-reference**: [phase1-verified-protocol.md](phase1-verified-protocol.md) for wire format, [phase1-re-gaps.md](phase1-re-gaps.md) for gap analysis, [phase1-implementation-plan.md](phase1-implementation-plan.md) for OpenBC's architecture
 
 ---
 
@@ -28,7 +28,7 @@ Bridge Commander's engine has three distinct layers:
 +-----------------------------------------------------+
 ```
 
-**For Phase 1 (headless relay server), only the top two layers matter.** The NetImmerse scene graph and renderer are not needed -- the server has no 3D visualization. However, understanding NI 3.1 is useful for debugging and future phases.
+**For the standalone OpenBC server, only the top two layers matter.** The NetImmerse scene graph and renderer are not needed -- the server has no 3D visualization. However, understanding NI 3.1 is useful for debugging object serialization formats and future rendering phases.
 
 ---
 
@@ -54,19 +54,19 @@ Every NI object has runtime type information:
 
 | Type | Purpose | Phase 1 Relevance |
 |------|---------|-------------------|
-| NiNode | Scene graph node (ships, subsystems) | Ship identity (ship+0x18) |
-| NiAVObject | Visual object base | Bounding sphere at node+0x94 |
-| NiStream | File I/O (NIF loading) | Not needed for relay |
+| NiNode | Scene graph node (ships, subsystems) | Ship identity (ship+0x18), referenced in wire format |
+| NiAVObject | Visual object base | Bounding sphere at node+0x94, collision mesh source |
+| NiStream | File I/O (NIF loading) | Not needed for standalone server |
 
-### Not Needed for Phase 1
+### Not Needed for Standalone Server
 
-The entire NI scene graph, renderer, texture system, and geometry pipeline are irrelevant for a headless relay server. OpenBC Phase 1 should NOT attempt to reimplement these.
+The entire NI scene graph, renderer, texture system, and geometry pipeline are irrelevant for the standalone OpenBC server. The server uses precomputed collision mesh data (extracted from NIF files by a build-time tool) rather than loading NIF files at runtime.
 
 ---
 
 ## 3. TG Framework Layer
 
-The TG (Totally Games) framework sits between NI and game logic. This is the layer OpenBC must reimplement.
+The TG (Totally Games) framework sits between NI and game logic. OpenBC reimplements the protocol-facing behavior of this layer (message framing, event dispatch, serialization) but does not replicate the original class hierarchy.
 
 ### TGObject
 
@@ -220,7 +220,7 @@ Ships are full game objects with subsystems. On the stock game, a Sovereign-clas
 
 Plus multiple instances of: ImpulseEngine (4), PhaserEmitter (8), TorpedoTube (6), TractorBeam (4).
 
-**For Phase 1 relay server**: Ship entities are lightweight data containers. Full subsystem simulation is not needed -- the relay server forwards StateUpdate packets without interpreting subsystem data.
+**For the standalone OpenBC server**: The server tracks ship state in lightweight data structures defined in the data registry (ships.toml). It does not replicate the original C++ class hierarchy. Subsystem health, weapon state, and other ship properties are tracked as flat data for protocol compatibility and damage simulation.
 
 ### Object ID System
 
@@ -290,7 +290,9 @@ The server does NOT need to understand most message payloads. It operates on raw
 
 ---
 
-## 6. Python / SWIG Integration
+## 6. Python / SWIG Integration (Original Engine Reference)
+
+> **Note**: OpenBC does NOT use Python or SWIG. The standalone server is pure C with data-driven configuration (TOML/JSON). This section is preserved as reference for understanding the original engine's Python bridge, which is relevant for interpreting decompiled code, understanding how the original mission scripts drive game flow, and decoding Python-level opcodes (0x2C-0x39) that the OpenBC server must generate natively.
 
 ### Shadow Class System
 
@@ -336,9 +338,11 @@ Constants include all ET_* event types, SPECIES_* ship types, CT_* damage types,
 
 ---
 
-## 7. Bootstrap Sequence
+## 7. Bootstrap Sequence (Original Engine Reference)
 
-The original game (and our proxy) bootstraps in phases:
+> **Note**: OpenBC's bootstrap is fundamentally different -- it is a standalone C server that reads TOML/JSON configuration, initializes networking directly, and enters a game loop with no Python or SWIG involvement. This section documents the original engine's bootstrap for reference (useful for understanding the proxy server and the order of operations that clients expect).
+
+The original game (and the STBC-Dedi proxy) bootstraps in phases:
 
 ### Phase 0: Flag Setting
 Direct memory writes to configure multiplayer mode:
@@ -362,7 +366,7 @@ Call `FUN_00504f10` (TopWindow_SetupMultiplayerGame):
 2. Register at `0x0097E238`
 3. Set `readyForNewPlayers = 1` (at +0x1F8)
 
-### Phase 3: Python Automation
+### Phase 3: Python Automation (original only -- OpenBC reads server.toml instead)
 Execute `DedicatedServer.TopWindowInitialized()`:
 1. Set server name, captain name, max players
 2. Create GameSpy for LAN discovery
@@ -382,7 +386,7 @@ Periodic timer fires `GameLoopTimerProc` at ~33ms intervals:
 
 ## 8. Key Function Address Table
 
-Functions that OpenBC must reimplement or understand:
+Functions whose behavior OpenBC must match for protocol compatibility:
 
 ### Network Layer
 | Address | Name | Purpose |
@@ -415,7 +419,8 @@ Functions that OpenBC must reimplement or understand:
 | 0x006a3cd0 | NetFile::ReceiveMessageHandler | Checksum opcode dispatcher |
 | 0x006a4560 | ChecksumResponseVerifier | Hash compare, send next |
 | 0x006a4bb0 | ChecksumAllPassed | Fire ET_CHECKSUM_COMPLETE |
-| 0x007202e0 | HashString | 4-table XOR substitution hash |
+| 0x007202e0 | StringHash | 4-lane Pearson hash (name matching) |
+| 0x006a62f0 | FileHash | Rotate-XOR hash (content integrity, skips bytes 4-7) |
 
 ### Event System
 | Address | Name | Purpose |
@@ -425,7 +430,7 @@ Functions that OpenBC must reimplement or understand:
 | 0x006db620 | DispatchToChain | Walk handler chain |
 | 0x006da2a0 | PostEvent | Add event to queue |
 
-### Damage System (reference only -- not needed for Phase 1 relay)
+### Damage System (reimplemented natively in OpenBC -- formulas from these functions)
 | Address | Name | Purpose |
 |---------|------|---------|
 | 0x00594020 | DoDamage | Central damage dispatcher |
