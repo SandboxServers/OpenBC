@@ -1,0 +1,603 @@
+{
+  "meta": {
+    "name": "Star Trek: Bridge Commander 1.1",
+    "generator": "openbc-hash",
+    "generator_version": "0.1.0"
+  },
+  "version_string": "60",
+  "version_string_hash": "0x7E0CE243",
+  "directories": [
+    {
+      "index": 0,
+      "path": "scripts",
+      "filter": "App.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x4DAFCB2F",
+      "files": [
+        {
+          "filename": "App.pyc",
+          "name_hash": "0x373EB677",
+          "content_hash": "0xF8A0A740"
+        }
+      ],
+      "subdirs": [
+      ]
+    },
+    {
+      "index": 1,
+      "path": "scripts",
+      "filter": "Autoexec.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x4DAFCB2F",
+      "files": [
+        {
+          "filename": "Autoexec.pyc",
+          "name_hash": "0x8501E6A1",
+          "content_hash": "0x17930067"
+        }
+      ],
+      "subdirs": [
+      ]
+    },
+    {
+      "index": 2,
+      "path": "scripts/ships",
+      "filter": "*.pyc",
+      "recursive": true,
+      "dir_name_hash": "0xB831D315",
+      "files": [
+        {
+          "filename": "Akira.pyc",
+          "name_hash": "0x3EB23EBA",
+          "content_hash": "0xCCD37170"
+        },
+        {
+          "filename": "Amagon.pyc",
+          "name_hash": "0x45FC7597",
+          "content_hash": "0xB277FCD0"
+        },
+        {
+          "filename": "Ambassador.pyc",
+          "name_hash": "0xE6C0D878",
+          "content_hash": "0xE819F2BE"
+        },
+        {
+          "filename": "Asteroid.pyc",
+          "name_hash": "0xA0806B91",
+          "content_hash": "0x90636AA0"
+        },
+        {
+          "filename": "Asteroid1.pyc",
+          "name_hash": "0xDBB2F964",
+          "content_hash": "0xC002F743"
+        },
+        {
+          "filename": "Asteroid2.pyc",
+          "name_hash": "0x5246443F",
+          "content_hash": "0xF7BEF5C9"
+        },
+        {
+          "filename": "Asteroid3.pyc",
+          "name_hash": "0x95CA658D",
+          "content_hash": "0x0AF84264"
+        },
+        {
+          "filename": "Asteroidh1.pyc",
+          "name_hash": "0xCDDF111F",
+          "content_hash": "0xA02835BE"
+        },
+        {
+          "filename": "Asteroidh2.pyc",
+          "name_hash": "0xC090F057",
+          "content_hash": "0xA32B03B8"
+        },
+        {
+          "filename": "Asteroidh3.pyc",
+          "name_hash": "0x2E1758E1",
+          "content_hash": "0xF6B2E32A"
+        },
+        {
+          "filename": "BiranuStation.pyc",
+          "name_hash": "0x1A72E060",
+          "content_hash": "0x2A353867"
+        },
+        {
+          "filename": "BirdOfPrey.pyc",
+          "name_hash": "0xE46791C4",
+          "content_hash": "0xDF8AD8B7"
+        },
+        {
+          "filename": "BombFreighter.pyc",
+          "name_hash": "0x71DDEF3B",
+          "content_hash": "0xF8738654"
+        },
+        {
+          "filename": "CardFacility.pyc",
+          "name_hash": "0x7593FABC",
+          "content_hash": "0xAFF48CC2"
+        },
+        {
+          "filename": "CardFreighter.pyc",
+          "name_hash": "0x944D0354",
+          "content_hash": "0xF7A59466"
+        },
+        {
+          "filename": "CardHybrid.pyc",
+          "name_hash": "0x7E43513F",
+          "content_hash": "0x3AF7934A"
+        },
+        {
+          "filename": "CardOutpost.pyc",
+          "name_hash": "0x732570D6",
+          "content_hash": "0xCDC062BC"
+        },
+        {
+          "filename": "CardStarbase.pyc",
+          "name_hash": "0x0DD017CA",
+          "content_hash": "0xDB05F42B"
+        },
+        {
+          "filename": "CardStation.pyc",
+          "name_hash": "0xE0FABB1F",
+          "content_hash": "0x35762B4B"
+        },
+        {
+          "filename": "CommArray.pyc",
+          "name_hash": "0x216A105E",
+          "content_hash": "0x1C4E6A97"
+        },
+        {
+          "filename": "CommLight.pyc",
+          "name_hash": "0x2F11087B",
+          "content_hash": "0x28F37BAC"
+        },
+        {
+          "filename": "Decoy.pyc",
+          "name_hash": "0x2F9FC4A9",
+          "content_hash": "0x699C828C"
+        },
+        {
+          "filename": "DryDock.pyc",
+          "name_hash": "0x00B0768C",
+          "content_hash": "0xE4966259"
+        },
+        {
+          "filename": "E2M0Warbird.pyc",
+          "name_hash": "0x5297FE01",
+          "content_hash": "0xBAFBAAAA"
+        },
+        {
+          "filename": "Enterprise.pyc",
+          "name_hash": "0x5F66DE18",
+          "content_hash": "0x76D465CF"
+        },
+        {
+          "filename": "EscapePod.pyc",
+          "name_hash": "0x3EBDF4BA",
+          "content_hash": "0xB6652D59"
+        },
+        {
+          "filename": "FedOutpost.pyc",
+          "name_hash": "0xFDDAB887",
+          "content_hash": "0x878E305C"
+        },
+        {
+          "filename": "FedStarbase.pyc",
+          "name_hash": "0xF297F287",
+          "content_hash": "0x05B1A109"
+        },
+        {
+          "filename": "Freighter.pyc",
+          "name_hash": "0x91312029",
+          "content_hash": "0x22E52406"
+        },
+        {
+          "filename": "Galaxy.pyc",
+          "name_hash": "0x8D0F8067",
+          "content_hash": "0x3F712BBF"
+        },
+        {
+          "filename": "Galor.pyc",
+          "name_hash": "0xB42D7C88",
+          "content_hash": "0xEDE2306D"
+        },
+        {
+          "filename": "GenericTemplate.pyc",
+          "name_hash": "0x40927413",
+          "content_hash": "0x15EE0446"
+        },
+        {
+          "filename": "Geronimo.pyc",
+          "name_hash": "0x89ABC52E",
+          "content_hash": "0x456C084A"
+        },
+        {
+          "filename": "Keldon.pyc",
+          "name_hash": "0x0FFFB996",
+          "content_hash": "0x62C2716A"
+        },
+        {
+          "filename": "KessokHeavy.pyc",
+          "name_hash": "0xB223C78E",
+          "content_hash": "0x2316DBF0"
+        },
+        {
+          "filename": "KessokLight.pyc",
+          "name_hash": "0x0C652730",
+          "content_hash": "0x75B632C1"
+        },
+        {
+          "filename": "KessokMine.pyc",
+          "name_hash": "0xA2A8082F",
+          "content_hash": "0xAB73E61A"
+        },
+        {
+          "filename": "Marauder.pyc",
+          "name_hash": "0xCA278656",
+          "content_hash": "0x12F3AF10"
+        },
+        {
+          "filename": "MatanKeldon.pyc",
+          "name_hash": "0x76DB5ADE",
+          "content_hash": "0x67DEEE4A"
+        },
+        {
+          "filename": "Nebula.pyc",
+          "name_hash": "0x51C87312",
+          "content_hash": "0xBFD9BC09"
+        },
+        {
+          "filename": "Peregrine.pyc",
+          "name_hash": "0xFDE92B28",
+          "content_hash": "0x05A11472"
+        },
+        {
+          "filename": "Probe.pyc",
+          "name_hash": "0x79400952",
+          "content_hash": "0xC7B4ACF0"
+        },
+        {
+          "filename": "RanKuf.pyc",
+          "name_hash": "0xA21393D7",
+          "content_hash": "0x639FE9BF"
+        },
+        {
+          "filename": "Shuttle.pyc",
+          "name_hash": "0x8E3EC2EC",
+          "content_hash": "0x7CEEE5E4"
+        },
+        {
+          "filename": "Sovereign.pyc",
+          "name_hash": "0xBF319661",
+          "content_hash": "0xEE03AF3F"
+        },
+        {
+          "filename": "SpaceFacility.pyc",
+          "name_hash": "0xC81B7007",
+          "content_hash": "0x51528C33"
+        },
+        {
+          "filename": "Sunbuster.pyc",
+          "name_hash": "0xA43A24A7",
+          "content_hash": "0x90521D1C"
+        },
+        {
+          "filename": "Transport.pyc",
+          "name_hash": "0xC11F951B",
+          "content_hash": "0xC467F409"
+        },
+        {
+          "filename": "Vorcha.pyc",
+          "name_hash": "0x1556D45E",
+          "content_hash": "0x20601436"
+        },
+        {
+          "filename": "Warbird.pyc",
+          "name_hash": "0x70D9B0B8",
+          "content_hash": "0xD500143B"
+        },
+        {
+          "filename": "__init__.pyc",
+          "name_hash": "0xE9DD9FA2",
+          "content_hash": "0x66E88E50"
+        }
+      ],
+      "subdirs": [
+        {
+          "name": "Hardpoints",
+          "name_hash": "0xCAAFFDD4",
+          "files": [
+            {
+              "filename": "akira.pyc",
+              "name_hash": "0x1AD01BB3",
+              "content_hash": "0xCD42E07B"
+            },
+            {
+              "filename": "amagon.pyc",
+              "name_hash": "0xDF4C8B63",
+              "content_hash": "0xAACB7138"
+            },
+            {
+              "filename": "ambassador.pyc",
+              "name_hash": "0x412691AF",
+              "content_hash": "0xEB3868A2"
+            },
+            {
+              "filename": "asteroid.pyc",
+              "name_hash": "0x8ED2A632",
+              "content_hash": "0x25415003"
+            },
+            {
+              "filename": "asteroid1.pyc",
+              "name_hash": "0x24237B45",
+              "content_hash": "0x7238BAF8"
+            },
+            {
+              "filename": "asteroid2.pyc",
+              "name_hash": "0x110EA8DE",
+              "content_hash": "0x1A50E28B"
+            },
+            {
+              "filename": "asteroid3.pyc",
+              "name_hash": "0x5C7F437F",
+              "content_hash": "0x862374C1"
+            },
+            {
+              "filename": "asteroidh1.pyc",
+              "name_hash": "0x1A8F56B8",
+              "content_hash": "0xEEFF598A"
+            },
+            {
+              "filename": "asteroidh2.pyc",
+              "name_hash": "0x8562BCCE",
+              "content_hash": "0x1A35034A"
+            },
+            {
+              "filename": "asteroidh3.pyc",
+              "name_hash": "0x902F5C87",
+              "content_hash": "0xA8925807"
+            },
+            {
+              "filename": "biranustation.pyc",
+              "name_hash": "0xC7DDFB47",
+              "content_hash": "0xFFE81CBD"
+            },
+            {
+              "filename": "birdofprey.pyc",
+              "name_hash": "0x24B7B20B",
+              "content_hash": "0xAA73B5A4"
+            },
+            {
+              "filename": "bombfreighter.pyc",
+              "name_hash": "0x0F29D80D",
+              "content_hash": "0x1BD724EE"
+            },
+            {
+              "filename": "cardfacility.pyc",
+              "name_hash": "0x4AEBE16F",
+              "content_hash": "0xFD88AAA2"
+            },
+            {
+              "filename": "cardfreighter.pyc",
+              "name_hash": "0x0FD4F0A4",
+              "content_hash": "0x30FADF77"
+            },
+            {
+              "filename": "cardhybrid.pyc",
+              "name_hash": "0xB7C9AB76",
+              "content_hash": "0x6FE63F54"
+            },
+            {
+              "filename": "cardoutpost.pyc",
+              "name_hash": "0x2D4B2820",
+              "content_hash": "0x7BBBC1E9"
+            },
+            {
+              "filename": "cardstarbase.pyc",
+              "name_hash": "0xCBDBC77B",
+              "content_hash": "0x44B3995D"
+            },
+            {
+              "filename": "cardstation.pyc",
+              "name_hash": "0x82A30472",
+              "content_hash": "0x0F64E85D"
+            },
+            {
+              "filename": "commarray.pyc",
+              "name_hash": "0xC8ED1FD9",
+              "content_hash": "0x53AC3B73"
+            },
+            {
+              "filename": "commlight.pyc",
+              "name_hash": "0x21DDDA87",
+              "content_hash": "0x7B5364CB"
+            },
+            {
+              "filename": "drydock.pyc",
+              "name_hash": "0xF051BB89",
+              "content_hash": "0x459E1D67"
+            },
+            {
+              "filename": "e2m0warbird.pyc",
+              "name_hash": "0xBE8C5386",
+              "content_hash": "0x30460C33"
+            },
+            {
+              "filename": "enterprise.pyc",
+              "name_hash": "0xCB98BB6A",
+              "content_hash": "0xEC6F521B"
+            },
+            {
+              "filename": "escapepod.pyc",
+              "name_hash": "0x8EF674BD",
+              "content_hash": "0x359328FB"
+            },
+            {
+              "filename": "fedoutpost.pyc",
+              "name_hash": "0x9B4FB0D1",
+              "content_hash": "0x6CFE73AE"
+            },
+            {
+              "filename": "fedstarbase.pyc",
+              "name_hash": "0xC0E54A54",
+              "content_hash": "0x1049FE76"
+            },
+            {
+              "filename": "freighter.pyc",
+              "name_hash": "0x06B7B458",
+              "content_hash": "0x2E37529B"
+            },
+            {
+              "filename": "galaxy.pyc",
+              "name_hash": "0x66B01048",
+              "content_hash": "0x1CA1C3E4"
+            },
+            {
+              "filename": "galor.pyc",
+              "name_hash": "0xD107E920",
+              "content_hash": "0xCB0FC783"
+            },
+            {
+              "filename": "GenericTemplate.pyc",
+              "name_hash": "0x40927413",
+              "content_hash": "0xFE05A340"
+            },
+            {
+              "filename": "geronimo.pyc",
+              "name_hash": "0xF175AF02",
+              "content_hash": "0xC6BB92EB"
+            },
+            {
+              "filename": "keldon.pyc",
+              "name_hash": "0xA29FC9B5",
+              "content_hash": "0x859A09A4"
+            },
+            {
+              "filename": "kessokheavy.pyc",
+              "name_hash": "0xF1265576",
+              "content_hash": "0x65DEB76B"
+            },
+            {
+              "filename": "kessoklight.pyc",
+              "name_hash": "0x3D11CF61",
+              "content_hash": "0x4015E4E3"
+            },
+            {
+              "filename": "kessokmine.pyc",
+              "name_hash": "0x030C6585",
+              "content_hash": "0x2790F14E"
+            },
+            {
+              "filename": "marauder.pyc",
+              "name_hash": "0xDA209364",
+              "content_hash": "0x5A9FE0FB"
+            },
+            {
+              "filename": "matankeldon.pyc",
+              "name_hash": "0x547FD9DF",
+              "content_hash": "0xFC089EED"
+            },
+            {
+              "filename": "nebula.pyc",
+              "name_hash": "0x9977E2D6",
+              "content_hash": "0xFC02ADA9"
+            },
+            {
+              "filename": "peregrine.pyc",
+              "name_hash": "0xAA18D497",
+              "content_hash": "0x53578FEA"
+            },
+            {
+              "filename": "probe.pyc",
+              "name_hash": "0x3E47DEF8",
+              "content_hash": "0x23B127DC"
+            },
+            {
+              "filename": "probe2.pyc",
+              "name_hash": "0xCC8A8AB2",
+              "content_hash": "0xAB9B7107"
+            },
+            {
+              "filename": "rankuf.pyc",
+              "name_hash": "0xE0F34C13",
+              "content_hash": "0xA1EDCD64"
+            },
+            {
+              "filename": "shuttle.pyc",
+              "name_hash": "0x76999DB1",
+              "content_hash": "0x5431FE12"
+            },
+            {
+              "filename": "sovereign.pyc",
+              "name_hash": "0x21C31841",
+              "content_hash": "0x785310BD"
+            },
+            {
+              "filename": "spacefacility.pyc",
+              "name_hash": "0xF6CDB1B8",
+              "content_hash": "0x2D524346"
+            },
+            {
+              "filename": "sunbuster.pyc",
+              "name_hash": "0xC07C63B1",
+              "content_hash": "0x5C390BA9"
+            },
+            {
+              "filename": "transport.pyc",
+              "name_hash": "0x69CD81F9",
+              "content_hash": "0xF7AD0564"
+            },
+            {
+              "filename": "vorcha.pyc",
+              "name_hash": "0x2207BCE4",
+              "content_hash": "0x4AD0F71B"
+            },
+            {
+              "filename": "warbird.pyc",
+              "name_hash": "0xB89B7EA3",
+              "content_hash": "0xC55B87F8"
+            },
+            {
+              "filename": "__init__.pyc",
+              "name_hash": "0xE9DD9FA2",
+              "content_hash": "0xECA30640"
+            }
+          ],
+          "subdirs": [
+          ]
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "path": "scripts/mainmenu",
+      "filter": "*.pyc",
+      "recursive": false,
+      "dir_name_hash": "0x3F7BF00A",
+      "files": [
+        {
+          "filename": "CardSpecificSetup.pyc",
+          "name_hash": "0x5846668B",
+          "content_hash": "0x89097430"
+        },
+        {
+          "filename": "KeyboardConfig.pyc",
+          "name_hash": "0x4370D29D",
+          "content_hash": "0xB858BB0B"
+        },
+        {
+          "filename": "mainmenu.pyc",
+          "name_hash": "0xB54D1D23",
+          "content_hash": "0x2DB130A7"
+        },
+        {
+          "filename": "__init__.pyc",
+          "name_hash": "0xE9DD9FA2",
+          "content_hash": "0x2C8CD0AD"
+        }
+      ],
+      "subdirs": [
+      ]
+    }
+  ]
+}

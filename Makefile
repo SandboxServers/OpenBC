@@ -1,0 +1,67 @@
+# OpenBC Makefile
+# Cross-compiles from WSL2 to Win32 using mingw.
+# WSL2 runs Windows .exe natively, so tests work directly.
+
+CC       := i686-w64-mingw32-gcc
+CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2
+LDFLAGS  :=
+LDLIBS   :=
+EXE      := .exe
+
+# Build directory
+BUILD    := build
+
+# Source files by component
+CHECKSUM_SRC := src/checksum/string_hash.c src/checksum/file_hash.c src/checksum/hash_tables.c
+PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c
+JSON_SRC     := src/json/json_parse.c
+MANIFEST_SRC := tools/manifest.c
+
+# Object files
+CHECKSUM_OBJ := $(CHECKSUM_SRC:%.c=$(BUILD)/%.o)
+PROTOCOL_OBJ := $(PROTOCOL_SRC:%.c=$(BUILD)/%.o)
+JSON_OBJ     := $(JSON_SRC:%.c=$(BUILD)/%.o)
+MANIFEST_OBJ := $(MANIFEST_SRC:%.c=$(BUILD)/%.o)
+
+# Test files
+TEST_SRC     := $(wildcard tests/test_*.c)
+TEST_BIN     := $(TEST_SRC:tests/%.c=$(BUILD)/tests/%$(EXE))
+
+# Targets
+.PHONY: all clean test
+
+all: $(BUILD)/openbc-hash$(EXE)
+
+# --- Hash manifest tool ---
+$(BUILD)/openbc-hash$(EXE): $(CHECKSUM_OBJ) $(JSON_OBJ) $(MANIFEST_OBJ)
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+# --- Test runner ---
+test: $(TEST_BIN)
+	@echo "=== Running tests ==="
+	@pass=0; fail=0; \
+	for t in $(TEST_BIN); do \
+		printf "  %-40s " "$$(basename $$t)"; \
+		if $$t > /dev/null 2>&1; then \
+			echo "PASS"; pass=$$((pass+1)); \
+		else \
+			echo "FAIL"; $$t; fail=$$((fail+1)); \
+		fi; \
+	done; \
+	echo "=== $$pass passed, $$fail failed ===";\
+	[ $$fail -eq 0 ]
+
+# Each test binary links against all library objects
+$(BUILD)/tests/test_%$(EXE): tests/test_%.c $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(JSON_OBJ)
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+# --- Generic object compilation ---
+$(BUILD)/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# --- Clean ---
+clean:
+	rm -rf $(BUILD)
