@@ -11,6 +11,7 @@ int bc_gamespy_build_response(u8 *out, int out_size,
                               const bc_server_info_t *info)
 {
     int written = snprintf((char *)out, (size_t)out_size,
+        "\\gamename\\bcommander"
         "\\hostname\\%s"
         "\\numplayers\\%d"
         "\\maxplayers\\%d"
