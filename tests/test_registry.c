@@ -581,6 +581,143 @@ TEST(cloak_disabled_subsystem_prevents_cloak)
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
 }
 
+/* === Tractor beam tests === */
+
+TEST(tractor_engage_disengage)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3); /* Galaxy */
+    ASSERT(cls->has_tractor);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    ASSERT(bc_combat_can_tractor(&ship, cls, 0));
+    int ss = bc_combat_tractor_engage(&ship, cls, 0, 42);
+    ASSERT(ss >= 0);
+    ASSERT_EQ(ship.tractor_target_id, 42);
+
+    /* Can't engage again while locked */
+    ASSERT(!bc_combat_can_tractor(&ship, cls, 0));
+
+    bc_combat_tractor_disengage(&ship);
+    ASSERT_EQ(ship.tractor_target_id, -1);
+    ASSERT(bc_combat_can_tractor(&ship, cls, 0));
+}
+
+TEST(tractor_applies_drag)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship, target;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+    bc_ship_init(&target, cls, 2, bc_make_ship_id(1), 1, 1);
+
+    /* Place target within tractor range */
+    ship.pos = (bc_vec3_t){0, 0, 0};
+    target.pos = (bc_vec3_t){10, 0, 0};
+    target.speed = 50.0f;
+
+    bc_combat_tractor_engage(&ship, cls, 0, target.object_id);
+    f32 orig_speed = target.speed;
+    bc_combat_tractor_tick(&ship, &target, cls, 1.0f);
+    ASSERT(target.speed < orig_speed); /* drag applied */
+}
+
+TEST(tractor_auto_releases_out_of_range)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship, target;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+    bc_ship_init(&target, cls, 2, bc_make_ship_id(1), 1, 1);
+
+    ship.pos = (bc_vec3_t){0, 0, 0};
+    target.pos = (bc_vec3_t){200, 0, 0}; /* beyond max_damage_distance (100) */
+
+    bc_combat_tractor_engage(&ship, cls, 0, target.object_id);
+    bc_combat_tractor_tick(&ship, &target, cls, 1.0f);
+    ASSERT_EQ(ship.tractor_target_id, -1); /* auto-released */
+}
+
+TEST(no_tractor_when_cloaked)
+{
+    /* BOP has both tractor and cloak */
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 6);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
+
+    if (cls->has_tractor) {
+        ASSERT(bc_combat_can_tractor(&ship, cls, 0));
+        bc_cloak_start(&ship, cls);
+        ASSERT(!bc_combat_can_tractor(&ship, cls, 0));
+    }
+}
+
+/* === Repair system tests === */
+
+TEST(repair_heals_subsystem)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    /* Damage subsystem 0 */
+    f32 orig = ship.subsystem_hp[0];
+    ship.subsystem_hp[0] = orig * 0.1f; /* 10% HP */
+
+    bc_repair_add(&ship, 0);
+    ASSERT_EQ(ship.repair_count, 1);
+
+    f32 before = ship.subsystem_hp[0];
+    bc_repair_tick(&ship, cls, 1.0f);
+    ASSERT(ship.subsystem_hp[0] > before); /* healed */
+}
+
+TEST(repair_removes_when_full)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    /* Slightly damaged */
+    f32 max_hp = cls->subsystems[0].max_condition;
+    ship.subsystem_hp[0] = max_hp - 1.0f;
+
+    bc_repair_add(&ship, 0);
+    /* Repair for long time -> should fully heal and auto-remove */
+    bc_repair_tick(&ship, cls, 100.0f);
+    ASSERT(ship.subsystem_hp[0] >= max_hp - 0.01f);
+    ASSERT_EQ(ship.repair_count, 0); /* removed from queue */
+}
+
+TEST(repair_auto_queue_disabled)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    /* Damage a subsystem below disabled threshold */
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        if (cls->subsystems[i].disabled_pct > 0.0f) {
+            f32 threshold = cls->subsystems[i].max_condition *
+                            (1.0f - cls->subsystems[i].disabled_pct);
+            ship.subsystem_hp[i] = threshold - 1.0f;
+            break;
+        }
+    }
+
+    bc_repair_auto_queue(&ship, cls);
+    ASSERT(ship.repair_count > 0);
+}
+
+TEST(repair_no_duplicates)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    ASSERT(bc_repair_add(&ship, 0));
+    ASSERT(!bc_repair_add(&ship, 0)); /* duplicate rejected */
+    ASSERT_EQ(ship.repair_count, 1);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -619,4 +756,12 @@ TEST_MAIN_BEGIN()
     RUN(cloak_prevents_phaser_fire);
     RUN(cloak_no_charge_while_cloaked);
     RUN(cloak_disabled_subsystem_prevents_cloak);
+    RUN(tractor_engage_disengage);
+    RUN(tractor_applies_drag);
+    RUN(tractor_auto_releases_out_of_range);
+    RUN(no_tractor_when_cloaked);
+    RUN(repair_heals_subsystem);
+    RUN(repair_removes_when_full);
+    RUN(repair_auto_queue_disabled);
+    RUN(repair_no_duplicates);
 TEST_MAIN_END()

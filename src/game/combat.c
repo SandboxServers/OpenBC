@@ -390,3 +390,163 @@ bool bc_cloak_shields_active(const bc_ship_state_t *ship)
 {
     return ship->cloak_state == BC_CLOAK_DECLOAKED;
 }
+
+/* --- Tractor beams --- */
+
+/* Find the N-th tractor beam subsystem. */
+static int find_tractor_subsys(const bc_ship_class_t *cls, int beam_idx)
+{
+    int count = 0;
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        if (strcmp(cls->subsystems[i].type, "tractor_beam") == 0) {
+            if (count == beam_idx) return i;
+            count++;
+        }
+    }
+    return -1;
+}
+
+bool bc_combat_can_tractor(const bc_ship_state_t *ship,
+                            const bc_ship_class_t *cls,
+                            int beam_idx)
+{
+    if (!ship->alive) return false;
+    if (ship->cloak_state != BC_CLOAK_DECLOAKED) return false;
+    if (!cls->has_tractor) return false;
+    if (ship->tractor_target_id >= 0) return false; /* already locked */
+
+    int ss_idx = find_tractor_subsys(cls, beam_idx);
+    if (ss_idx < 0) return false;
+    if (ship->subsystem_hp[ss_idx] <= 0.0f) return false;
+
+    return true;
+}
+
+int bc_combat_tractor_engage(bc_ship_state_t *ship,
+                              const bc_ship_class_t *cls,
+                              int beam_idx,
+                              i32 target_id)
+{
+    if (!bc_combat_can_tractor(ship, cls, beam_idx)) return -1;
+
+    int ss_idx = find_tractor_subsys(cls, beam_idx);
+    if (ss_idx < 0) return -1;
+
+    ship->tractor_target_id = target_id;
+    return ss_idx;
+}
+
+void bc_combat_tractor_disengage(bc_ship_state_t *ship)
+{
+    ship->tractor_target_id = -1;
+}
+
+void bc_combat_tractor_tick(bc_ship_state_t *ship,
+                             bc_ship_state_t *target,
+                             const bc_ship_class_t *cls,
+                             f32 dt)
+{
+    if (ship->tractor_target_id < 0 || !ship->alive || !target->alive) {
+        ship->tractor_target_id = -1;
+        return;
+    }
+    if (dt <= 0.0f) return;
+
+    /* Find first alive tractor subsystem for damage/range stats */
+    int ss_idx = find_tractor_subsys(cls, 0);
+    if (ss_idx < 0 || ship->subsystem_hp[ss_idx] <= 0.0f) {
+        ship->tractor_target_id = -1;
+        return;
+    }
+
+    const bc_subsystem_def_t *ss = &cls->subsystems[ss_idx];
+
+    /* Check range */
+    f32 dist = bc_vec3_dist(ship->pos, target->pos);
+    if (dist > ss->max_damage_distance) {
+        ship->tractor_target_id = -1; /* out of range, auto-release */
+        return;
+    }
+
+    /* Apply drag: reduce target speed toward 0 */
+    f32 drag = ss->max_damage * dt * 0.1f; /* proportional drag */
+    if (target->speed > drag) {
+        target->speed -= drag;
+    } else {
+        target->speed = 0.0f;
+    }
+
+    /* Apply low tractor damage to target */
+    f32 dmg = ss->max_damage * dt * 0.02f; /* 2% of MaxDamage per second */
+    if (dmg > 0.0f) {
+        bc_vec3_t impact = bc_vec3_normalize(bc_vec3_sub(target->pos, ship->pos));
+        bc_combat_apply_damage(target, cls, dmg, impact);
+    }
+}
+
+/* --- Repair system --- */
+
+bool bc_repair_add(bc_ship_state_t *ship, u8 subsys_idx)
+{
+    if (ship->repair_count >= 8) return false;
+
+    /* Check not already queued */
+    for (int i = 0; i < ship->repair_count; i++) {
+        if (ship->repair_queue[i] == subsys_idx) return false;
+    }
+
+    ship->repair_queue[ship->repair_count++] = subsys_idx;
+    return true;
+}
+
+void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx)
+{
+    for (int i = 0; i < ship->repair_count; i++) {
+        if (ship->repair_queue[i] == subsys_idx) {
+            /* Shift remaining items */
+            for (int j = i; j < ship->repair_count - 1; j++)
+                ship->repair_queue[j] = ship->repair_queue[j + 1];
+            ship->repair_count--;
+            return;
+        }
+    }
+}
+
+void bc_repair_tick(bc_ship_state_t *ship,
+                    const bc_ship_class_t *cls,
+                    f32 dt)
+{
+    if (!ship->alive || dt <= 0.0f) return;
+    if (ship->repair_count == 0) return;
+    if (cls->max_repair_points <= 0.0f || cls->num_repair_teams <= 0) return;
+
+    /* Repair rate: repair_points per second, split across teams */
+    f32 rate = cls->max_repair_points * (f32)cls->num_repair_teams;
+    f32 heal = rate * dt;
+
+    /* Heal top-priority subsystem */
+    u8 ss_idx = ship->repair_queue[0];
+    if (ss_idx < (u8)cls->subsystem_count) {
+        f32 max_hp = cls->subsystems[ss_idx].max_condition;
+        ship->subsystem_hp[ss_idx] += heal;
+        if (ship->subsystem_hp[ss_idx] >= max_hp) {
+            ship->subsystem_hp[ss_idx] = max_hp;
+            /* Remove from queue when fully repaired */
+            bc_repair_remove(ship, ss_idx);
+        }
+    }
+}
+
+void bc_repair_auto_queue(bc_ship_state_t *ship,
+                           const bc_ship_class_t *cls)
+{
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        const bc_subsystem_def_t *ss = &cls->subsystems[i];
+        if (ss->disabled_pct <= 0.0f) continue;
+
+        f32 threshold = ss->max_condition * (1.0f - ss->disabled_pct);
+        if (ship->subsystem_hp[i] < threshold && ship->subsystem_hp[i] > 0.0f) {
+            bc_repair_add(ship, (u8)i);
+        }
+    }
+}

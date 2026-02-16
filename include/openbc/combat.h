@@ -107,4 +107,46 @@ bool bc_cloak_can_fire(const bc_ship_state_t *ship);
 /* Check if shields are active (only when fully DECLOAKED). */
 bool bc_cloak_shields_active(const bc_ship_state_t *ship);
 
+/* --- Tractor beams --- */
+
+/* Check if tractor beam can engage (has charge, not cloaked, subsystem alive). */
+bool bc_combat_can_tractor(const bc_ship_state_t *ship,
+                            const bc_ship_class_t *cls,
+                            int beam_idx);
+
+/* Engage tractor beam on target. Sets tractor_target_id.
+ * Returns the tractor subsystem index, or -1 on failure. */
+int bc_combat_tractor_engage(bc_ship_state_t *ship,
+                              const bc_ship_class_t *cls,
+                              int beam_idx,
+                              i32 target_id);
+
+/* Release tractor beam. */
+void bc_combat_tractor_disengage(bc_ship_state_t *ship);
+
+/* Tick tractor beam: apply drag to target's speed. */
+void bc_combat_tractor_tick(bc_ship_state_t *ship,
+                             bc_ship_state_t *target,
+                             const bc_ship_class_t *cls,
+                             f32 dt);
+
+/* --- Repair system --- */
+
+/* Add a subsystem to the repair queue.
+ * Returns true if added, false if queue full or already queued. */
+bool bc_repair_add(bc_ship_state_t *ship, u8 subsys_idx);
+
+/* Remove a subsystem from the repair queue. */
+void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx);
+
+/* Tick repair: heal the top-priority subsystem in queue.
+ * Rate = max_repair_points / num_repair_teams * dt. */
+void bc_repair_tick(bc_ship_state_t *ship,
+                    const bc_ship_class_t *cls,
+                    f32 dt);
+
+/* Auto-queue any subsystem below its disabled threshold. */
+void bc_repair_auto_queue(bc_ship_state_t *ship,
+                           const bc_ship_class_t *cls);
+
 #endif /* OPENBC_COMBAT_H */
