@@ -1,6 +1,7 @@
 #include "test_util.h"
 #include "openbc/ship_data.h"
 #include "openbc/ship_state.h"
+#include "openbc/movement.h"
 #include "openbc/game_builders.h"
 #include "openbc/opcodes.h"
 #include <string.h>
@@ -216,6 +217,91 @@ TEST(ship_create_packet)
     ASSERT_EQ(pkt[2], 1); /* team id */
 }
 
+/* === Movement === */
+
+TEST(move_tick_advances_position)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+    ship.pos = (bc_vec3_t){0, 0, 0};
+    ship.fwd = (bc_vec3_t){0, 1, 0};
+    bc_ship_set_speed(&ship, cls, 5.0f);
+
+    bc_ship_move_tick(&ship, 1.0f);
+    ASSERT(fabsf(ship.pos.y - 5.0f) < 0.01f);
+    ASSERT(fabsf(ship.pos.x) < 0.01f);
+
+    bc_ship_move_tick(&ship, 0.5f);
+    ASSERT(fabsf(ship.pos.y - 7.5f) < 0.01f);
+}
+
+TEST(speed_clamped_to_max)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    bc_ship_set_speed(&ship, cls, 999.0f);
+    ASSERT(fabsf(ship.speed - cls->max_speed) < 0.01f);
+
+    bc_ship_set_speed(&ship, cls, -10.0f);
+    ASSERT(fabsf(ship.speed) < 0.01f);
+}
+
+TEST(turn_toward_respects_rate)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+    ship.pos = (bc_vec3_t){0, 0, 0};
+    ship.fwd = (bc_vec3_t){0, 1, 0};
+
+    /* Target is to the right (+X) */
+    bc_vec3_t target = {100, 0, 0};
+    bc_ship_turn_toward(&ship, cls, target, 0.1f);
+
+    /* Ship should have started turning but not fully turned */
+    ASSERT(ship.fwd.x > 0.0f); /* started turning right */
+    ASSERT(ship.fwd.y > 0.0f); /* still has forward component */
+}
+
+TEST(state_update_dirty_flags)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t prev, cur;
+    bc_ship_init(&prev, cls, 2, bc_make_ship_id(0), 0, 0);
+    memcpy(&cur, &prev, sizeof(cur));
+
+    /* No change -> 0 bytes */
+    u8 buf[256];
+    int len = bc_ship_build_state_update(&cur, &prev, 1.0f, buf, sizeof(buf));
+    ASSERT_EQ(len, 0);
+
+    /* Move position */
+    cur.pos.x = 100.0f;
+    len = bc_ship_build_state_update(&cur, &prev, 1.0f, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT_EQ(buf[0], 0x1C); /* StateUpdate opcode */
+    /* dirty flags at offset 9 should have POS_ABS bit set */
+    ASSERT(buf[9] & BC_DIRTY_POS_ABS);
+}
+
+TEST(state_update_speed_change)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    bc_ship_state_t prev, cur;
+    bc_ship_init(&prev, cls, 2, bc_make_ship_id(0), 0, 0);
+    memcpy(&cur, &prev, sizeof(cur));
+
+    cur.speed = 5.0f;
+    u8 buf[256];
+    int len = bc_ship_build_state_update(&cur, &prev, 1.0f, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(buf[9] & BC_DIRTY_SPEED);
+    ASSERT(!(buf[9] & BC_DIRTY_POS_ABS)); /* position didn't change */
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -234,4 +320,9 @@ TEST_MAIN_BEGIN()
     RUN(ship_init_all_types);
     RUN(ship_serialize_galaxy);
     RUN(ship_create_packet);
+    RUN(move_tick_advances_position);
+    RUN(speed_clamped_to_max);
+    RUN(turn_toward_respects_rate);
+    RUN(state_update_dirty_flags);
+    RUN(state_update_speed_change);
 TEST_MAIN_END()
