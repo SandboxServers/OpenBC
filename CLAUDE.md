@@ -23,7 +23,7 @@ Modern Engine (bgfx + SDL3 + flecs + miniaudio + GNS + RmlUi)
 | Game State (ECS) | flecs | MIT |
 | Audio | miniaudio | MIT-0 |
 | Networking (new) | GameNetworkingSockets | BSD-3 |
-| Networking (legacy) | ENet | MIT |
+| Networking (legacy) | Raw UDP (custom) | — |
 | UI | RmlUi | MIT |
 | Physics | JoltC or custom | MIT |
 | Scripting | Python 3.x + 1.5.2 compat shim | PSF |
@@ -31,7 +31,7 @@ Modern Engine (bgfx + SDL3 + flecs + miniaudio + GNS + RmlUi)
 
 ## Development Phases
 
-1. **Standalone Server** — Headless dedicated server speaking legacy BC protocol (~297 API functions)
+1. **Standalone Server** — Headless dedicated server speaking legacy BC protocol (~595 API functions)
 2. **Full Game Logic** — Ship/weapon/AI systems in flecs ECS (~1,142 more functions)
 3. **Rendering Client** — bgfx renderer + NIF asset loading (~1,379 more functions)
 4. **Full Client** — UI, audio, input, complete game (~2,893 more functions)
@@ -91,9 +91,29 @@ docker/            # Server container files
 - **mod-compat-tester** — Community mod compatibility testing
 - **build-ci** — Build system, CI/CD, packaging
 
+## Planning Documents
+
+- **[Phase 1 Requirements](docs/phase1-requirements.md)** — Functional/non-functional requirements for the dedicated server
+- **[Phase 1 Implementation Plan](docs/phase1-implementation-plan.md)** — Work chunks, timeline, critical path, file manifest
+- **[Phase 1 Verified Protocol](docs/phase1-verified-protocol.md)** — Complete wire protocol: opcodes, packet formats, handshake, reliable delivery, data structures
+- **[Phase 1 Engine Architecture](docs/phase1-engine-architecture.md)** — Original engine internals: NI 3.1 / TG Framework / Game Logic layers, message dispatchers, bootstrap
+- **[Phase 1 RE Gaps](docs/phase1-re-gaps.md)** — Reverse engineering status (all critical items solved)
+- **[Phase 1 API Surface](docs/phase1-api-surface.md)** — Catalog of ~595 SWIG API functions needed, with priority tiers
+
+## Key RE Data (verified, from STBC-Dedi)
+
+All critical reverse engineering is complete. Key verified facts:
+
+- **Wire protocol**: AlbyRules XOR cipher ("AlbyRules!" 10-byte key), raw UDP, three-tier send queues (unreliable/reliable/priority)
+- **Game opcodes**: 28 active opcodes verified from jump table at 0x0069F534 (see `phase1-verified-protocol.md` Section 5)
+- **Python messages**: MAX_MESSAGE_TYPES = 0x2B; CHAT=0x2C, TEAM_CHAT=0x2D, MISSION_INIT=0x35, SCORE_CHANGE=0x36, SCORE=0x37, END_GAME=0x38, RESTART=0x39
+- **Flag bytes**: 0x0097FA88=IsClient, 0x0097FA89=IsHost, 0x0097FA8A=IsMultiplayer
+- **Ship creation**: ObjectCreateTeam (0x03), destruction: DestroyObject (0x14)
+- **Handshake**: connect → GameSpy peek → 4 checksum rounds → Settings (0x00) → GameInit (0x01) → EnterSet (0x1F) → NewPlayerInGame (0x2A)
+
 ## Related Repository
 
-- **[STBC-Dedicated-Server](../STBC-Dedicated-Server/)** — Reverse engineering workspace. Contains decompiled reference code, protocol documentation, and the original DDraw proxy server. This is where game analysis happens; OpenBC is the clean reimplementation.
+- **[STBC-Dedicated-Server](../STBC-Dedicated-Server/)** — Functional DDraw proxy dedicated server and RE workspace. Contains a working headless server (collision damage, scoring, full game lifecycle), decompiled reference code, protocol docs, and Ghidra annotation tools. RE findings feed directly into OpenBC's planning docs.
 
 ## Legal Basis
 

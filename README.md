@@ -87,8 +87,10 @@ These planning documents describe the intended Phase 1 implementation:
 
 - **[Phase 1 Requirements](docs/phase1-requirements.md)** -- Functional and non-functional requirements for the dedicated server
 - **[Phase 1 Implementation Plan](docs/phase1-implementation-plan.md)** -- Work chunks, timeline, critical path, file manifest
-- **[Phase 1 RE Gaps](docs/phase1-re-gaps.md)** -- Reverse engineering status: what's known, what's partially known, what still needs analysis
+- **[Phase 1 RE Gaps](docs/phase1-re-gaps.md)** -- Reverse engineering status: all critical protocol items fully reversed, with verified data
 - **[Phase 1 API Surface](docs/phase1-api-surface.md)** -- Catalog of ~595 SWIG API functions needed, with priority tiers
+- **[Phase 1 Verified Protocol](docs/phase1-verified-protocol.md)** -- Complete wire protocol reference: opcodes, packet formats, handshake, reliable delivery, data structures
+- **[Phase 1 Engine Architecture](docs/phase1-engine-architecture.md)** -- Original engine internals: NI 3.1 / TG Framework / Game Logic layers, message dispatchers, bootstrap sequence
 
 ## How It Will Work (Planned)
 
@@ -100,7 +102,7 @@ Phase 1 specifically targets the dedicated server use case: a headless process t
 
 ## Related Repository
 
-- **[STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server)** -- Reverse engineering workspace. Contains decompiled reference code, protocol documentation, and analysis tools. This is where game analysis happens; OpenBC is the clean reimplementation.
+- **[STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server)** -- Functional DDraw proxy dedicated server and reverse engineering workspace. Contains a working headless server (collision damage, scoring, full game lifecycle), decompiled reference code, protocol documentation, and Ghidra annotation tools. RE findings from this project feed directly into OpenBC's planning docs.
 
 ## Legal Basis
 
