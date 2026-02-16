@@ -17,6 +17,7 @@ CHECKSUM_SRC := src/checksum/string_hash.c src/checksum/file_hash.c src/checksum
 PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c src/protocol/opcodes.c src/protocol/handshake.c src/protocol/game_events.c src/protocol/game_builders.c
 NETWORK_SRC  := src/network/net.c src/network/peer.c src/network/transport.c src/network/gamespy.c src/network/reliable.c src/network/master.c src/network/client_transport.c
 JSON_SRC     := src/json/json_parse.c
+GAME_SRC     := src/game/ship_data.c
 MANIFEST_SRC := tools/manifest.c
 LOG_SRC      := src/server/log.c
 SERVER_SRC   := src/server/main.c
@@ -26,12 +27,13 @@ CHECKSUM_OBJ := $(CHECKSUM_SRC:%.c=$(BUILD)/%.o)
 PROTOCOL_OBJ := $(PROTOCOL_SRC:%.c=$(BUILD)/%.o)
 NETWORK_OBJ  := $(NETWORK_SRC:%.c=$(BUILD)/%.o)
 JSON_OBJ     := $(JSON_SRC:%.c=$(BUILD)/%.o)
+GAME_OBJ     := $(GAME_SRC:%.c=$(BUILD)/%.o)
 MANIFEST_OBJ := $(MANIFEST_SRC:%.c=$(BUILD)/%.o)
 LOG_OBJ      := $(LOG_SRC:%.c=$(BUILD)/%.o)
 SERVER_OBJ   := $(SERVER_SRC:%.c=$(BUILD)/%.o)
 
 # All library objects (everything except tools and server main)
-LIB_OBJ      := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(NETWORK_OBJ) $(JSON_OBJ) $(LOG_OBJ)
+LIB_OBJ      := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(NETWORK_OBJ) $(JSON_OBJ) $(GAME_OBJ) $(LOG_OBJ)
 
 # Test files
 TEST_SRC     := $(wildcard tests/test_*.c)
