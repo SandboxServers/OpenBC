@@ -13,6 +13,7 @@
 #include "openbc/handshake.h"
 #include "openbc/manifest.h"
 #include "openbc/reliable.h"
+#include "openbc/master.h"
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
 
@@ -34,6 +35,9 @@ static f32         g_game_time = 0.0f;
 static bc_manifest_t g_manifest;
 static bool          g_manifest_loaded = false;
 static bool          g_no_checksum = false;
+
+/* Master server */
+static bc_master_t   g_master;
 
 /* --- Signal handler --- */
 
@@ -490,7 +494,8 @@ static void usage(const char *prog)
         "  -m <map>           Map name (default: \"DeepSpace9\")\n"
         "  --max <n>          Max players (default: 6)\n"
         "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
-        "  --no-checksum      Accept all checksums (testing without game files)\n",
+        "  --no-checksum      Accept all checksums (testing without game files)\n"
+        "  --master <h:p>    Master server address (e.g. master.gamespy.com:27900)\n",
         prog);
 }
 
@@ -502,6 +507,7 @@ int main(int argc, char **argv)
     const char *map = "DeepSpace9";
     int max_players = BC_MAX_PLAYERS;
     const char *manifest_path = NULL;
+    const char *master_addr = NULL;
 
     /* Parse args */
     for (int i = 1; i < argc; i++) {
@@ -519,6 +525,8 @@ int main(int argc, char **argv)
             manifest_path = argv[++i];
         } else if (strcmp(argv[i], "--no-checksum") == 0) {
             g_no_checksum = true;
+        } else if (strcmp(argv[i], "--master") == 0 && i + 1 < argc) {
+            master_addr = argv[++i];
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -565,12 +573,22 @@ int main(int argc, char **argv)
     g_info.numplayers = 0;
     g_info.maxplayers = max_players;
 
+    /* Master server registration */
+    if (master_addr) {
+        if (!bc_master_init(&g_master, master_addr, port)) {
+            fprintf(stderr, "Warning: master server registration failed\n");
+        }
+    }
+
     /* Register CTRL+C handler */
     SetConsoleCtrlHandler(console_handler, TRUE);
 
     printf("OpenBC Server v0.1.0\n");
     printf("Listening on port %u (%d max players)\n", port, max_players);
     printf("Server name: %s\n", name);
+    if (g_master.enabled) {
+        printf("Master server: heartbeat enabled\n");
+    }
     printf("Press Ctrl+C to stop.\n\n");
 
     /* Main loop */
@@ -634,6 +652,9 @@ int main(int argc, char **argv)
                     handle_peer_disconnect(i);
                 }
             }
+            /* Master server heartbeat */
+            bc_master_tick(&g_master, &g_socket, now);
+
             last_tick = now;
         }
 
@@ -642,6 +663,7 @@ int main(int argc, char **argv)
     }
 
     printf("\nShutting down...\n");
+    bc_master_shutdown(&g_master, &g_socket);
     bc_socket_close(&g_socket);
     bc_net_shutdown();
     return 0;
