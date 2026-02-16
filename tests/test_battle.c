@@ -566,7 +566,197 @@ TEST(real_checksum_handshake)
     bc_net_shutdown();
 }
 
+/* === Step-by-step join flow test ===
+ * Validates every individual handshake step for 3 clients with
+ * explicit assertions. A protocol audit, not a black-box connect. */
+TEST(full_join_flow_multi_client)
+{
+    bc_test_server_t srv;
+    bc_test_client_t clients[3];
+    const char *names[] = { "Alpha", "Beta", "Gamma" };
+
+    ASSERT(bc_net_init());
+    ASSERT(test_server_start(&srv, 29878, MANIFEST_PATH));
+
+    for (int c = 0; c < 3; c++) {
+        bc_test_client_t *cl = &clients[c];
+        memset(cl, 0, sizeof(*cl));
+        cl->slot = (u8)c;
+        cl->seq_out = 0;
+        strncpy(cl->name, names[c], sizeof(cl->name) - 1);
+        cl->server_addr.ip = htonl(0x7F000001);
+        cl->server_addr.port = htons(29878);
+
+        /* Step 1: Open socket */
+        ASSERT(bc_socket_open(&cl->sock, 0));
+
+        /* Step 2: Send Connect */
+        u8 pkt[512];
+        int len = bc_client_build_connect(pkt, sizeof(pkt), htonl(0x7F000001));
+        ASSERT(len == 10);
+        tc_send_raw(cl, pkt, len);
+
+        /* Step 3: Receive ConnectAck */
+        ASSERT(tc_recv_raw(cl, 2000) > 0);
+        bc_packet_t parsed;
+        ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
+        ASSERT(parsed.msg_count >= 1);
+        ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_CONNECT_ACK);
+
+        /* Step 4: Send keepalive with name */
+        len = bc_client_build_keepalive_name(pkt, sizeof(pkt), (u8)c,
+                                              htonl(0x7F000001), names[c]);
+        ASSERT(len > 0);
+        tc_send_raw(cl, pkt, len);
+
+        /* Step 5: 4 checksum rounds */
+        for (int round = 0; round < 4; round++) {
+            ASSERT(tc_recv_raw(cl, 2000) > 0);
+            ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
+
+            /* Find reliable message with checksum request */
+            bc_transport_msg_t *rmsg = NULL;
+            for (int i = 0; i < parsed.msg_count; i++) {
+                if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE) {
+                    tc_send_ack(cl, parsed.msgs[i].seq);
+                    if (parsed.msgs[i].payload_len > 0)
+                        rmsg = &parsed.msgs[i];
+                }
+            }
+            ASSERT(rmsg != NULL);
+            ASSERT_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
+            ASSERT_EQ(rmsg->payload[1], (u8)round);
+
+            /* Parse request, scan directory, build response */
+            bc_checksum_request_t req;
+            ASSERT(bc_client_parse_checksum_request(rmsg->payload,
+                                                      rmsg->payload_len, &req));
+            ASSERT_EQ(req.round, (u8)round);
+
+            bc_client_dir_scan_t scan;
+            ASSERT(bc_client_scan_directory(GAME_DIR, req.directory,
+                                             req.filter, req.recursive, &scan));
+
+            u8 resp[4096];
+            int resp_len = tc_build_real_checksum(resp, sizeof(resp),
+                                                    (u8)round, &scan);
+            ASSERT(resp_len > 0);
+
+            u8 out[4096];
+            int out_len = bc_client_build_reliable(out, sizeof(out), (u8)c,
+                                                     resp, resp_len, cl->seq_out++);
+            ASSERT(out_len > 0);
+            tc_send_raw(cl, out, out_len);
+        }
+
+        /* Step 6: Final round (0xFF) */
+        ASSERT(tc_recv_raw(cl, 2000) > 0);
+        ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
+        {
+            bc_transport_msg_t *rmsg = NULL;
+            for (int i = 0; i < parsed.msg_count; i++) {
+                if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE) {
+                    tc_send_ack(cl, parsed.msgs[i].seq);
+                    if (parsed.msgs[i].payload_len > 0)
+                        rmsg = &parsed.msgs[i];
+                }
+            }
+            ASSERT(rmsg != NULL);
+            ASSERT_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
+            ASSERT_EQ(rmsg->payload[1], 0xFF);
+
+            u8 resp[32];
+            int resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0, 0);
+            ASSERT(resp_len > 0);
+
+            u8 out[512];
+            int out_len = bc_client_build_reliable(out, sizeof(out), (u8)c,
+                                                     resp, resp_len, cl->seq_out++);
+            ASSERT(out_len > 0);
+            tc_send_raw(cl, out, out_len);
+        }
+
+        /* Step 7: Receive Settings, GameInit, NewPlayerInGame, MissionInit */
+        bool got_settings = false, got_gameinit = false;
+        bool got_npig = false, got_mission = false;
+        u32 start = GetTickCount();
+
+        while ((int)(GetTickCount() - start) < 2000) {
+            if (tc_recv_raw(cl, 200) <= 0) {
+                if (got_settings && got_npig) break;
+                continue;
+            }
+            if (!bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed))
+                continue;
+
+            for (int i = 0; i < parsed.msg_count; i++) {
+                bc_transport_msg_t *msg = &parsed.msgs[i];
+                if (msg->type == BC_TRANSPORT_RELIABLE) {
+                    tc_send_ack(cl, msg->seq);
+                    if (msg->payload_len > 0) {
+                        u8 op = msg->payload[0];
+                        if (op == BC_OP_SETTINGS) got_settings = true;
+                        if (op == BC_OP_GAME_INIT) got_gameinit = true;
+                        if (op == BC_OP_NEW_PLAYER_IN_GAME) {
+                            got_npig = true;
+                            /* Verify wire format: [0x2A][0x20] */
+                            ASSERT(msg->payload_len == 2);
+                            ASSERT_EQ(msg->payload[1], 0x20);
+                        }
+                        if (op == BC_MSG_MISSION_INIT) got_mission = true;
+                    }
+                }
+            }
+            if (got_settings && got_npig) break;
+        }
+
+        ASSERT(got_settings);
+        ASSERT(got_gameinit);
+        ASSERT(got_npig);
+        ASSERT(got_mission);
+
+        cl->connected = true;
+    }
+
+    /* All 3 connected. Verify chat relay. */
+    Sleep(200);
+    test_client_drain(&clients[0], 300);
+    test_client_drain(&clients[1], 300);
+    test_client_drain(&clients[2], 300);
+
+    /* Client 0 sends chat -> clients 1,2 receive it */
+    {
+        u8 buf[64];
+        int len = bc_build_chat(buf, sizeof(buf), 0, false, "hello");
+        ASSERT(len > 0);
+        ASSERT(test_client_send_reliable(&clients[0], buf, len));
+
+        Sleep(200);
+
+        int msg_len = 0;
+        const u8 *msg;
+
+        msg = test_client_expect_opcode(&clients[1], BC_MSG_CHAT, &msg_len, TIMEOUT);
+        ASSERT(msg != NULL);
+        bc_chat_event_t cev;
+        ASSERT(bc_parse_chat_message(msg, msg_len, &cev));
+        ASSERT(strcmp(cev.message, "hello") == 0);
+        ASSERT_EQ(cev.sender_slot, 0);
+
+        msg = test_client_expect_opcode(&clients[2], BC_MSG_CHAT, &msg_len, TIMEOUT);
+        ASSERT(msg != NULL);
+    }
+
+    /* Disconnect all */
+    for (int c = 0; c < 3; c++)
+        test_client_disconnect(&clients[c]);
+    Sleep(100);
+    test_server_stop(&srv);
+    bc_net_shutdown();
+}
+
 TEST_MAIN_BEGIN()
     RUN(battle_of_valentines_day);
     RUN(real_checksum_handshake);
+    RUN(full_join_flow_multi_client);
 TEST_MAIN_END()
