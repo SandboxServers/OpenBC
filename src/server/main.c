@@ -12,6 +12,7 @@
 #include "openbc/opcodes.h"
 #include "openbc/handshake.h"
 #include "openbc/manifest.h"
+#include "openbc/reliable.h"
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
 
@@ -73,11 +74,14 @@ static void send_reliable(const bc_addr_t *to, int peer_slot,
                           const u8 *payload, int payload_len)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
+    u16 seq = peer->reliable_seq_out++;
     u8 pkt[BC_MAX_PACKET_SIZE];
     int len = bc_transport_build_reliable(pkt, sizeof(pkt),
-                                          payload, payload_len,
-                                          peer->reliable_seq_out++);
+                                          payload, payload_len, seq);
     if (len > 0) {
+        /* Track for retransmission */
+        bc_reliable_add(&peer->reliable_out, payload, payload_len,
+                        seq, GetTickCount());
         alby_rules_cipher(pkt, (size_t)len);
         bc_socket_send(&g_socket, to, pkt, len);
     }
@@ -407,7 +411,7 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
         bc_transport_msg_t *msg = &pkt.msgs[i];
 
         if (msg->type == BC_TRANSPORT_ACK) {
-            /* ACK received -- would update reliable delivery state */
+            bc_reliable_ack(&g_peers.peers[slot].reliable_out, msg->seq);
             continue;
         }
 
@@ -543,6 +547,36 @@ int main(int argc, char **argv)
         if (now - last_tick >= 1000) {
             /* Advance game clock */
             g_game_time += (f32)(now - last_tick) / 1000.0f;
+
+            /* Retransmit unACKed reliable messages */
+            for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                bc_peer_t *peer = &g_peers.peers[i];
+                if (peer->state == PEER_EMPTY) continue;
+
+                /* Check for dead peers (max retries exceeded) */
+                if (bc_reliable_check_timeout(&peer->reliable_out)) {
+                    char addr_str[32];
+                    bc_addr_to_string(&peer->addr, addr_str, sizeof(addr_str));
+                    printf("[net] Peer %s (slot %d) timed out (no ACK)\n",
+                           addr_str, i);
+                    bc_peers_remove(&g_peers, i);
+                    continue;
+                }
+
+                /* Retransmit overdue messages */
+                int idx;
+                while ((idx = bc_reliable_check_retransmit(
+                            &peer->reliable_out, now)) >= 0) {
+                    bc_reliable_entry_t *e = &peer->reliable_out.entries[idx];
+                    u8 pkt[BC_MAX_PACKET_SIZE];
+                    int len = bc_transport_build_reliable(
+                        pkt, sizeof(pkt), e->payload, e->payload_len, e->seq);
+                    if (len > 0) {
+                        alby_rules_cipher(pkt, (size_t)len);
+                        bc_socket_send(&g_socket, &peer->addr, pkt, len);
+                    }
+                }
+            }
 
             /* Timeout stale peers (30 second timeout) */
             int removed = bc_peers_timeout(&g_peers, now, 30000);

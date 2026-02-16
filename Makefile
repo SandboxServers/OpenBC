@@ -15,7 +15,7 @@ BUILD    := build
 # Source files by component
 CHECKSUM_SRC := src/checksum/string_hash.c src/checksum/file_hash.c src/checksum/hash_tables.c src/checksum/manifest.c
 PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c src/protocol/opcodes.c src/protocol/handshake.c
-NETWORK_SRC  := src/network/net.c src/network/peer.c src/network/transport.c src/network/gamespy.c
+NETWORK_SRC  := src/network/net.c src/network/peer.c src/network/transport.c src/network/gamespy.c src/network/reliable.c
 JSON_SRC     := src/json/json_parse.c
 MANIFEST_SRC := tools/manifest.c
 SERVER_SRC   := src/server/main.c

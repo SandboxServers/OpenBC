@@ -5,6 +5,7 @@
 #include "openbc/net.h"
 #include "openbc/opcodes.h"
 #include "openbc/transport.h"
+#include "openbc/reliable.h"
 
 /*
  * Peer management -- tracks connected clients in a fixed-size slot array.
@@ -29,8 +30,9 @@ typedef struct {
     u16               reliable_seq_out; /* Next outgoing reliable sequence number */
     u16               reliable_seq_in;  /* Next expected incoming reliable sequence */
     i32               object_id;       /* Player's ship object ID (-1 if none) */
-    char              name[32];        /* Player name */
-    bc_fragment_buf_t fragment;        /* Fragment reassembly state */
+    char                name[32];        /* Player name */
+    bc_fragment_buf_t   fragment;        /* Fragment reassembly state */
+    bc_reliable_queue_t reliable_out;    /* Outgoing reliable delivery queue */
 } bc_peer_t;
 
 typedef struct {

@@ -2,6 +2,7 @@
 #include "openbc/cipher.h"
 #include "openbc/buffer.h"
 #include "openbc/transport.h"
+#include "openbc/reliable.h"
 #include "openbc/manifest.h"
 #include "openbc/handshake.h"
 #include "openbc/opcodes.h"
@@ -748,6 +749,59 @@ TEST(checksum_resp_validate_file_missing)
     ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_FILE_MISSING);
 }
 
+/* === Reliable delivery tests === */
+
+TEST(reliable_add_and_ack)
+{
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+
+    u8 payload[] = { 0x20, 0x01 };  /* Checksum request */
+    ASSERT(bc_reliable_add(&q, payload, 2, 0x0001, 1000));
+    ASSERT_EQ_INT(q.count, 1);
+
+    /* ACK it */
+    ASSERT(bc_reliable_ack(&q, 0x0001));
+    ASSERT_EQ_INT(q.count, 0);
+
+    /* Double ACK returns false */
+    ASSERT(!bc_reliable_ack(&q, 0x0001));
+}
+
+TEST(reliable_timeout_detection)
+{
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+
+    u8 payload[] = { 0x00 };
+    bc_reliable_add(&q, payload, 1, 0x0001, 1000);
+
+    /* Not timed out initially */
+    ASSERT(!bc_reliable_check_timeout(&q));
+
+    /* Simulate max retries */
+    q.entries[0].retries = BC_RELIABLE_MAX_RETRIES;
+    ASSERT(bc_reliable_check_timeout(&q));
+}
+
+TEST(reliable_retransmit)
+{
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+
+    u8 payload[] = { 0x20, 0x00 };
+    bc_reliable_add(&q, payload, 2, 0x0005, 1000);
+
+    /* No retransmit needed yet */
+    ASSERT_EQ_INT(bc_reliable_check_retransmit(&q, 1500), -1);
+
+    /* After 2 seconds, should trigger retransmit */
+    int idx = bc_reliable_check_retransmit(&q, 3001);
+    ASSERT(idx >= 0);
+    ASSERT_EQ(q.entries[idx].seq, 0x0005);
+    ASSERT_EQ_INT(q.entries[idx].retries, 1);
+}
+
 /* === Fragment reassembly tests === */
 
 TEST(fragment_three_part_reassembly)
@@ -875,4 +929,9 @@ TEST_MAIN_BEGIN()
     RUN(fragment_three_part_reassembly);
     RUN(fragment_two_part_reassembly);
     RUN(fragment_reset);
+
+    /* Reliable delivery */
+    RUN(reliable_add_and_ack);
+    RUN(reliable_timeout_detection);
+    RUN(reliable_retransmit);
 TEST_MAIN_END()
