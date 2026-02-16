@@ -5,7 +5,7 @@
 CC       := i686-w64-mingw32-gcc
 CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2
 LDFLAGS  :=
-LDLIBS   :=
+LDLIBS   := -lm
 EXE      := .exe
 
 # Build directory
@@ -13,7 +13,7 @@ BUILD    := build
 
 # Source files by component
 CHECKSUM_SRC := src/checksum/string_hash.c src/checksum/file_hash.c src/checksum/hash_tables.c
-PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c
+PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c src/protocol/opcodes.c
 JSON_SRC     := src/json/json_parse.c
 MANIFEST_SRC := tools/manifest.c
 

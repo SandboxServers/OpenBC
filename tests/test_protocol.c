@@ -2,6 +2,7 @@
 #include "openbc/cipher.h"
 #include "openbc/buffer.h"
 #include <string.h>
+#include <math.h>
 
 /* === AlbyRules cipher tests === */
 
@@ -268,6 +269,180 @@ TEST(buffer_alloc_free)
     ASSERT(buf.data == NULL);
 }
 
+/* === CompressedFloat16 tests === */
+
+TEST(cf16_zero)
+{
+    u16 enc = bc_cf16_encode(0.0f);
+    f32 dec = bc_cf16_decode(enc);
+    ASSERT(fabsf(dec) < 1e-6f);
+}
+
+TEST(cf16_small_positive)
+{
+    /* 0.0005 should encode in scale 0 [0, 0.001) */
+    u16 enc = bc_cf16_encode(0.0005f);
+    f32 dec = bc_cf16_decode(enc);
+    ASSERT(fabsf(dec - 0.0005f) < 0.0001f);
+}
+
+TEST(cf16_medium_value)
+{
+    /* 42.0 should encode in scale 5 [10, 100) */
+    u16 enc = bc_cf16_encode(42.0f);
+    f32 dec = bc_cf16_decode(enc);
+    ASSERT(fabsf(dec - 42.0f) < 0.1f);
+}
+
+TEST(cf16_large_value)
+{
+    /* 5000 should encode in scale 7 [1000, 10000) */
+    u16 enc = bc_cf16_encode(5000.0f);
+    f32 dec = bc_cf16_decode(enc);
+    ASSERT(fabsf(dec - 5000.0f) < 5.0f);
+}
+
+TEST(cf16_negative)
+{
+    u16 enc = bc_cf16_encode(-7.5f);
+    f32 dec = bc_cf16_decode(enc);
+    ASSERT(dec < 0.0f);
+    ASSERT(fabsf(dec - (-7.5f)) < 0.05f);
+}
+
+TEST(cf16_sign_bit)
+{
+    /* Sign is in bit 15 */
+    u16 pos = bc_cf16_encode(1.0f);
+    u16 neg = bc_cf16_encode(-1.0f);
+    ASSERT((pos & 0x8000) == 0);
+    ASSERT((neg & 0x8000) != 0);
+    /* Magnitude should be the same */
+    ASSERT((pos & 0x7FFF) == (neg & 0x7FFF));
+}
+
+TEST(cf16_buffer_round_trip)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    ASSERT(bc_buf_write_cf16(&buf, 120.5f));
+    bc_buf_reset(&buf);
+
+    f32 v;
+    ASSERT(bc_buf_read_cf16(&buf, &v));
+    ASSERT(fabsf(v - 120.5f) < 0.5f);
+}
+
+/* === CompressedVector3 tests === */
+
+TEST(cv3_unit_x)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    ASSERT(bc_buf_write_cv3(&buf, 1.0f, 0.0f, 0.0f));
+    ASSERT_EQ_INT((int)buf.pos, 3);  /* 3 bytes */
+
+    bc_buf_reset(&buf);
+
+    f32 x, y, z;
+    ASSERT(bc_buf_read_cv3(&buf, &x, &y, &z));
+    ASSERT(fabsf(x - 1.0f) < 0.01f);
+    ASSERT(fabsf(y) < 0.01f);
+    ASSERT(fabsf(z) < 0.01f);
+}
+
+TEST(cv3_diagonal)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    /* Diagonal direction: (1,1,1) normalized = (0.577, 0.577, 0.577) */
+    ASSERT(bc_buf_write_cv3(&buf, 5.0f, 5.0f, 5.0f));
+    bc_buf_reset(&buf);
+
+    f32 x, y, z;
+    ASSERT(bc_buf_read_cv3(&buf, &x, &y, &z));
+    /* All components should be roughly equal */
+    ASSERT(fabsf(x - y) < 0.02f);
+    ASSERT(fabsf(y - z) < 0.02f);
+    ASSERT(fabsf(x - 0.577f) < 0.02f);
+}
+
+TEST(cv3_zero_vector)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    ASSERT(bc_buf_write_cv3(&buf, 0.0f, 0.0f, 0.0f));
+    bc_buf_reset(&buf);
+
+    f32 x, y, z;
+    ASSERT(bc_buf_read_cv3(&buf, &x, &y, &z));
+    ASSERT(fabsf(x) < 0.01f);
+    ASSERT(fabsf(y) < 0.01f);
+    ASSERT(fabsf(z) < 0.01f);
+}
+
+/* === CompressedVector4 tests === */
+
+TEST(cv4_simple)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    /* (100, 0, 0) -> direction (1,0,0), magnitude 100 */
+    ASSERT(bc_buf_write_cv4(&buf, 100.0f, 0.0f, 0.0f));
+    ASSERT_EQ_INT((int)buf.pos, 5);  /* 3 dir bytes + 2 CF16 bytes */
+
+    bc_buf_reset(&buf);
+
+    f32 x, y, z;
+    ASSERT(bc_buf_read_cv4(&buf, &x, &y, &z));
+    ASSERT(fabsf(x - 100.0f) < 1.0f);
+    ASSERT(fabsf(y) < 1.0f);
+    ASSERT(fabsf(z) < 1.0f);
+}
+
+TEST(cv4_diagonal)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    /* (30, 40, 0) -> magnitude 50 */
+    ASSERT(bc_buf_write_cv4(&buf, 30.0f, 40.0f, 0.0f));
+    bc_buf_reset(&buf);
+
+    f32 x, y, z;
+    ASSERT(bc_buf_read_cv4(&buf, &x, &y, &z));
+    ASSERT(fabsf(x - 30.0f) < 1.5f);
+    ASSERT(fabsf(y - 40.0f) < 1.5f);
+    ASSERT(fabsf(z) < 1.0f);
+}
+
+TEST(cv4_zero)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    ASSERT(bc_buf_write_cv4(&buf, 0.0f, 0.0f, 0.0f));
+    bc_buf_reset(&buf);
+
+    f32 x, y, z;
+    ASSERT(bc_buf_read_cv4(&buf, &x, &y, &z));
+    ASSERT(fabsf(x) < 0.01f);
+    ASSERT(fabsf(y) < 0.01f);
+    ASSERT(fabsf(z) < 0.01f);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -290,4 +465,23 @@ TEST_MAIN_BEGIN()
     RUN(buffer_bit_packing_two_bits);
     RUN(buffer_settings_packet_bits);
     RUN(buffer_alloc_free);
+
+    /* CompressedFloat16 */
+    RUN(cf16_zero);
+    RUN(cf16_small_positive);
+    RUN(cf16_medium_value);
+    RUN(cf16_large_value);
+    RUN(cf16_negative);
+    RUN(cf16_sign_bit);
+    RUN(cf16_buffer_round_trip);
+
+    /* CompressedVector3 */
+    RUN(cv3_unit_x);
+    RUN(cv3_diagonal);
+    RUN(cv3_zero_vector);
+
+    /* CompressedVector4 */
+    RUN(cv4_simple);
+    RUN(cv4_diagonal);
+    RUN(cv4_zero);
 TEST_MAIN_END()

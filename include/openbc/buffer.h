@@ -54,4 +54,36 @@ bool bc_buf_read_f32(bc_buffer_t *buf, f32 *out);
 bool bc_buf_read_bytes(bc_buffer_t *buf, u8 *dst, size_t len);
 bool bc_buf_read_bit(bc_buffer_t *buf, bool *out);
 
+/* --- Compressed type encoders/decoders ---
+ *
+ * CompressedFloat16: Logarithmic 16-bit float.
+ *   Format: [sign:1][scale:3][mantissa:12]
+ *   Ranges: 8 decades from 0.001 to 10000, ~12 bits precision each.
+ *   Used for: speed, damage, distances.
+ *
+ * CompressedVector3: Direction-only vector, 3 bytes.
+ *   Each component = signed byte / 127.0.
+ *   Used for: orientation (fwd/up), velocity direction.
+ *
+ * CompressedVector4: Direction + magnitude, 5 bytes.
+ *   3 direction bytes + u16 magnitude (CompressedFloat16).
+ *   Used for: position deltas, impact positions.
+ */
+
+/* Encode/decode a float to/from 16-bit logarithmic format */
+u16 bc_cf16_encode(f32 value);
+f32 bc_cf16_decode(u16 encoded);
+
+/* Write/read CompressedFloat16 to/from buffer */
+bool bc_buf_write_cf16(bc_buffer_t *buf, f32 value);
+bool bc_buf_read_cf16(bc_buffer_t *buf, f32 *out);
+
+/* Write/read CompressedVector3 (direction only, 3 bytes) */
+bool bc_buf_write_cv3(bc_buffer_t *buf, f32 x, f32 y, f32 z);
+bool bc_buf_read_cv3(bc_buffer_t *buf, f32 *x, f32 *y, f32 *z);
+
+/* Write/read CompressedVector4 (direction + CF16 magnitude, 5 bytes) */
+bool bc_buf_write_cv4(bc_buffer_t *buf, f32 x, f32 y, f32 z);
+bool bc_buf_read_cv4(bc_buffer_t *buf, f32 *x, f32 *y, f32 *z);
+
 #endif /* OPENBC_BUFFER_H */
