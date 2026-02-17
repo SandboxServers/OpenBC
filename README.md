@@ -10,7 +10,7 @@ OpenBC is a from-scratch reimplementation of Star Trek: Bridge Commander in port
 
 This is not a wrapper, proxy, or compatibility layer around the original engine. OpenBC is a new implementation that speaks the same wire protocol. Stock BC 1.1 clients connect to an OpenBC server today, with no modifications needed. The future game client will load textures, sounds, and models from a legitimate BC install but run on a modern engine.
 
-The original Bridge Commander embedded Python 1.5.2 with over 5,700 SWIG-generated API functions that controlled everything from menus to physics. OpenBC takes a different approach: all game functionality is reimplemented natively in C. There is no Python runtime and no script compatibility layer. Ship stats, weapons, maps, and game rules live in data files (TOML/JSON), moddable by default. Menus, UI, and game logic are reimplemented from scratch to match the original experience.
+The original Bridge Commander embedded Python 1.5.2 with over 5,700 SWIG-generated API functions that controlled everything from menus to physics. OpenBC takes a different approach: all game functionality is reimplemented natively in C. There is no Python runtime and no script compatibility layer. Ship stats, weapons, maps, and game rules live in JSON data files, moddable by default. Menus, UI, and game logic are reimplemented from scratch to match the original experience.
 
 Zero copyrighted content is shipped. The game client will require a legitimate BC 1.1 installation for textures, sounds, and models. The dedicated server needs no game files at all -- it validates clients using precomputed hash manifests.
 
@@ -23,7 +23,7 @@ Zero copyrighted content is shipped. The game client will require a legitimate B
 | B. Protocol Library | Wire cipher, codec, compressed types | Complete |
 | C. Lobby Server | UDP transport, handshake, checksum, chat, GameSpy | Complete |
 | D. Relay Server | Game events, combat relay, object lifecycle | Complete |
-| E. Simulation Server | Server-authoritative physics, damage, game rules | Planned |
+| E. Simulation Server | Ship data registry, movement, combat simulation | In Progress |
 | **2. Game Client** | Rendering, audio, UI, input | Planning |
 
 What works today:
@@ -34,7 +34,10 @@ What works today:
 - Chat (global and team), lobby and in-game
 - GameSpy LAN browser and internet master server registration
 - Reliable delivery with retransmit and sequencing
-- 7 test suites, including a 99-assertion integration test
+- Ship data registry: 16 ships, 15 projectile types loaded from JSON
+- Server-side movement and combat simulation (cloaking, tractor beams, repair)
+- Dynamic AI battles with seeded RNG
+- 11 test suites, 223 tests, 1,155 assertions (including networked battle integration)
 
 ## Quick Start
 
@@ -42,7 +45,7 @@ Prerequisites: `i686-w64-mingw32-gcc` cross-compiler, Make.
 
 ```
 make all     # builds openbc-hash.exe and openbc-server.exe
-make test    # runs all 7 test suites
+make test    # runs all 11 test suites
 ```
 
 Run the server:
@@ -63,14 +66,14 @@ Options:
   --friendly-fire    Enable friendly fire
   --no-friendly-fire Disable friendly fire (default)
   --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)
-  --no-checksum      Accept all checksums (testing without game files)
-  --master <h:p>     Master server address
+  --master <h:p>     Master server address (repeatable; replaces defaults)
+  --no-master        Disable all master server heartbeating
   --log-level <lvl>  quiet|error|warn|info|debug|trace (default: info)
   --log-file <path>  Also write log to file
   -q / -v / -vv      Shorthand for quiet / debug / trace
 ```
 
-Connect a stock BC 1.1 client by pointing it to the server IP via the LAN browser, or register with a master server using the `--master` flag.
+Connect a stock BC 1.1 client by pointing it to the server IP via the LAN browser, or register with a master server using the `--master` flag (repeatable to specify multiple masters; `--no-master` disables heartbeating entirely).
 
 ## Architecture
 
@@ -91,7 +94,7 @@ Connect a stock BC 1.1 client by pointing it to the server IP via the LAN browse
 │  └──────────┘  └──────────┘  └────────┘  └───────────┘  │
 └──────────────────────────────────────────────────────────┘
         ▲                                        ▲
-        │ UDP packets                            │ TOML/JSON
+        │ UDP packets                            │ JSON
         ▼                                        │
   ┌───────────┐                          ┌───────────────┐
   │ Stock BC  │                          │  Mod Packs    │
@@ -105,12 +108,14 @@ UDP packets arrive, get deciphered (AlbyRules XOR), decoded (TGBufferStream wire
 ```
 src/
   checksum/    Hash algorithms, manifest validation
+  game/        Ship data registry, ship state, movement, combat simulation
+  json/        Lightweight JSON parser
   network/     UDP transport, peer management, reliability, GameSpy
   protocol/    Wire codec, opcodes, handshake, game events
-  json/        Lightweight JSON parser
   server/      Entry point, configuration, logging
-tests/         7 test suites (unit + integration)
-tools/         CLI tools (hash manifest generator, AHK test harness)
+tests/         11 test suites (unit + integration)
+tools/         CLI tools (hash manifest generator, data scraper, diagnostics)
+data/          Ship and projectile data (vanilla-1.1.json)
 manifests/     Precomputed hash manifests (vanilla-1.1.json)
 docs/          Design documents and protocol reference
 ```
@@ -119,7 +124,7 @@ docs/          Design documents and protocol reference
 
 - **Protocol-first** -- Compatibility means speaking the wire protocol correctly. The stock client is the reference implementation; OpenBC matches its behavior exactly.
 - **Zero original content** -- No copyrighted STBC material is shipped. The server validates clients using precomputed hash manifests, never needing the game files themselves.
-- **Data-driven** -- Ship stats, weapons, maps, and game rules live in data files, not code. Change a ship's hull strength by editing a TOML file, not recompiling.
+- **Data-driven** -- Ship stats, weapons, maps, and game rules live in JSON data files, not code. Change a ship's hull strength by editing a data file, not recompiling.
 - **Mod-native** -- Every data layer is designed for extension. Mods are first-class data packs that overlay or replace base configuration.
 
 ## Tech Stack
@@ -131,7 +136,7 @@ docs/          Design documents and protocol reference
 | Language | C11 | Performance, portability, no runtime dependencies |
 | Build | Make | Simple, proven, cross-compiles from WSL2 to Win32 |
 | Networking | Raw UDP (Winsock) | Wire-compatible with stock BC clients |
-| Config | TOML (human-edited), JSON (machine-generated) | Readable config, structured manifests |
+| Data | JSON (machine-generated) | Ship/projectile registry, hash manifests |
 | Discovery | GameSpy protocol | LAN browser + 333networks-compatible master server |
 
 **Client (planned):** The Phase 2 game client will use a modern rendering engine, ECS architecture, and cross-platform audio/input. Technology choices are under evaluation.
@@ -151,11 +156,11 @@ See the [verified protocol reference](docs/phase1-verified-protocol.md) for the 
 
 ## Game Data and Mods
 
-- Ship definitions, maps, and game rules are stored in TOML data files
+- Ship definitions (16 ships) and projectile data (15 types) are stored in `data/vanilla-1.1.json`, extracted from BC reference scripts by `tools/scrape_bc.py`
+- The ship data registry loads this JSON at server startup, providing hull strength, shield capacity, subsystem counts, weapon hardpoints, and projectile properties
 - The hash manifest system validates any mod combination without needing the actual files
 - `openbc-hash` generates manifests from a BC install or mod pack directory
 - Mods are designed as data packs that overlay base configuration
-- Data registry and mod loader are planned for Phase E
 
 ## Documentation
 
@@ -165,6 +170,8 @@ See the [verified protocol reference](docs/phase1-verified-protocol.md) for the 
 - [Engine Architecture](docs/phase1-engine-architecture.md) -- Original BC engine internals (RE reference)
 - [RE Gap Analysis](docs/phase1-re-gaps.md) -- Reverse engineering status (all critical items solved)
 - [Data Registry](docs/phase1-api-surface.md) -- Ship, map, rules, and manifest data schemas
+- [Test Suite](tests/README.md) -- 11 test suites, test frameworks, adding new tests
+- [Tools](tools/README.md) -- CLI tools, data scraper, diagnostic utilities
 
 ## Contributing
 

@@ -50,9 +50,17 @@ static bc_master_list_t g_masters;
 
 static BOOL WINAPI console_handler(DWORD type)
 {
-    (void)type;
-    g_running = false;
-    return TRUE;
+    switch (type) {
+    case CTRL_C_EVENT:
+    case CTRL_BREAK_EVENT:
+    case CTRL_CLOSE_EVENT:
+    case CTRL_LOGOFF_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+        g_running = false;
+        return TRUE;
+    default:
+        return FALSE;
+    }
 }
 
 /* --- Packet handling --- */
@@ -615,6 +623,15 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
     /* Parse transport envelope */
     bc_packet_t pkt;
     if (!bc_transport_parse(data, len, &pkt)) {
+        {
+            char hex[128];
+            int hpos = 0;
+            for (int j = 0; j < len && hpos < 120; j++)
+                hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
+                                  "%02X ", data[j]);
+            LOG_DEBUG("net", "Transport parse failed: len=%d decrypted=[%s]",
+                      len, hex);
+        }
         return;
     }
 
@@ -812,7 +829,6 @@ int main(int argc, char **argv)
     if (!g_manifest_loaded && !g_no_checksum) {
         LOG_WARN("init", "No manifest loaded, running in permissive mode");
         LOG_WARN("init", "  Use --manifest <path> to enable checksum validation");
-        LOG_WARN("init", "  Use --no-checksum to suppress this warning");
         g_no_checksum = true;
     }
 
@@ -911,6 +927,17 @@ int main(int argc, char **argv)
             if (bc_gamespy_is_query(recv_buf, received)) {
                 handle_gamespy(&g_socket, &from, recv_buf, received);
             } else {
+                char pkt_addr[32];
+                bc_addr_to_string(&from, pkt_addr, sizeof(pkt_addr));
+                {
+                    char hex[128];
+                    int hpos = 0;
+                    for (int j = 0; j < received && hpos < 120; j++)
+                        hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
+                                          "%02X ", recv_buf[j]);
+                    LOG_DEBUG("net", "Game packet from %s: %d bytes raw=[%s]",
+                              pkt_addr, received, hex);
+                }
                 handle_packet(&from, recv_buf, received);
             }
         }
@@ -1003,6 +1030,13 @@ int main(int argc, char **argv)
 
     LOG_INFO("shutdown", "Shutting down...");
 
+    /* Flush all pending outbox data before sending shutdown */
+    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+        bc_peer_t *peer = &g_peers.peers[i];
+        if (peer->state == PEER_EMPTY) continue;
+        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+    }
+
     /* Send ConnectAck shutdown notification to all connected peers.
      * Real BC server sends ConnectAck (0x05) to each peer on shutdown,
      * NOT BootPlayer or DeletePlayer. */
@@ -1016,15 +1050,31 @@ int main(int argc, char **argv)
         if (len > 0) {
             alby_rules_cipher(pkt, (size_t)len);
             bc_socket_send(&g_socket, &peer->addr, pkt, len);
-            LOG_INFO("shutdown", "Sent ConnectAck to slot %d", i);
+            LOG_INFO("shutdown", "Sent shutdown to slot %d", i);
         }
-    }
 
+        /* Clear peer state */
+        peer->state = PEER_EMPTY;
+    }
+    g_peers.count = 0;
+
+    /* Unregister from master servers (sends exit heartbeat) */
     bc_master_shutdown(&g_masters, &g_socket);
-    if (g_query_socket_open)
+
+    /* Close all sockets */
+    if (g_query_socket_open) {
         bc_socket_close(&g_query_socket);
+        g_query_socket_open = false;
+    }
     bc_socket_close(&g_socket);
+
+    /* Release Winsock */
     bc_net_shutdown();
+
+    /* Unregister console handler */
+    SetConsoleCtrlHandler(console_handler, FALSE);
+
+    LOG_INFO("shutdown", "Server stopped.");
     bc_log_shutdown();
     return 0;
 }

@@ -5,7 +5,7 @@
 ; for common test actions: join game, send chat, take screenshots, abort.
 ;
 ; Usage:
-;   1. Start OpenBC server:  openbc-server.exe --no-checksum -v
+;   1. Start OpenBC server:  openbc-server.exe -v
 ;   2. Launch BC 1.1 normally
 ;   3. Run this script (double-click or: AutoHotkey.exe bc-test.ahk)
 ;   4. Press F5 once BC reaches the main menu

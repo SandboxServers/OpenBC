@@ -21,7 +21,7 @@ Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002
 │  └──────────┘  └──────────┘  └────────┘  └───────────┘  │
 └──────────────────────────────────────────────────────────┘
         ▲                                        ▲
-        │ UDP packets                            │ TOML/JSON
+        │ UDP packets                            │ JSON
         ▼                                        │
   ┌───────────┐                          ┌───────────────┐
   │ Stock BC  │                          │  Mod Packs    │
@@ -34,7 +34,7 @@ Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002
 
 - **Protocol-first**: Compatibility means speaking the wire protocol correctly. The client is a protocol endpoint.
 - **Zero original content**: No copyrighted STBC material shipped. Game data referenced via hash manifests.
-- **Data-driven**: Ship stats, weapons, maps, and game rules live in TOML data files, not code.
+- **Data-driven**: Ship stats, weapons, maps, and game rules live in JSON data files, not code.
 - **Mod-native**: Every layer exposes extension points. Mods are first-class data packs.
 
 ## Tech Stack
@@ -43,38 +43,32 @@ Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002
 |-----------|--------|-----------|
 | Language | C (core) + Python 3 (tooling) | Performance-critical server; Python for build tools |
 | Build | Make | Simple, proven, cross-compiles from WSL2 |
-| Config | TOML (human-edited), JSON (machine-generated) | Readable config, structured manifests |
-| Physics | Custom (Euler + mesh-accurate collision) | Matches original BC fidelity |
+| Data | JSON (machine-generated) | Ship/projectile registry, hash manifests |
 | Networking | Raw UDP (Winsock) | Wire-compatible with stock BC clients |
-| Collision meshes | NIF parser (build-time tool) | Convex hull extraction from ship models |
 
 ## Development Phases
 
-- **Phase A: Hash Manifest Tool** -- Extract lookup tables, reimplement StringHash + FileHash, CLI manifest generator/verifier
-- **Phase B: Protocol Library** -- AlbyRules cipher, TGBufferStream codec, compressed type encoders
-- **Phase C: Lobby Server** -- UDP socket, peer management, checksum validation via manifests, settings delivery, chat relay, GameSpy LAN + master server
-- **Phase D: Relay Server** -- StateUpdate parsing/relay, weapon fire relay, object creation/destruction, ship data registry
-- **Phase E: Simulation Server** -- Server-authoritative physics, damage system, subsystem tracking, game rules engine
+- **Phase A: Hash Manifest Tool** -- Extract lookup tables, reimplement StringHash + FileHash, CLI manifest generator/verifier ✓
+- **Phase B: Protocol Library** -- AlbyRules cipher, TGBufferStream codec, compressed type encoders ✓
+- **Phase C: Lobby Server** -- UDP socket, peer management, checksum validation via manifests, settings delivery, chat relay, GameSpy LAN + master server ✓
+- **Phase D: Relay Server** -- StateUpdate parsing/relay, weapon fire relay, object creation/destruction, ship data registry ✓
+- **Phase E: Simulation Server** -- Ship data registry, movement, combat simulation (cloaking, tractor, repair); server-authoritative physics not yet wired to live clients (in progress)
 
 ## Project Layout
 
 ```
 src/
-├── network/       # UDP transport, peer management, reliability
-│   └── legacy/    # AlbyRules cipher, wire format, GameSpy
-├── protocol/      # Opcode handlers, message codec, TGBufferStream
 ├── checksum/      # Hash algorithms, manifest validation
-├── game/          # Game state, object model, lifecycle FSM
-├── physics/       # Movement, collision detection, damage
-├── data/          # Registry loaders (ships, maps, rules)
-├── mod/           # Mod pack loader, overlay system
-└── server/        # Main entry point, config, console
-tools/             # CLI tools (hash manifest generator, NIF collision extractor)
-data/              # Default data files (ships.toml, maps.toml, rules.toml)
-manifests/         # Precomputed hash manifests (vanilla-1.1.json, etc.)
-tests/             # Test suite
-docker/            # Server container files
-docs/              # Design and reference documents
+├── game/          # Ship data registry, ship state, movement, combat simulation
+├── json/          # Lightweight JSON parser
+├── network/       # UDP transport, peer management, reliability, GameSpy
+├── protocol/      # Wire codec, opcodes, handshake, game events
+└── server/        # Main entry point, config, logging
+tools/             # CLI tools (hash manifest, data scraper, diagnostics)
+data/              # Ship and projectile data (vanilla-1.1.json)
+manifests/         # Precomputed hash manifests (vanilla-1.1.json)
+tests/             # 11 test suites (unit + integration)
+docs/              # Design documents and protocol reference
 ```
 
 ## Agent Roster (14 agents in .claude/agents/)

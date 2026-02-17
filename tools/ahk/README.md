@@ -12,7 +12,7 @@ Automates a real Bridge Commander 1.1 client to connect to an OpenBC server for 
 
 1. Start the OpenBC server:
    ```
-   openbc-server.exe --no-checksum -v
+   openbc-server.exe -v
    ```
 
 2. Launch Bridge Commander normally.
