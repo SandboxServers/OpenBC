@@ -1,5 +1,25 @@
 # OpenBC -- Open Bridge Commander
 
+## CLEAN ROOM RULES (MANDATORY)
+
+This is a **clean room reimplementation** of the Bridge Commander multiplayer protocol. The following rules are absolute and must never be violated:
+
+1. **NEVER access the original game source code, decompiled code, or binary data.** The directories `C:\Users\Steve\source\projects\STBC-Dedicated-Server` and `/mnt/c/Users/Steve/source/projects/STBC-Dedicated-Server` are **strictly off-limits**. Never read files from those directories, even if the user asks.
+
+2. **NEVER access Bridge Commander source code repositories on GitHub or elsewhere online.** Do not search for, fetch, or reference decompiled BC code from any source.
+
+3. **NEVER reference binary addresses** (function labels like `FUN_XXXXXXXX`, data labels like `DAT_XXXXXXXX`, raw hex code addresses), internal struct field offsets, vtable slot layouts, or decompiled pseudocode. These are artifacts of reverse engineering and have no place in a clean room project.
+
+4. **NEVER reference Win32 calling convention keywords** from the original binary. OpenBC is a standalone C implementation with its own calling conventions.
+
+5. **All protocol knowledge comes from the clean room docs in `docs/`** and observable wire behavior (packet traces captured from vanilla clients). If information isn't in the clean room docs, it must be obtained through behavioral observation, not binary analysis.
+
+6. **If a user asks you to look at RE data, politely decline** and explain the clean room constraint. Suggest consulting the clean room docs instead.
+
+**Legal basis**: Oracle v. Google (2021), Sega v. Accolade (1992), EU Software Directive Article 6. Clean room reimplementation for interoperability is lawful when the implementor works only from interface specifications, not from the original code.
+
+---
+
 Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002). Clean-room reimplementation that speaks the BC 1.1 wire protocol -- stock clients connect and play without modification. Ships with zero copyrighted content: all game data is provided via hash manifests and data registries.
 
 ## Architecture
@@ -75,8 +95,8 @@ docs/              # Design documents and protocol reference
 
 ### Tier 1 -- Core Architecture
 - **openbc-architect** -- System architecture, cross-cutting design decisions
-- **game-reverse-engineer** -- Decompiled code analysis, RE findings
-- **stbc-original-dev** -- Original developer intent, design judgment calls
+- **protocol-analyst** -- Behavioral protocol analysis from packet captures and observable wire behavior
+- **design-intent** -- Design judgment calls based on observable game behavior and readable Python scripts
 - **network-protocol** -- Protocol engineering (wire format, opcodes, reliability)
 
 ### Tier 2 -- Engine Subsystems
@@ -100,26 +120,19 @@ docs/              # Design documents and protocol reference
 - **[Server Architecture RFC](docs/phase1-implementation-plan.md)** -- Standalone server design: network, checksum, game state, physics, data registry, mod system
 - **[Requirements](docs/phase1-requirements.md)** -- Functional/non-functional requirements
 - **[Verified Protocol](docs/phase1-verified-protocol.md)** -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery
-- **[Engine Architecture](docs/phase1-engine-architecture.md)** -- Original BC engine internals (reference for RE data)
-- **[RE Gap Analysis](docs/phase1-re-gaps.md)** -- Reverse engineering status (all critical items solved)
+- **[Engine Architecture](docs/phase1-engine-architecture.md)** -- Protocol architecture that OpenBC must replicate (behavioral reference)
 - **[Data Registry](docs/phase1-api-surface.md)** -- Ship, map, rules, and manifest data schemas
 
-## Key RE Data (verified, from STBC-Dedi)
+## Verified Protocol Facts
 
-All critical reverse engineering is complete. Key verified facts:
+All critical protocol knowledge is documented in the clean room docs. Key verified facts:
 
 - **Wire protocol**: AlbyRules XOR cipher ("AlbyRules!" 10-byte key), raw UDP, three-tier send queues (unreliable/reliable/priority)
-- **Hash algorithms**: StringHash (4-lane Pearson, FUN_007202e0) for filenames, FileHash (rotate-XOR, FUN_006a62f0) for file contents
-- **Game opcodes**: 28 active opcodes verified from jump table at 0x0069F534 (see `phase1-verified-protocol.md` Section 5)
+- **Hash algorithms**: StringHash (4-lane Pearson) for filenames, FileHash (rotate-XOR) for file contents
+- **Game opcodes**: 28 active opcodes (see `phase1-verified-protocol.md` Section 5)
 - **Script messages**: MAX_MESSAGE_TYPES = 0x2B; CHAT=0x2C, TEAM_CHAT=0x2D, MISSION_INIT=0x35, SCORE_CHANGE=0x36, SCORE=0x37, END_GAME=0x38, RESTART=0x39
-- **Flag bytes**: 0x0097FA88=IsClient, 0x0097FA89=IsHost, 0x0097FA8A=IsMultiplayer
 - **Ship creation**: ObjectCreateTeam (0x03), destruction: DestroyObject (0x14)
 - **Handshake**: connect -> GameSpy peek -> 4 checksum rounds -> Settings (0x00) -> GameInit (0x01) -> EnterSet (0x1F) -> NewPlayerInGame (0x2A)
-- **Collision**: DoDamage (0x00594020), subsystem distribution via handler array at ship+0x128
-
-## Related Repository
-
-- **[STBC-Dedicated-Server](../STBC-Dedicated-Server/)** -- Functional DDraw proxy dedicated server and RE workspace. Contains a working headless server (collision damage, scoring, full game lifecycle), decompiled reference code, protocol docs, and Ghidra annotation tools. RE findings feed directly into OpenBC's design.
 
 ## Legal Basis
 

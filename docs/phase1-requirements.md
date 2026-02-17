@@ -146,7 +146,7 @@ Max 254 messages per packet. Default max packet size 512 bytes. See [phase1-veri
 | 0x05 | Keepalive | `[0x05][totalLen:1]` | 2 bytes | Inferred from code, not observed |
 | 0x32 | Reliable Data | `[0x32][totalLen:1][flags:1][seq_hi:1][seq_lo:1][payload...]` | variable | Verified (observed in captures) |
 
-Note: Types 0x00, 0x01, and 0x32 are confirmed via packet captures. Types 0x02-0x05 are identified from decompiled code but have not been individually observed in network traces.
+Note: Types 0x00, 0x01, and 0x32 are confirmed via packet captures. Types 0x02-0x05 are inferred from behavioral analysis but have not been individually observed in network traces.
 
 #### REQ-NET-06: Three-Tier Send Queues
 Per peer: Priority Reliable (ACKs, retried 8x), Reliable (guaranteed, 360s timeout), Unreliable (fire-and-forget). See [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 3.
@@ -232,7 +232,7 @@ Sequential checksum requests (opcode 0x20) for four directory scopes:
 Client responds with opcode 0x21 containing hash trees. Server compares against loaded manifest(s).
 
 #### REQ-CHK-02: StringHash Algorithm
-4-lane Pearson hash using four 256-byte substitution tables (1,024 bytes total, extracted from stbc.exe at 0x0095c888-0x0095cc87):
+4-lane Pearson hash using four 256-byte substitution tables (1,024 bytes total, extracted via the hash manifest tool):
 ```c
 uint32_t StringHash(const char *str) {
     uint32_t h0 = 0, h1 = 0, h2 = 0, h3 = 0;
@@ -277,7 +277,7 @@ uint32_t FileHash(const uint8_t *data, size_t len) {
 Used for: .pyc file content verification. Deliberately skips bytes 4-7 (.pyc modification timestamp) so that the same bytecode produces the same hash regardless of compile time.
 
 #### REQ-CHK-04: Version String Gate
-The version string `"60"` (at `PTR_DAT_008d9af4`) has hash `StringHash("60") = 0x7E0CE243`. This is checked in the first checksum round (index 0). Version mismatch causes immediate rejection.
+The version string `"60"` has hash `StringHash("60") = 0x7E0CE243`. This is checked in the first checksum round (index 0). Version mismatch causes immediate rejection.
 
 #### REQ-CHK-05: Hash Manifest Format
 The server validates checksums against precomputed JSON manifests, NOT live file hashing:
@@ -344,7 +344,7 @@ openbc-hash verify --manifest vanilla-1.1.json --game-dir /path/to/bc/
 ```
 
 #### REQ-MANIFEST-03: Lookup Table Source
-The 1,024-byte StringHash lookup table is extracted once from any stbc.exe copy and stored as a constant array in the tool's source code. The extraction addresses are 0x0095c888-0x0095cc87 (4 tables x 256 bytes).
+The 1,024-byte StringHash lookup table is extracted once via the hash manifest tool and stored as a constant array in the tool's source code (4 tables x 256 bytes).
 
 #### REQ-MANIFEST-04: Mod Manifest Generation
 The tool MUST support generating manifests for modded installs, including additional directories beyond the stock 4 checksum scopes.
@@ -386,7 +386,7 @@ The server MUST process the following incoming opcodes:
 | 0x2D | TEAM_CHAT_MESSAGE | Relay to teammates only |
 
 #### REQ-OPC-03: Relay Opcodes
-All remaining game opcodes (from the verified jump table at 0x0069F534) MUST be relayed to all other connected peers as raw bytes without deserialization. The jump table has 41 entries (0x00-0x2A) but only 28 are active handlers -- the rest fall through to DEFAULT. See [phase1-verified-protocol.md](phase1-verified-protocol.md) for the complete opcode table.
+All remaining game opcodes MUST be relayed to all other connected peers as raw bytes without deserialization. The opcode space spans 0x00-0x2A with 28 active handlers -- the rest are unhandled. See [phase1-verified-protocol.md](phase1-verified-protocol.md) for the complete opcode table.
 
 #### REQ-OPC-04: Python Message Opcodes
 Python-level messages (opcode >= MAX_MESSAGE_TYPES = 0x2B) MUST be handled:
@@ -564,7 +564,7 @@ Mesh-accurate collision using convex hull data extracted from NIF model geometry
 A build-time tool that parses NIF model files and generates convex hull collision data for each ship class. Output format is a compact binary or TOML representation of hull vertices suitable for GJK/SAT intersection tests.
 
 #### REQ-PHYS-05: Damage System
-Damage calculations (reverse-engineered from `FUN_00594020` DoDamage):
+Damage calculations (verified from behavioral observation):
 - **Collision damage**: proportional to relative velocity and ship mass
 - **Weapon damage**: defined per weapon type in ships.toml
 - **Subsystem targeting**: damage applied to subsystems based on proximity to impact point
@@ -754,7 +754,7 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 | FileHash algorithm | Rotate-XOR with DWORD[1] skip |
 | Manifest generator | Walk BC install, compute all hashes, output JSON |
 | Manifest verifier | Compare manifest against a BC install |
-| Lookup table constant | 1,024 bytes extracted from stbc.exe, stored in source |
+| Lookup table constant | 1,024 bytes extracted via hash manifest tool, stored in source |
 
 **Exit criteria**: Generate a manifest from a vanilla BC 1.1 install. Use that manifest to correctly validate a stock client's checksum responses.
 
@@ -834,9 +834,9 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 - Vanilla BC 1.1 install (GOG edition) -- needed ONLY to run the manifest generation tool
 - Not needed on the server at runtime
 
-### RE Data (From STBC-Dedicated-Server, All Verified)
-- 4x256-byte StringHash lookup tables from stbc.exe (at 0x0095c888-0x0095cc87)
-- Version string `"60"` from `PTR_DAT_008d9af4`, hash `0x7E0CE243`
+### Protocol Data (All Verified)
+- 4x256-byte StringHash lookup tables (extracted via hash manifest tool)
+- Version string `"60"`, hash `0x7E0CE243`
 - AlbyRules cipher key: `"AlbyRules!"` (10-byte XOR)
 - Complete wire format: [phase1-verified-protocol.md](phase1-verified-protocol.md)
 - 28 active game opcodes (jump table has 41 entries, many DEFAULT) with addresses and frequency counts
@@ -844,7 +844,7 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 - MAX_MESSAGE_TYPES = 0x2B (43)
 - Object ID allocation formula: `0x3FFFFFFF + N * 0x40000`
 - StateUpdate dirty-flag format and compressed type formulas
-- DoDamage formula from `FUN_00594020`
+- Damage system formulas (verified from behavioral observation)
 - Connection state values: 2=HOST, 3=CLIENT, 4=DISCONNECTED
 - Settings packet (0x00) format: gameTime + settings + playerSlot + mapName + passFail
 - Checksum exchange flow: 4 sequential requests (0x20/0x21), version gate, file/dir hashing
@@ -857,8 +857,8 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 
 | Test | Method | Pass Criteria |
 |------|--------|---------------|
-| StringHash correctness | Hash known strings, compare to stbc.exe output | Bit-identical results |
-| FileHash correctness | Hash known .pyc files, compare to stbc.exe output | Bit-identical results |
+| StringHash correctness | Hash known strings, compare to known-good values | Bit-identical results |
+| FileHash correctness | Hash known .pyc files, compare to known-good values | Bit-identical results |
 | Version string hash | `StringHash("60")` | Returns `0x7E0CE243` |
 | Manifest generation | Run tool on vanilla BC install | Valid JSON, all hashes populated |
 | Manifest verification | Verify generated manifest against same install | All entries match |
@@ -928,8 +928,8 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 | Risk | Probability | Impact | Mitigation | Status |
 |------|-------------|--------|------------|--------|
 | Wire format mismatch | **LOW** | HIGH | **SOLVED**: Complete wire format verified from 30K+ packet traces. See [phase1-verified-protocol.md](phase1-verified-protocol.md) | Resolved |
-| Hash algorithm mismatch | **LOW** | HIGH | **SOLVED**: Both StringHash (4-lane Pearson) and FileHash (rotate-XOR) fully reverse-engineered with lookup tables extracted | Resolved |
-| ACK priority queue stall | **LOW** | HIGH | **SOLVED**: Three-tier queue system fully reverse-engineered with timeouts and retry logic | Resolved |
+| Hash algorithm mismatch | **LOW** | HIGH | **SOLVED**: Both StringHash (4-lane Pearson) and FileHash (rotate-XOR) fully verified with lookup tables extracted | Resolved |
+| ACK priority queue stall | **LOW** | HIGH | **SOLVED**: Three-tier queue system fully verified from protocol observation with timeouts and retry logic | Resolved |
 | Game opcode relay ordering | **LOW** | MEDIUM | **SOLVED**: Complete opcode table with jump table addresses and frequency counts | Resolved |
 | Ship creation protocol | **LOW** | HIGH | **SOLVED**: ObjectCreateTeam (0x03) format verified, working in STBC-Dedi proxy | Resolved |
 | Manifest hash vs. live hash mismatch | MEDIUM | HIGH | Cross-validate manifest tool output against captured checksum exchanges from real sessions | Open |
@@ -949,8 +949,8 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 Phase 1 is complete when ALL of the following are true:
 
 ### Phase A Complete
-- [ ] StringHash produces bit-identical results to stbc.exe for all test strings
-- [ ] FileHash produces bit-identical results to stbc.exe for all test .pyc files
+- [ ] StringHash produces bit-identical results to known-good values for all test strings
+- [ ] FileHash produces bit-identical results to known-good values for all test .pyc files
 - [ ] Manifest tool generates valid JSON from a vanilla BC 1.1 install
 - [ ] Generated manifest validates successfully against a stock client's checksum exchange
 

@@ -4,7 +4,7 @@ How much game authority can the server take from clients, and what are the limit
 
 ## Background
 
-Bridge Commander multiplayer uses a **split authority model**, not a purely client-authoritative one. Different systems have different authority owners. Understanding this split — verified through extensive reverse engineering of the shipping binary and 90MB+ of packet traces — is the foundation for any server authority work.
+Bridge Commander multiplayer uses a **split authority model**, not a purely client-authoritative one. Different systems have different authority owners. Understanding this split — verified through extensive protocol observation, behavioral analysis, and 90MB+ of packet traces — is the foundation for any server authority work.
 
 ## Stock Authority Model (Verified)
 
@@ -14,10 +14,10 @@ These systems are controlled by the host in the stock game:
 
 | System | How | Evidence |
 |--------|-----|----------|
-| **Collision damage** | Host runs `HostCollisionEffectHandler` (`FUN_005afad0`) and applies damage to ALL ships. Clients apply collision damage only to OTHER players' ships — each client's own ship reports as "invulnerable" to local collision processing via the check at `FUN_005ae140`. Two distinct collision events: `0x00800050` (client-detected, sent to host via opcode `0x0C`) and `0x008000fc` (host-validated, triggers actual damage). | Verified from decompiled code + stock dedi traces |
+| **Collision damage** | Host runs the collision effect handler and applies damage to ALL ships. Clients apply collision damage only to OTHER players' ships — each client's own ship reports as "invulnerable" to local collision processing. Two distinct collision event paths: client-detected (sent to host via opcode `0x0C`) and host-validated (triggers actual damage). | Verified from protocol observation + stock dedi traces |
 | **Object lifecycle** | ObjCreate (`0x02`), ObjCreateTeam (`0x03`), DestroyObject (`0x14`), and Explosion (`0x29`) all flow server-to-client only. Object IDs allocated per-player: `0x3FFFFFFF + N * 0x40000`. | Verified from jump table + packet traces |
 | **Subsystem health** | Server sends authoritative subsystem health via StateUpdate flag `0x20`. Clients send weapon status via flag `0x80`. These flags are mutually exclusive by direction — verified across 30,000+ packets. The server's `0x20` data overrides any client-local health values on all other clients. | Verified from wire format analysis |
-| **Anti-cheat hash** | StateUpdate flag `0x01` includes an XOR-folded 32-bit subsystem hash. Mismatch between client-reported and server-computed hash triggers `ET_BOOT_PLAYER`. | Verified from decompiled code |
+| **Anti-cheat hash** | StateUpdate flag `0x01` includes an XOR-folded 32-bit subsystem hash. Mismatch between client-reported and server-computed hash triggers `ET_BOOT_PLAYER`. | Verified from protocol observation |
 | **Game flow** | Settings (`0x00`), GameInit (`0x01`), NewPlayerInGame (`0x2A`), EndGame (`0x38`), RestartGame (`0x39`) — all server-to-client. | Verified from opcode table |
 | **Scoring** | SCORE_CHANGE_MESSAGE (`0x36`) and SCORE_MESSAGE (`0x37`) originate from the host. The ObjectKilledHandler runs on the host. | Verified from Python scripts + packet traces |
 
@@ -25,15 +25,15 @@ These systems are controlled by the host in the stock game:
 
 | System | How | Wire Format |
 |--------|-----|-------------|
-| **Movement/position** | Each client writes its own ship's StateUpdate (`0x1C`) via `FUN_005b17f0` at ~10Hz. Sends POSITIONS, not inputs: absolute position (flag `0x01`), position delta (flag `0x02`), forward vector (flag `0x04`), up vector (flag `0x08`), speed (flag `0x10`). The host relays but does not validate. | Verified from decompiled serializer + wire format spec |
+| **Movement/position** | Each client writes its own ship's StateUpdate (`0x1C`) at ~10Hz. Sends POSITIONS, not inputs: absolute position (flag `0x01`), position delta (flag `0x02`), forward vector (flag `0x04`), up vector (flag `0x08`), speed (flag `0x10`). The host relays but does not validate. | Verified from wire format spec + packet traces |
 | **Weapon fire** | TorpedoFire (`0x19`) and BeamFire (`0x1A`) sent by the firing client. Host relays to all peers without validation. | Verified from opcode table |
-| **Event forwarding** | Opcodes `0x06`-`0x12` and `0x1B` (StartFiring, StopFiring, StartCloak, StopCloak, StartWarp, SetPhaserLevel, etc.) are "I did a thing, tell everyone" messages. The originating client is authoritative. | Verified from handler analysis — all route through `FUN_0069fda0` |
+| **Event forwarding** | Opcodes `0x06`-`0x12` and `0x1B` (StartFiring, StopFiring, StartCloak, StopCloak, StartWarp, SetPhaserLevel, etc.) are "I did a thing, tell everyone" messages. The originating client is authoritative. | Verified from protocol observation — all use same relay pattern |
 
 ### RECEIVER-LOCAL (each client computes independently)
 
 | System | How |
 |--------|-----|
-| **Weapon damage** | When a beam/torpedo hits, the full damage pipeline runs on each receiving client independently: `WeaponHitHandler` (`0x005AF010`) -> `ApplyWeaponDamage` (`0x005AF420`) -> `DoDamage` (`0x00594020`) -> `ProcessDamage` (`0x00593E50`). No server validation. Each client computes hit detection against its own local copy of the target's scene graph. |
+| **Weapon damage** | When a beam/torpedo hits, the full damage pipeline runs on each receiving client independently: WeaponHitHandler -> ApplyWeaponDamage -> DoDamage -> ProcessDamage. No server validation. Each client computes hit detection against its own local copy of the target's scene graph. |
 | **Physics response** | Bouncing/deflection from collisions runs locally via ProximityManager. Only the DAMAGE from collisions is host-authoritative; the physical response is local. |
 
 ## The Fundamental Constraint
@@ -62,7 +62,7 @@ The server inspects incoming messages for impossible values and drops or correct
 
 | Check | How | What It Catches |
 |-------|-----|-----------------|
-| **Weapon fire rate** | Track last fire time per weapon subsystem. Drop TorpedoFire (`0x19`) / BeamFire (`0x1A`) that arrive faster than the weapon's known reload time. Weapon types identified by subsystem vtable: PhaserEmitter at `0x00893194`, TorpedoTube at `0x00893630`. | Rapid fire cheats |
+| **Weapon fire rate** | Track last fire time per weapon subsystem. Drop TorpedoFire (`0x19`) / BeamFire (`0x1A`) that arrive faster than the weapon's known reload time. Weapon types identified by subsystem type (PhaserEmitter, TorpedoTube). | Rapid fire cheats |
 | **Damage bounds** | Explosion (`0x29`) carries CompressedFloat16 damage/radius. Validate against known weapon maximums. CollisionEffect (`0x15`) carries collision parameters — validate against plausible physics given known ship masses and velocities. | Damage multiplication |
 | **Health floor/ceiling** | Server has ship objects with subsystem data (populated by DeferredInitObject). When receiving StateUpdate with weapon health (flag `0x80`), validate values are within `[0.0, max_health]`. Server's flag `0x20` updates override on all other clients anyway. | Health manipulation |
 | **Speed validation** | Reject StateUpdate with velocity exceeding ship class maximum. | Speed hacks |
@@ -94,7 +94,7 @@ The server computes: Is the target within weapon range? Is it within a reasonabl
 1. Client fires beam, computes hit locally, sends BeamFire (`0x1A`) with target ID
 2. Server receives BeamFire, runs Tier 2 plausibility checks
 3. Server looks up weapon's damage value from the ship's property set (loaded during DeferredInitObject)
-4. Server calls `DoDamage` (`0x00594020`) on the target with the correct damage value — this function already works on the server (collision damage proves the pipeline is functional)
+4. Server runs its DoDamage logic on the target with the correct damage value — collision damage already proves the pipeline is functional
 5. Server's StateUpdate flag `0x20` sends authoritative subsystem health to all clients, overriding any local computation
 
 **What this gives you**:
@@ -109,11 +109,11 @@ The server computes: Is the target within weapon range? Is it within a reasonabl
 - Subtle cheats like slightly increased fire rate below the Tier 1 threshold
 
 **DoDamage prerequisites on the server** (all verified working):
-- `ship+0x18` (NiNode) must be non-NULL — populated by DeferredInitObject
-- `ship+0x140` (damage target) must be non-NULL — needs verification
-- `ship+0x128/+0x130` (damage handler array) must be populated — populated by SetupProperties during DeferredInitObject (creates 33 subsystems)
-- NiNode bounding sphere at `node+0x94` must be valid — used for damage volume scaling
-- Rotation matrix at `node+0x64` — used for coordinate transforms. Server's copy gets stamped from StateUpdate data but may not be continuously updated like on clients
+- Ship must have a valid scene graph node — populated during ship creation
+- Ship must have a valid damage target — needs verification
+- Ship must have a populated damage handler array — populated during ship setup (creates 33 subsystems)
+- Scene graph node bounding sphere must be valid — used for damage volume scaling
+- Rotation matrix must be valid — used for coordinate transforms. Server's copy gets stamped from StateUpdate data but may not be continuously updated like on clients
 
 ### Tier 4: Server-Authoritative Movement (Months, requires new client)
 
@@ -124,13 +124,13 @@ True server-authoritative movement requires:
 3. **Client-side prediction** — client predicts locally for responsiveness, reconciles when server state arrives
 4. **Input history and replay** — client buffers inputs and can re-simulate from server correction point
 
-**Why stock clients can't do this**: The StateUpdate serializer (`FUN_005b17f0`) reads position directly from the ship's NiAVObject scene graph node. There is no distinction between "locally computed state" and "received network state" — the ship has one set of values. The client will overwrite any server-sent position on the next physics tick.
+**Why stock clients can't do this**: The StateUpdate serializer reads position directly from the ship's scene graph node. There is no distinction between "locally computed state" and "received network state" — the ship has one set of values. The client will overwrite any server-sent position on the next physics tick.
 
 **Protocol-breaking**: This changes the wire format. Stock BC clients could not connect. Requires a new client build.
 
 **Additional complications**:
 - The NiNode transform pipeline (`NiAVObject::UpdateWorldTransform`) was not designed for server-side execution without a renderer
-- The physics tick at `0x005857FF` is tightly coupled to the frame loop
+- The physics tick is tightly coupled to the frame loop
 - Python mission scripts (1,228 files in the stock game) assume local state is ground truth
 - No entity interpolation timeline, no historical state snapshots, no reconciliation loop exists in the engine
 

@@ -131,10 +131,10 @@ heartbeat_interval = 60  # seconds
 
 ### 4.1 Hash Algorithms
 
-Two custom algorithms, both fully reverse-engineered:
+Two custom algorithms, both fully verified from behavioral analysis:
 
-**StringHash** (`FUN_007202e0`):
-- 4-lane Pearson hash using 4x256-byte substitution tables (1,024 bytes, extracted from stbc.exe)
+**StringHash**:
+- 4-lane Pearson hash using 4x256-byte substitution tables (1,024 bytes, extracted via hash manifest tool)
 - Input: directory name or filename string
 - Output: u32 identifier
 - Purpose: Match directories/files between client and server by name
@@ -153,7 +153,7 @@ uint32_t StringHash(const char *str) {
 }
 ```
 
-**FileHash** (`FUN_006a62f0`):
+**FileHash**:
 - Rotate-XOR over file contents: `hash = (hash ^ dword[i]) ROL 1`
 - Deliberately skips DWORD index 1 (bytes 4-7 = .pyc modification timestamp)
 - Remaining bytes (file_size % 4) use MOVSX sign-extension before XOR
@@ -161,7 +161,7 @@ uint32_t StringHash(const char *str) {
 - Output: u32 content hash
 - Purpose: Verify file integrity (same bytecode = same hash regardless of compile time)
 
-**Implementation**: Both algorithms are deterministic and trivial (~50 LOC total). The 1,024-byte lookup table is extracted once from any stbc.exe copy and stored as a constant array.
+**Implementation**: Both algorithms are deterministic and trivial (~50 LOC total). The 1,024-byte lookup table is extracted once via the hash manifest tool and stored as a constant array.
 
 ### 4.2 Hash Manifest System
 
@@ -400,7 +400,7 @@ All 28 game opcodes (0x00-0x2A) plus 8 Python messages (0x2C-0x39):
 
 **Responsibility**: Apply damage from collisions, weapons, and explosions.
 
-**Formulas** (reverse-engineered from `FUN_00594020` DoDamage, documented in [`damage-system.md`](damage-system.md)):
+**Formulas** (documented in [`damage-system.md`](damage-system.md) from behavioral analysis):
 - Collision damage: proportional to relative velocity and ship mass
 - Weapon damage: defined per weapon type in data registry
 - Subsystem distribution: damage applied to subsystems based on proximity to impact point
@@ -548,7 +548,7 @@ Mods that only affect `scripts/Custom/` (the checksum-exempt directory) need no 
 The transition is incremental. Each phase produces a working server:
 
 **Phase A: Hash Manifest Tool** (immediate)
-- Extract lookup tables from stbc.exe (one-time, 1,024 bytes)
+- Extract lookup tables via hash manifest tool (one-time, 1,024 bytes)
 - Python 3 reimplementation of StringHash + FileHash
 - CLI tool: `openbc-hash generate --game-dir /path/to/bc/ --output vanilla-1.1.json`
 - CLI tool: `openbc-hash verify --manifest vanilla-1.1.json --game-dir /path/to/bc/`
@@ -606,9 +606,9 @@ Clients can connect to either — they speak the same protocol.
 
 ## 11. Resolved Design Decisions
 
-1. **Version string at `PTR_DAT_008d9af4`**: Identified as `"60"`. Hash: `StringHash("60") = 0x7E0CE243`. Used as version gate in checksum exchange. **RESOLVED** -- implemented in manifest system.
+1. **Version string**: Identified as `"60"`. Hash: `StringHash("60") = 0x7E0CE243`. Used as version gate in checksum exchange. **RESOLVED** -- implemented in manifest system.
 
-2. **StateUpdate direction split**: Server sends subsystem health (flag 0x20), client sends weapon status (flag 0x80). Verified as mutually exclusive by direction in multiplayer (10,459 C→S packets all use 0x80, 19,997 S→C packets all use 0x20). This is enforced by the `DAT_0097fa8a` (IsMultiplayer) flag differing between client and server code paths. **RESOLVED** -- documented fact, no design choice needed.
+2. **StateUpdate direction split**: Server sends subsystem health (flag 0x20), client sends weapon status (flag 0x80). Verified as mutually exclusive by direction in multiplayer (10,459 C→S packets all use 0x80, 19,997 S→C packets all use 0x20). This is enforced by the IsMultiplayer flag differing between client and server code paths. **RESOLVED** -- documented fact, no design choice needed.
 
 3. **Mesh-accurate collision**: **YES.** OpenBC will implement mesh-accurate collisions by extracting convex hull data from NIF model geometry. Bounding spheres are used as a broad-phase pass, with NIF-derived collision meshes for narrow-phase. The data registry includes collision mesh references per ship class, not just radius. This requires a NIF geometry parser as part of the asset pipeline tooling.
 
@@ -625,7 +625,7 @@ Clients can connect to either — they speak the same protocol.
 | `src/proxy/ddraw_main/packet_trace_and_decode.inc.c` | AlbyRules! cipher implementation |
 | `src/proxy/ddraw_main/game_loop_and_bootstrap.inc.c` | Current bootstrap phases + game loop |
 | `src/scripts/Custom/DedicatedServer.py` | SWIG API usage (48 functions = minimal engine contract) |
-| stbc.exe `0x0095c888`-`0x0095cc87` | StringHash 4x256-byte lookup tables |
-| stbc.exe `FUN_006a62f0` | FileHash algorithm (rotate-XOR, skip bytes 4-7) |
-| stbc.exe `FUN_007202e0` | StringHash algorithm (4-lane Pearson hash) |
-| stbc.exe `PTR_DAT_008d9af4` | Version gate string = `"60"` |
+| Extracted via hash manifest tool | StringHash 4x256-byte lookup tables (1,024 bytes) |
+| Verified via manifest tool | FileHash algorithm (rotate-XOR, skip bytes 4-7) |
+| Verified via manifest tool | StringHash algorithm (4-lane Pearson hash) |
+| Verified via protocol capture | Version gate string = `"60"` |

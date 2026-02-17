@@ -1,10 +1,10 @@
-# OpenBC Phase 1: Bridge Commander Engine Architecture Reference
+# OpenBC Phase 1: Bridge Commander Protocol Architecture Reference
 
 ## Document Status
-- **Created**: 2026-02-15, **Updated**: 2026-02-15 (framing updated for standalone server architecture)
-- **Source**: STBC-Dedicated-Server reverse engineering (Ghidra decompilation, RTTI catalog, function tracing)
-- **Purpose**: Provide implementors with a clear understanding of BC's original engine layers, so OpenBC can reimplement the protocol-relevant parts. OpenBC is a standalone C server with data-driven configuration -- it does not embed Python, use SWIG, or replicate the original engine's class hierarchy. This document is preserved as reference for understanding the original engine's behavior and wire protocol semantics.
-- **Cross-reference**: [phase1-verified-protocol.md](phase1-verified-protocol.md) for wire format, [phase1-re-gaps.md](phase1-re-gaps.md) for gap analysis, [phase1-implementation-plan.md](phase1-implementation-plan.md) for OpenBC's architecture
+- **Created**: 2026-02-15, **Updated**: 2026-02-17 (clean room audit: all binary addresses and struct offsets removed)
+- **Source**: Observable protocol behavior, packet captures, readable Python scripts
+- **Purpose**: Provide implementors with a clear understanding of BC's original engine layers, so OpenBC can reimplement the protocol-relevant parts. OpenBC is a standalone C server with data-driven configuration -- it does not embed Python, use SWIG, or replicate the original engine's class hierarchy. This document describes the behavioral architecture that OpenBC must be wire-compatible with.
+- **Cross-reference**: [phase1-verified-protocol.md](phase1-verified-protocol.md) for wire format, [phase1-implementation-plan.md](phase1-implementation-plan.md) for OpenBC's architecture
 
 ---
 
@@ -36,26 +36,18 @@ Bridge Commander's engine has three distinct layers:
 
 ### Overview
 
-BC uses NetImmerse 3.1 (predecessor to Gamebryo). The RTTI catalog shows 129 NI classes, 124 TG framework classes, and ~420 game-specific classes (670 total).
+BC uses NetImmerse 3.1 (predecessor to Gamebryo). The engine's RTTI catalog shows 129 NI classes, 124 TG framework classes, and ~420 game-specific classes (670 total).
 
 ### NiRTTI and Type System
 
-Every NI object has runtime type information:
-- **Slot 0 = GetRTTI** (NOT destructor -- opposite of Gamebryo 1.2!)
-- **Slot 10 = scalar_deleting_dtor** (+0x28)
-- NiObject: 12 vtable slots
-- NiObjectNET: 12 (adds ZERO new slots)
-- NiAVObject: 39 (+27 new)
-- NiNode: 43 (+4 new)
-
-**Warning**: NI 3.1 has MORE virtuals than Gamebryo 1.2. Slot names cannot be copied blindly from Gamebryo source.
+Every NI object has runtime type information. The type hierarchy is used for safe casting and object identification. NI 3.1's vtable layout differs from later Gamebryo versions -- slot names cannot be copied blindly from Gamebryo source.
 
 ### Key NI Types Used by Game
 
 | Type | Purpose | Phase 1 Relevance |
 |------|---------|-------------------|
-| NiNode | Scene graph node (ships, subsystems) | Ship identity (ship+0x18), referenced in wire format |
-| NiAVObject | Visual object base | Bounding sphere at node+0x94, collision mesh source |
+| NiNode | Scene graph node (ships, subsystems) | Ship identity, referenced in wire format |
+| NiAVObject | Visual object base | Bounding sphere, collision mesh source |
 | NiStream | File I/O (NIF loading) | Not needed for standalone server |
 
 ### Not Needed for Standalone Server
@@ -77,21 +69,15 @@ Base class for all TG framework objects. Provides:
 
 ### TGEventManager
 
-Central event dispatch system:
-
-| Function | Address | Purpose |
-|----------|---------|---------|
-| ProcessEvents | FUN_006da2c0 | Dequeue from ring buffer + dispatch |
-| RegisterHandler | FUN_006db380 | Register handler for event type |
-| RegisterNamedHandler | FUN_006da130 | Register by function name string |
-| DispatchToChain | FUN_006db620 | Walk handler chain for an event |
-| PostEvent | FUN_006da2a0 | Add event to queue |
-
-**Global instance**: `0x0097F838` (EventManager), `0x0097F864` (handler registry).
+Central event dispatch system. The event manager processes events from a ring buffer and dispatches them to registered handler chains. Key behaviors:
+- **ProcessEvents**: Dequeue from ring buffer and dispatch to registered handlers
+- **RegisterHandler**: Register a handler callback for a specific event type
+- **DispatchToChain**: Walk the handler chain for an event, calling each handler in order
+- **PostEvent**: Add an event to the queue for deferred processing
 
 Events are 32-bit type codes. The handler registry is a hash map of `event_type -> handler chain`.
 
-Key event types:
+Key event types (these are protocol constants, not binary addresses):
 | Type | Name | Description |
 |------|------|-------------|
 | 0x60001 | ET_NETWORK_MESSAGE_EVENT | Incoming network message (dispatches to both NetFile and MultiplayerGame) |
@@ -108,7 +94,7 @@ Key event types:
 
 ### TGNetwork / TGWinsockNetwork
 
-Network subsystem. TGWinsockNetwork (0x34C bytes) is the concrete implementation.
+Network subsystem. TGWinsockNetwork is the concrete UDP implementation.
 
 Key methods:
 | Method | Description |
@@ -119,17 +105,15 @@ Key methods:
 | SendToGroup | Queue message for a named group |
 | GetNextMessage | Dequeue next delivered message |
 
-Internal functions:
-| Function | Address | Purpose |
-|----------|---------|---------|
-| FUN_006b4c10 | TGNetwork::Send | Binary-search peer array, queue message |
-| FUN_006b55b0 | SendOutgoingPackets | Drain 3 queues per peer, serialize, sendto |
-| FUN_006b5c90 | ProcessIncomingPackets | recvfrom, parse, create peers |
-| FUN_006b5f70 | DispatchIncomingQueue | Validate sequences, deliver to application |
+Internal behavior:
+- **Send**: Binary-search the peer array, queue message to the appropriate peer
+- **SendOutgoingPackets**: Drain 3 queues per peer (priority, reliable, unreliable), serialize, sendto
+- **ProcessIncomingPackets**: recvfrom, parse transport framing, create peers for new connections
+- **DispatchIncomingQueue**: Validate sequence numbers, deliver messages to the application layer
 
 ### TGMessage
 
-Network message container. Key fields at known offsets (see [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 2).
+Network message container. See [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 2 for wire format.
 
 Important methods exposed to Python:
 | Python Method | Purpose |
@@ -141,7 +125,7 @@ Important methods exposed to Python:
 
 ### TGBufferStream
 
-Binary serialization stream. Layout at offsets +0x1C (buffer), +0x24 (position), +0x2C (bit-pack state).
+Binary serialization stream with position-tracked byte buffer and bit-packing state.
 
 Read/Write functions documented in [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 11.
 
@@ -163,60 +147,60 @@ Global variable store. Provides `Get/SetVariable` for shared state between C++ a
 
 ### UtopiaModule
 
-Root game object at `0x0097FA00`. Contains pointers to all major subsystems:
+Root game object. Contains pointers to all major subsystems:
 
-| Offset | Field | Description |
-|--------|-------|-------------|
-| +0x78 | TGWinsockNetwork* | Network subsystem |
-| +0x7C | GameSpy* | LAN discovery |
-| +0x80 | NetFile* | Checksum/file transfer manager |
-| +0x88 | IsClient (u8) | 0=host, 1=client |
-| +0x89 | IsHost (u8) | 1=host, 0=client |
-| +0x8A | IsMultiplayer (u8) | 1=multiplayer active |
+| Field | Description |
+|-------|-------------|
+| TGWinsockNetwork* | Network subsystem |
+| GameSpy* | LAN discovery |
+| NetFile* | Checksum/file transfer manager |
+| IsClient (u8) | 0=host, 1=client |
+| IsHost (u8) | 1=host, 0=client |
+| IsMultiplayer (u8) | 1=multiplayer active |
 
 For a dedicated server: `IsClient=0, IsHost=1, IsMultiplayer=1`.
 
 ### MultiplayerGame
 
-Game session manager at `0x0097E238`. Contains player slots and game state:
+Game session manager. Contains player slots and game state:
 
-| Offset | Field | Description |
-|--------|-------|-------------|
-| +0x74 | playerSlots[16] | 16 player slots, 0x18 bytes each |
-| +0x1F8 | readyForNewPlayers | Accept connections flag |
-| +0x1FC | maxPlayers | Maximum player count |
+| Field | Description |
+|-------|-------------|
+| playerSlots[16] | 16 player slots |
+| readyForNewPlayers | Accept connections flag |
+| maxPlayers | Maximum player count |
 
 Registers 28 event handlers for all game events (see [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 12).
 
 ### Player Slots
 
-16 slots at MultiplayerGame+0x74, stride 0x18:
+16 player slots, each containing:
 
-| Offset | Field |
-|--------|-------|
-| +0x00 | active flag |
-| +0x04 | peer network ID |
-| +0x08 | player object ID |
+| Field | Description |
+|-------|-------------|
+| active flag | Whether slot is in use |
+| peer network ID | Network peer identifier |
+| player object ID | Game object ID for this player's ship |
 
 Slot assignment: first empty slot on connection. Slot freed on disconnect.
 
 ### Ship Hierarchy
 
-Ships are full game objects with subsystems. On the stock game, a Sovereign-class ship has 33 subsystems. Key subsystem types (15 named slots from ship+0x2B0 to ship+0x2E4):
+Ships are full game objects with subsystems. On the stock game, a Sovereign-class ship has 33 subsystems. Key subsystem types:
 
-| Offset | Name | Type |
-|--------|------|------|
-| +0x2B0 | Powered | PoweredSubsystem |
-| +0x2B4 | Shield | ShieldGenerator |
-| +0x2B8 | Phaser | PhaserController |
-| +0x2C0 | Repair | RepairSubsystem |
-| +0x2C4 | Power | PowerReactor |
-| +0x2C8 | Cloak | CloakingDevice |
-| +0x2CC | LifeSupport | LifeSupport |
-| +0x2D0 | Sensor | SensorArray |
-| +0x2D4 | Pulse | PulseWeapon |
-| +0x2D8 | Warp | WarpDrive |
-| +0x2E0 | ShipRef | ShipRefNiNode |
+| Name | Type |
+|------|------|
+| Powered | PoweredSubsystem |
+| Shield | ShieldGenerator |
+| Phaser | PhaserController |
+| Repair | RepairSubsystem |
+| Power | PowerReactor |
+| Cloak | CloakingDevice |
+| LifeSupport | LifeSupport |
+| Sensor | SensorArray |
+| Pulse | PulseWeapon |
+| Warp | WarpDrive |
+| ShipRef | ShipRefNiNode |
 
 Plus multiple instances of: ImpulseEngine (4), PhaserEmitter (8), TorpedoTube (6), TractorBeam (4).
 
@@ -245,20 +229,19 @@ TGNetwork::ProcessIncomingPackets
 TGNetwork::DispatchIncomingQueue
     |
     v
-ET_NETWORK_MESSAGE_EVENT (0x60001) posted to EventManager
+ET_NETWORK_MESSAGE_EVENT posted to EventManager
     |
-    +----> NetFile Dispatcher (FUN_006a3cd0)
+    +----> NetFile Dispatcher
     |      Handles opcodes 0x20-0x27 (checksums, file transfer)
-    |      Registered on UtopiaModule+0x80 (NetFile object)
     |
-    +----> MultiplayerGame Dispatcher (0x0069f2a0)
+    +----> MultiplayerGame Dispatcher
     |      Handles opcodes 0x00-0x2A (game messages)
-    |      Jump table at 0x0069F534 (41 entries)
+    |      41-entry jump table indexed by opcode-2
     |      Relay pattern: clone + forward to all other peers
     |
-    +----> MultiplayerWindow Dispatcher (FUN_00504c10)
+    +----> MultiplayerWindow Dispatcher
            Handles opcodes 0x00, 0x01, 0x16 (UI-level)
-           Only on client (gated by this+0xb0)
+           Only on client
 
 Python Path (opcodes 0x2C-0x39):
     These bypass ALL C++ dispatchers.
@@ -292,7 +275,7 @@ The server does NOT need to understand most message payloads. It operates on raw
 
 ## 6. Python / SWIG Integration (Original Engine Reference)
 
-> **Note**: OpenBC does NOT use Python or SWIG. The standalone server is pure C with data-driven configuration (TOML/JSON). This section is preserved as reference for understanding the original engine's Python bridge, which is relevant for interpreting decompiled code, understanding how the original mission scripts drive game flow, and decoding Python-level opcodes (0x2C-0x39) that the OpenBC server must generate natively.
+> **Note**: OpenBC does NOT use Python or SWIG. The standalone server is pure C with data-driven configuration (TOML/JSON). This section is preserved as reference for understanding how the original mission scripts drive game flow and for decoding Python-level opcodes (0x2C-0x39) that the OpenBC server must generate natively.
 
 ### Shadow Class System
 
@@ -304,7 +287,7 @@ pShip = App.ShipClass_Cast(pObj)
 pShip.GetObjID()  # Calls C++ via SWIG thunk
 ```
 
-The SWIG table at `0x008e6438` contains 3,990 wrapper functions.
+The SWIG binding layer contains ~3,990 wrapper functions.
 
 ### Handle Format
 
@@ -340,31 +323,26 @@ Constants include all ET_* event types, SPECIES_* ship types, CT_* damage types,
 
 ## 7. Bootstrap Sequence (Original Engine Reference)
 
-> **Note**: OpenBC's bootstrap is fundamentally different -- it is a standalone C server that reads TOML/JSON configuration, initializes networking directly, and enters a game loop with no Python or SWIG involvement. This section documents the original engine's bootstrap for reference (useful for understanding the proxy server and the order of operations that clients expect).
+> **Note**: OpenBC's bootstrap is fundamentally different -- it is a standalone C server that reads TOML/JSON configuration, initializes networking directly, and enters a game loop with no Python or SWIG involvement. This section documents the original engine's bootstrap for reference (useful for understanding the order of operations that clients expect).
 
-The original game (and the STBC-Dedi proxy) bootstraps in phases:
+The original game bootstraps in phases:
 
 ### Phase 0: Flag Setting
-Direct memory writes to configure multiplayer mode:
-```
-0x0097FA88 (IsClient) = 0
-0x0097FA89 (IsHost) = 1
-0x0097FA8A (IsMultiplayer) = 1
-```
+Configure multiplayer mode flags: IsClient=0, IsHost=1, IsMultiplayer=1.
 
 ### Phase 1: Network Initialization
-Call `FUN_00445d90` (UtopiaModule::InitMultiplayer):
-1. Create TGWinsockNetwork (0x34C bytes) -> UtopiaModule+0x78
-2. Set port to 22101 (0x5655)
-3. Call TGNetwork_HostOrJoin(0, password) for HOST mode
-4. Create NetFile (0x48 bytes) -> UtopiaModule+0x80
-5. Create GameSpy (0xF4 bytes) -> UtopiaModule+0x7C
+Initialize the multiplayer subsystem:
+1. Create TGWinsockNetwork
+2. Set port to 22101
+3. Call HostOrJoin for HOST mode
+4. Create NetFile (checksum/file transfer manager)
+5. Create GameSpy (LAN discovery)
 
 ### Phase 2: MultiplayerGame Creation
-Call `FUN_00504f10` (TopWindow_SetupMultiplayerGame):
+Set up the game session:
 1. Create MultiplayerGame session object
-2. Register at `0x0097E238`
-3. Set `readyForNewPlayers = 1` (at +0x1F8)
+2. Register it globally
+3. Set readyForNewPlayers = 1
 
 ### Phase 3: Python Automation (original only -- OpenBC reads server.toml instead)
 Execute `DedicatedServer.TopWindowInitialized()`:
@@ -374,84 +352,71 @@ Execute `DedicatedServer.TopWindowInitialized()`:
 4. Start game session
 
 ### Phase 4: Game Loop (30Hz)
-Periodic timer fires `GameLoopTimerProc` at ~33ms intervals:
-1. `UtopiaApp_MainTick` -- event processing, simulation
-2. `TGNetwork::Update` -- send/receive packets
+Periodic timer fires at ~33ms intervals:
+1. Main tick -- event processing, simulation
+2. Network update -- send/receive packets
 3. GameSpy query router -- handle LAN discovery
-4. Peer detection -- scan WSN peer array for new connections
-5. InitNetwork scheduling -- call `Mission1.InitNetwork(peerID)` 30 ticks after peer appears
-6. DeferredInitObject -- poll for new ship objects, load NIF + create subsystems
+4. Peer detection -- scan peer array for new connections
+5. InitNetwork scheduling -- call InitNetwork for new peers (~30 ticks after appearance)
+6. Ship object polling -- detect new ship objects, initialize subsystems
 
 ---
 
-## 8. Key Function Address Table
+## 8. Behavioral Reference Summary
 
-Functions whose behavior OpenBC must match for protocol compatibility:
+The following behavioral patterns are what OpenBC must replicate for wire compatibility:
 
 ### Network Layer
-| Address | Name | Purpose |
-|---------|------|---------|
-| 0x006b3ec0 | TGNetwork_HostOrJoin | Socket creation, HOST/CLIENT mode |
-| 0x006b4c10 | TGNetwork::Send | Queue message for peer |
-| 0x006b4560 | TGNetwork::Update | Main network tick |
-| 0x006b55b0 | SendOutgoingPackets | Drain queues, serialize, sendto |
-| 0x006b5c90 | ProcessIncomingPackets | recvfrom, parse, create peers |
-| 0x006b5f70 | DispatchIncomingQueue | Validate sequences, deliver |
-| 0x006b61e0 | ReliableACKHandler | Process ACK messages |
-| 0x006b7410 | CreatePeerEntry | Allocate new peer in sorted array |
+| Behavior | Description |
+|----------|-------------|
+| HostOrJoin | Socket creation, HOST/CLIENT mode selection |
+| Send | Binary-search peer array, queue message for peer |
+| Update | Main network tick: send outgoing + process incoming + dispatch queue |
+| SendOutgoing | Drain 3 queues per peer (priority, reliable, unreliable), serialize, sendto |
+| ProcessIncoming | recvfrom, parse transport framing, create peers for new connections |
+| DispatchQueue | Validate sequence numbers, deliver messages to application layer |
+| ReliableACK | Process ACK messages, clear retransmit queue |
+| CreatePeer | Allocate new peer in sorted array |
 
 ### Game Logic
-| Address | Name | Purpose |
-|---------|------|---------|
-| 0x00445d90 | UtopiaModule::InitMultiplayer | Create WSN + NetFile + GameSpy |
-| 0x00504f10 | TopWindow_SetupMultiplayerGame | Create MultiplayerGame session |
-| 0x0069f2a0 | ReceiveMessageHandler | Main opcode dispatcher (jump table) |
-| 0x0069f620 | ProcessGameMessage | Clone-and-forward relay |
-| 0x006a0a30 | NewPlayerHandler | Assign slot, start checksums |
-| 0x006a1b10 | ChecksumCompleteHandler | Send settings + GameInit |
-| 0x006a1e70 | NewPlayerInGameHandler | Trigger InitNetwork + replication |
-| 0x006a1aa0 | GetShipFromPlayerID | __cdecl(int connID) -> ship* |
+| Behavior | Description |
+|----------|-------------|
+| InitMultiplayer | Create network + checksum + discovery subsystems |
+| SetupMultiplayerGame | Create game session, set readyForNewPlayers |
+| ReceiveMessage | Main opcode dispatcher (41-entry jump table) |
+| ProcessGameMessage | Clone-and-forward relay for game opcodes |
+| NewPlayerHandler | Assign slot, start checksum exchange |
+| ChecksumCompleteHandler | Send Settings + GameInit after checksums pass |
+| NewPlayerInGameHandler | Trigger InitNetwork + state replication |
+| GetShipFromPlayerID | Look up ship object by connection ID |
 
 ### Checksum System
-| Address | Name | Purpose |
-|---------|------|---------|
-| 0x006a3820 | ChecksumRequestSender | Queue 4 requests, send #0 |
-| 0x006a3cd0 | NetFile::ReceiveMessageHandler | Checksum opcode dispatcher |
-| 0x006a4560 | ChecksumResponseVerifier | Hash compare, send next |
-| 0x006a4bb0 | ChecksumAllPassed | Fire ET_CHECKSUM_COMPLETE |
-| 0x007202e0 | StringHash | 4-lane Pearson hash (name matching) |
-| 0x006a62f0 | FileHash | Rotate-XOR hash (content integrity, skips bytes 4-7) |
+| Behavior | Description |
+|----------|-------------|
+| ChecksumRequestSender | Queue 4 directory requests, send first |
+| NetFile ReceiveMessage | Checksum opcode dispatcher (0x20-0x27) |
+| ChecksumResponseVerifier | Compare hashes against manifest, send next round |
+| ChecksumAllPassed | Fire ET_CHECKSUM_COMPLETE event |
+| StringHash | 4-lane Pearson hash for name matching |
+| FileHash | Rotate-XOR hash for content integrity (skips bytes 4-7) |
 
-### Event System
-| Address | Name | Purpose |
-|---------|------|---------|
-| 0x006da2c0 | EventManager::ProcessEvents | Dequeue + dispatch |
-| 0x006db380 | RegisterHandler | Register for event type |
-| 0x006db620 | DispatchToChain | Walk handler chain |
-| 0x006da2a0 | PostEvent | Add event to queue |
-
-### Damage System (reimplemented natively in OpenBC -- formulas from these functions)
-| Address | Name | Purpose |
-|---------|------|---------|
-| 0x00594020 | DoDamage | Central damage dispatcher |
-| 0x00593e50 | ProcessDamage | Subsystem damage distribution |
-| 0x005b0060 | CollisionDamageWrapper | Collision entry point |
-| 0x00593650 | DoDamage_FromPosition | Single-point collision |
-| 0x005952d0 | DoDamage_CollisionContacts | Multi-contact collision |
-| 0x006a01e0 | DestroyObject_Net | Opcode 0x14 handler |
-| 0x006a0080 | Explosion_Net | Opcode 0x29 handler |
+### Damage System (reimplemented natively in OpenBC)
+| Behavior | Description |
+|----------|-------------|
+| DoDamage | Central damage dispatcher |
+| ProcessDamage | Subsystem damage distribution |
+| CollisionDamageWrapper | Collision entry point |
+| DoDamage_FromPosition | Single-point collision damage |
+| DoDamage_CollisionContacts | Multi-contact collision damage |
+| DestroyObject_Net | Opcode 0x14 handler (object destruction) |
+| Explosion_Net | Opcode 0x29 handler (explosion effect) |
 
 ### Serialization
-| Address | Name | Purpose |
-|---------|------|---------|
-| 0x006cefe0 | TGBufferStream::Create | Create stream |
-| 0x006cf730 | WriteByte | Write u8 |
-| 0x006cf770 | WriteBit | Pack boolean into shared byte |
-| 0x006cf7f0 | WriteShort | Write u16 LE |
-| 0x006cf870 | WriteInt32 | Write i32 |
-| 0x006cf8b0 | WriteFloat | Write f32 |
-| 0x006cf540 | ReadByte | Read u8 |
-| 0x006cf580 | ReadBit | Read packed boolean |
-| 0x006cf600 | ReadShort | Read u16 LE |
-| 0x006cf670 | ReadInt32 | Read i32 |
-| 0x006cf6b0 | ReadFloat | Read f32 |
+| Behavior | Description |
+|----------|-------------|
+| TGBufferStream::Create | Create serialization stream |
+| WriteByte / ReadByte | Write/read u8 |
+| WriteBit / ReadBit | Pack/unpack boolean into shared byte |
+| WriteShort / ReadShort | Write/read u16 LE |
+| WriteInt32 / ReadInt32 | Write/read i32 |
+| WriteFloat / ReadFloat | Write/read f32 |

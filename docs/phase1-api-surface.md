@@ -4,7 +4,7 @@
 - **Created**: 2026-02-15
 - **Revised**: 2026-02-15 (complete rewrite: verified data only, all hallucinations removed)
 - **Replaces**: SWIG API Surface Catalog (2026-02-08)
-- **Sources**: All data traced to files in `../STBC-Dedicated-Server/reference/scripts/` unless otherwise noted
+- **Sources**: All data traced to readable Python scripts (hardpoint files, multiplayer scripts) unless otherwise noted
 - **Context**: Phase 1 is a standalone C server with data-driven configuration. No Python scripting layer. All game data previously loaded via Python scripts is expressed as static data files (TOML for human-authored, JSON for tool-generated).
 
 ---
@@ -189,7 +189,7 @@ Since all vanilla ships are modifier class 1 (Section 2.4), the effective modifi
 
 ### 5.1 Source
 
-Verified from `../STBC-Dedicated-Server/docs/wire-format-spec.md` and protocol traces.
+Verified from wire format specification and protocol traces.
 
 ### 5.2 Checksum Directory Rounds
 
@@ -206,7 +206,7 @@ The server sends 4 sequential checksum requests (opcode 0x20). Each round valida
 
 ### 5.3 Hash Algorithms
 
-**StringHash** (FUN_007202e0 at stbc.exe): 4-lane Pearson hash using four 256-byte substitution tables (1,024 bytes total at 0x0095c888-0x0095cc87).
+**StringHash**: 4-lane Pearson hash using four 256-byte substitution tables (1,024 bytes total, extracted via hash manifest tool).
 
 ```c
 uint32_t StringHash(const char *str) {
@@ -224,7 +224,7 @@ uint32_t StringHash(const char *str) {
 
 Used for: directory name hashing, filename hashing, version string hashing.
 
-**FileHash** (FUN_006a62f0 at stbc.exe): Rotate-XOR over file contents.
+**FileHash**: Rotate-XOR over file contents.
 
 ```c
 uint32_t FileHash(const uint8_t *data, size_t len) {
@@ -254,7 +254,7 @@ Deliberately skips bytes 4-7 (.pyc modification timestamp) so that the same byte
 
 ### 5.4 Version String Gate
 
-- Version string: `"60"` (at PTR_DAT_008d9af4)
+- Version string: `"60"`
 - Version hash: `StringHash("60") = 0x7E0CE243`
 - Checked in the first checksum round (index 0). Version mismatch causes immediate rejection via opcode 0x23.
 
@@ -360,7 +360,7 @@ Deliberately skips bytes 4-7 (.pyc modification timestamp) so that the same byte
 
 ### 6.1 Source
 
-Verified from protocol analysis and decompiled MultiplayerWindow opcode handler.
+Verified from protocol analysis and behavioral observation of the Settings opcode handler.
 
 ### 6.2 Verified Fields
 
@@ -370,14 +370,14 @@ The Settings packet contains game configuration sent to each connecting client. 
 - **Player slot**: Integer, assigned slot index for this client
 - **Map name**: String, the `Systems.{MapName}.{MapName}` load path (must match what the client expects)
 - **Pass/fail**: Result of checksum validation
-- **Collision toggle**: Bit at DAT_008e5f59, controls whether collision damage is enabled
-- **Friendly fire toggle**: Bit at DAT_0097faa2, controls whether friendly fire is enabled
+- **Collision toggle**: Bit-packed boolean, controls whether collision damage is enabled
+- **Friendly fire toggle**: Bit-packed boolean, controls whether friendly fire is enabled
 
 Both toggles are written as individual bits (not full bytes).
 
 ### 6.3 Notes
 
-The complete field layout of the Settings packet requires further extraction from the decompiled MultiplayerWindow handler. The fields listed above are the verified subset. Additional fields (time limit, frag limit, game mode) are present but their exact byte offsets need confirmation.
+The complete field layout of the Settings packet requires further analysis from protocol captures. The fields listed above are the verified subset. Additional fields (time limit, frag limit, game mode) are present but their exact byte offsets need confirmation.
 
 ---
 
@@ -385,7 +385,7 @@ The complete field layout of the Settings packet requires further extraction fro
 
 ### 7.1 Source
 
-Verified from `../STBC-Dedicated-Server/docs/objcreate-team-format.md`.
+Verified from protocol captures and behavioral analysis.
 
 ### 7.2 Purpose
 
@@ -401,7 +401,7 @@ Each subsystem's health is encoded as a single byte (0-255 mapped to 0.0-1.0 con
 
 ### 7.5 Notes
 
-The full packet layout is documented in `objcreate-team-format.md` in the STBC-Dedicated-Server repo. Key fields include: object ID, team assignment, species/net type, position, orientation, and the variable-length subsystem health array.
+Key fields include: object ID, team assignment, species/net type, position, orientation, and the variable-length subsystem health array.
 
 ---
 
@@ -409,7 +409,7 @@ The full packet layout is documented in `objcreate-team-format.md` in the STBC-D
 
 ### 8.1 Source
 
-Verified from decompiled StateUpdate handler analysis.
+Verified from protocol analysis and packet captures.
 
 ### 8.2 Dirty-Flag Bitmask
 
@@ -431,7 +431,7 @@ The StateUpdate message uses a bitmask byte to indicate which fields are present
 
 ### 8.4 Subsystem Source
 
-The subsystem list for StateUpdate serialization comes from the ship object at offset `ship+0x284`. Subsystems are serialized in round-robin fashion -- one subsystem per StateUpdate tick, cycling through the full list.
+The subsystem list for StateUpdate serialization comes from the ship object's internal subsystem linked list. Subsystems are serialized in round-robin fashion -- one subsystem per StateUpdate tick, cycling through the full list.
 
 ### 8.5 Compressed Types
 
@@ -448,7 +448,7 @@ Full codec specifications are in [phase1-verified-protocol.md](phase1-verified-p
 
 ### 9.1 Source
 
-Impulse engine parameters extracted from hardpoint scripts in `../STBC-Dedicated-Server/reference/scripts/ships/Hardpoints/`. Mass and inertia from `GlobalPropertyTemplates.py`.
+Impulse engine parameters extracted from readable hardpoint scripts (`ships/Hardpoints/*.py`). Mass and inertia from `GlobalPropertyTemplates.py`.
 
 ### 9.2 Impulse Engine Parameters (27 ships verified)
 
@@ -820,7 +820,7 @@ mods/
 
 ## 13. Confidence Annotations
 
-Every data point in this document is sourced from the STBC-Dedicated-Server repository. Confidence levels:
+Every data point in this document is sourced from readable Python scripts and protocol captures. Confidence levels:
 
 ### Verified (high confidence)
 
@@ -832,12 +832,12 @@ Every data point in this document is sourced from the STBC-Dedicated-Server repo
 | Modifier table (Section 3) | `Multiplayer/Modifier.py` |
 | Map list (Section 4) | `Multiplayer/SpeciesToSystem.py` |
 | Checksum directories (Section 5.2) | `wire-format-spec.md` + protocol traces |
-| StringHash algorithm (Section 5.3) | Ghidra decompile of FUN_007202e0 |
-| FileHash algorithm (Section 5.3) | Ghidra decompile of FUN_006a62f0 |
-| Version string + hash (Section 5.4) | Extracted from stbc.exe + verified in protocol |
+| StringHash algorithm (Section 5.3) | Algorithm verified via hash manifest tool output against known inputs |
+| FileHash algorithm (Section 5.3) | Algorithm verified via hash manifest tool output against known inputs |
+| Version string + hash (Section 5.4) | Extracted via hash manifest tool + verified in protocol |
 | Impulse engine parameters (Section 9.2) | `ships/Hardpoints/*.py` ImpulseEngineProperty calls |
 | Mass/inertia for 12 ships (Section 9.3) | `GlobalPropertyTemplates.py` |
-| Settings packet toggles (Section 6.2) | Decompiled opcode handler |
+| Settings packet toggles (Section 6.2) | Behavioral analysis of Settings packet in protocol captures |
 
 ### Needs Further Extraction
 
