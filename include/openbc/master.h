@@ -49,6 +49,10 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
 /* Check if a packet came from a known master address. */
 bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from);
 
+/* Mark a master as verified (registered) if not already.
+ * Returns the hostname if newly verified, NULL otherwise. */
+const char *bc_master_mark_verified(bc_master_list_t *ml, const bc_addr_t *from);
+
 /* Periodic tick: heartbeat all enabled masters if interval elapsed. */
 void bc_master_tick(bc_master_list_t *ml, bc_socket_t *sock, u32 now_ms);
 

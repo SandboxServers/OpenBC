@@ -60,3 +60,17 @@ const char *bc_opcode_name(int opcode)
     default:                       return NULL;
     }
 }
+
+const char *bc_transport_type_name(int type)
+{
+    switch (type) {
+    case 0x00: return "Keepalive";
+    case 0x01: return "ACK";
+    case 0x03: return "Connect";
+    case 0x04: return "ConnectData";
+    case 0x05: return "ConnectACK";
+    case 0x06: return "Disconnect";
+    case 0x32: return "Reliable";
+    default:   return NULL;
+    }
+}

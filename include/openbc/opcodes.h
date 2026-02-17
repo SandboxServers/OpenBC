@@ -155,4 +155,7 @@
 /* Opcode name lookup (returns static string, NULL for unknown) */
 const char *bc_opcode_name(int opcode);
 
+/* Transport type name lookup (returns static string, NULL for unknown) */
+const char *bc_transport_type_name(int type);
+
 #endif /* OPENBC_OPCODES_H */

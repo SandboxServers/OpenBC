@@ -2,6 +2,7 @@
 #define OPENBC_LOG_H
 
 #include "openbc/types.h"
+#include "openbc/transport.h"
 
 /*
  * Server logging system -- leveled output with timestamps and optional file.
@@ -21,7 +22,7 @@ typedef enum {
 
 /* Initialize logging. Call once at startup before any LOG_* calls.
  * level: minimum severity to output.
- * log_file_path: if non-NULL, also write to this file (append mode). */
+ * log_file_path: if non-NULL, also write to this file (new file per session). */
 void bc_log_init(bc_log_level_t level, const char *log_file_path);
 
 /* Flush and close log file (if open). */
@@ -36,5 +37,9 @@ void bc_log(bc_log_level_t level, const char *tag, const char *fmt, ...);
 #define LOG_INFO(tag, ...)  bc_log(LOG_INFO,  tag, __VA_ARGS__)
 #define LOG_DEBUG(tag, ...) bc_log(LOG_DEBUG, tag, __VA_ARGS__)
 #define LOG_TRACE(tag, ...) bc_log(LOG_TRACE, tag, __VA_ARGS__)
+
+/* Full packet trace decode (only runs at LOG_TRACE level).
+ * label: "RECV" or "SEND". slot: peer slot (-1 if unknown). */
+void bc_log_packet_trace(const bc_packet_t *pkt, int slot, const char *label);
 
 #endif /* OPENBC_LOG_H */

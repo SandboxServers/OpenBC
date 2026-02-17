@@ -63,6 +63,9 @@ static BOOL WINAPI console_handler(DWORD type)
     }
 }
 
+/* Forward declarations */
+static void flush_peer(int slot);
+
 /* --- Packet handling --- */
 
 static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
@@ -85,8 +88,12 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
                 response, sizeof(response), challenge);
             if (resp_len > 0) {
                 bc_socket_send(sock, from, response, resp_len);
-                LOG_DEBUG("gamespy", "Sent validate to %s (challenge: %s)",
-                          addr_str, challenge);
+                const char *master = bc_master_mark_verified(&g_masters, from);
+                if (master)
+                    LOG_INFO("master", "Registered with %s", master);
+                else
+                    LOG_DEBUG("gamespy", "Sent validate to %s (challenge: %s)",
+                              addr_str, challenge);
             }
         }
         return;
@@ -98,8 +105,12 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
                                              &g_info, data, len);
     if (resp_len > 0) {
         int sent = bc_socket_send(sock, from, response, resp_len);
-        LOG_DEBUG("gamespy", "Response to %s (%d bytes, sent=%d): %.*s",
-                  addr_str, resp_len, sent, resp_len, (const char *)response);
+        const char *master = bc_master_mark_verified(&g_masters, from);
+        if (master)
+            LOG_INFO("master", "Registered with %s", master);
+        else
+            LOG_DEBUG("gamespy", "Response to %s (%d bytes, sent=%d): %.*s",
+                      addr_str, resp_len, sent, resp_len, (const char *)response);
     }
 }
 
@@ -114,7 +125,7 @@ static void queue_reliable(int peer_slot, const u8 *payload, int payload_len)
                     seq, GetTickCount());
 
     if (!bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq)) {
-        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+        flush_peer(peer_slot);
         bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq);
     }
 }
@@ -124,7 +135,7 @@ static void queue_unreliable(int peer_slot, const u8 *payload, int payload_len)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
     if (!bc_outbox_add_unreliable(&peer->outbox, payload, payload_len)) {
-        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+        flush_peer(peer_slot);
         bc_outbox_add_unreliable(&peer->outbox, payload, payload_len);
     }
 }
@@ -138,8 +149,30 @@ static void send_unreliable_direct(const bc_addr_t *to,
     int len = bc_transport_build_unreliable(pkt, sizeof(pkt),
                                             payload, payload_len);
     if (len > 0) {
+        bc_packet_t trace;
+        if (bc_transport_parse(pkt, len, &trace))
+            bc_log_packet_trace(&trace, -1, "SEND");
         alby_cipher_encrypt(pkt, (size_t)len);
         bc_socket_send(&g_socket, to, pkt, len);
+    }
+}
+
+/* Flush a peer's outbox with optional SEND trace logging.
+ * Replaces direct bc_outbox_flush() calls so all outgoing packets are traced. */
+static void flush_peer(int slot)
+{
+    bc_peer_t *peer = &g_peers.peers[slot];
+    if (!bc_outbox_pending(&peer->outbox)) return;
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&peer->outbox, pkt, sizeof(pkt));
+    if (len > 0) {
+        /* Trace-log outgoing packet before encryption */
+        bc_packet_t trace;
+        if (bc_transport_parse(pkt, len, &trace))
+            bc_log_packet_trace(&trace, slot, "SEND");
+        alby_cipher_encrypt(pkt, (size_t)len);
+        bc_socket_send(&g_socket, &peer->addr, pkt, len);
     }
 }
 
@@ -171,8 +204,7 @@ static void send_checksum_request(int peer_slot, int round)
         /* Flush immediately -- stock dedi sends ACK + next ChecksumReq in
          * one packet within 1ms of receiving the response.  Waiting for the
          * 100ms tick would add unnecessary latency during handshake. */
-        bc_peer_t *peer = &g_peers.peers[peer_slot];
-        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+        flush_peer(peer_slot);
     }
 }
 
@@ -219,7 +251,7 @@ static void send_settings_and_gameinit(int peer_slot)
 
     /* Flush immediately so the client gets 0x28+Settings+GameInit without
      * waiting for the next 100ms tick. */
-    bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+    flush_peer(peer_slot);
 
     /* Do NOT send NewPlayerInGame (0x2A) here -- that is a CLIENT-to-SERVER
      * message.  The client sends 0x2A after receiving Settings + GameInit.
@@ -328,6 +360,12 @@ static void handle_connect(const bc_addr_t *from, int len)
                       slot);
         }
 
+        /* Trace-log before encryption */
+        {
+            bc_packet_t trace;
+            if (bc_transport_parse(pkt, pos, &trace))
+                bc_log_packet_trace(&trace, slot, "SEND");
+        }
         alby_cipher_encrypt(pkt, (size_t)pos);
         bc_socket_send(&g_socket, from, pkt, pos);
     }
@@ -406,7 +444,7 @@ static void handle_checksum_response(int peer_slot,
         int plen = bc_checksum_request_final_build(payload, sizeof(payload));
         if (plen > 0) {
             queue_reliable(peer_slot, payload, plen);
-            bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+            flush_peer(peer_slot);
         }
         peer->state = PEER_CHECKSUMMING_FINAL;
     }
@@ -615,8 +653,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
                       peer_slot, g_system_index);
             queue_reliable(peer_slot, mi, mi_len);
-            bc_peer_t *p = &g_peers.peers[peer_slot];
-            bc_outbox_flush(&p->outbox, &g_socket, &p->addr);
+            flush_peer(peer_slot);
         }
         break;
     }
@@ -673,6 +710,9 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
         return;
     }
 
+    /* Trace-log incoming packet after decryption */
+    bc_log_packet_trace(&pkt, slot, "RECV");
+
     /* Handle connection requests (direction 0xFF) */
     if (pkt.direction == BC_DIR_INIT) {
         if (slot < 0) {
@@ -706,6 +746,11 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
             resp[5] = 0x00;
             resp[6] = 0x00;
             resp[7] = (u8)(slot + 1);  /* wire_slot = array index + 1 */
+            {
+                bc_packet_t trace;
+                if (bc_transport_parse(resp, (int)sizeof(resp), &trace))
+                    bc_log_packet_trace(&trace, slot, "SEND");
+            }
             alby_cipher_encrypt(resp, sizeof(resp));
             bc_socket_send(&g_socket, from, resp, sizeof(resp));
             return;
@@ -810,7 +855,8 @@ static void usage(const char *prog)
         "  --master <h:p>     Master server address (repeatable; replaces defaults)\n"
         "  --no-master        Disable all master server heartbeating\n"
         "  --log-level <lvl>  Log verbosity: quiet|error|warn|info|debug|trace (default: info)\n"
-        "  --log-file <path>  Also write log to file (append mode)\n"
+        "  --log-file <path>  Write log to this file (default: openbc-YYYYMMDD-HHMMSS.log)\n"
+        "  --no-log-file      Disable disk logging entirely\n"
         "  -q                 Shorthand for --log-level quiet\n"
         "  -v                 Shorthand for --log-level debug\n"
         "  -vv                Shorthand for --log-level trace\n"
@@ -843,6 +889,7 @@ int main(int argc, char **argv)
     bool no_master = false;
     bc_log_level_t log_level = LOG_INFO;
     const char *log_file_path = NULL;
+    bool no_log_file = false;
 
     /* Parse args */
     for (int i = 1; i < argc; i++) {
@@ -883,6 +930,8 @@ int main(int argc, char **argv)
             log_level = parse_log_level(argv[++i]);
         } else if (strcmp(argv[i], "--log-file") == 0 && i + 1 < argc) {
             log_file_path = argv[++i];
+        } else if (strcmp(argv[i], "--no-log-file") == 0) {
+            no_log_file = true;
         } else if (strcmp(argv[i], "-q") == 0) {
             log_level = LOG_QUIET;
         } else if (strcmp(argv[i], "-vv") == 0) {
@@ -898,10 +947,48 @@ int main(int argc, char **argv)
     /* Apply parsed settings to globals */
     g_map_name = map;
 
+    /* Generate default log file name if none specified and not disabled.
+     * Format: openbc-YYYYMMDD-HHMMSS.log (one file per session). */
+    if (!log_file_path && !no_log_file) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        static char default_log[64];
+        snprintf(default_log, sizeof(default_log),
+                 "openbc-%04d%02d%02d-%02d%02d%02d.log",
+                 st.wYear, st.wMonth, st.wDay,
+                 st.wHour, st.wMinute, st.wSecond);
+        log_file_path = default_log;
+    }
+
     /* Initialize logging (before anything that uses LOG_*) */
     bc_log_init(log_level, log_file_path);
 
-    /* Load manifest */
+    /* Load manifest.
+     * If --manifest was given, use that path.  Otherwise, scan manifests/
+     * for .json files -- if exactly one exists, auto-load it. */
+    if (!manifest_path) {
+        WIN32_FIND_DATAA fd;
+        HANDLE hFind = FindFirstFileA("manifests\\*.json", &fd);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            static char auto_path[MAX_PATH];
+            int json_count = 0;
+            do {
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                    if (json_count == 0)
+                        snprintf(auto_path, sizeof(auto_path),
+                                 "manifests/%s", fd.cFileName);
+                    json_count++;
+                }
+            } while (FindNextFileA(hFind, &fd));
+            FindClose(hFind);
+
+            if (json_count == 1) {
+                manifest_path = auto_path;
+                LOG_INFO("init", "Auto-detected manifest: %s", manifest_path);
+            }
+        }
+    }
+
     if (manifest_path) {
         if (bc_manifest_load(&g_manifest, manifest_path)) {
             g_manifest_loaded = true;
@@ -1002,12 +1089,18 @@ int main(int argc, char **argv)
     } else {
         printf("Checksum validation: off (no manifest, permissive mode)\n");
     }
+    if (log_file_path)
+        printf("Log file: %s\n", log_file_path);
     if (g_masters.count > 0) {
         int verified = 0;
         for (int i = 0; i < g_masters.count; i++)
             if (g_masters.entries[i].verified) verified++;
-        printf("Master servers: %d registered, %d total\n",
+        printf("Master servers: %d/%d registered\n",
                verified, g_masters.count);
+        for (int i = 0; i < g_masters.count; i++) {
+            if (g_masters.entries[i].verified)
+                printf("  + %s\n", g_masters.entries[i].hostname);
+        }
     }
     printf("Press Ctrl+C to stop.\n\n");
 
@@ -1073,6 +1166,9 @@ int main(int argc, char **argv)
                         int len = bc_transport_build_reliable(
                             pkt, sizeof(pkt), e->payload, e->payload_len, e->seq);
                         if (len > 0) {
+                            bc_packet_t trace;
+                            if (bc_transport_parse(pkt, len, &trace))
+                                bc_log_packet_trace(&trace, i, "RTXM");
                             alby_cipher_encrypt(pkt, (size_t)len);
                             bc_socket_send(&g_socket, &peer->addr, pkt, len);
                         }
@@ -1111,9 +1207,8 @@ int main(int argc, char **argv)
 
             /* Flush all peer outboxes (skip slot 0 = dedi) */
             for (int i = 1; i < BC_MAX_PLAYERS; i++) {
-                bc_peer_t *peer = &g_peers.peers[i];
-                if (peer->state == PEER_EMPTY) continue;
-                bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+                if (g_peers.peers[i].state == PEER_EMPTY) continue;
+                flush_peer(i);
             }
 
             last_tick = now;
@@ -1127,9 +1222,8 @@ int main(int argc, char **argv)
 
     /* Flush all pending outbox data before sending shutdown (skip slot 0 = dedi) */
     for (int i = 1; i < BC_MAX_PLAYERS; i++) {
-        bc_peer_t *peer = &g_peers.peers[i];
-        if (peer->state == PEER_EMPTY) continue;
-        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
+        if (g_peers.peers[i].state == PEER_EMPTY) continue;
+        flush_peer(i);
     }
 
     /* Send ConnectAck shutdown notification to all connected peers.
@@ -1143,6 +1237,9 @@ int main(int argc, char **argv)
         int len = bc_transport_build_shutdown_notify(
             pkt, sizeof(pkt), (u8)(i + 1), peer->addr.ip);
         if (len > 0) {
+            bc_packet_t trace;
+            if (bc_transport_parse(pkt, len, &trace))
+                bc_log_packet_trace(&trace, i, "SEND");
             alby_cipher_encrypt(pkt, (size_t)len);
             bc_socket_send(&g_socket, &peer->addr, pkt, len);
             LOG_INFO("shutdown", "Sent shutdown to slot %d", i);

@@ -1,6 +1,8 @@
 #include "openbc/log.h"
+#include "openbc/opcodes.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <stdarg.h>
 
 #include <windows.h>  /* For GetTickCount() */
@@ -19,7 +21,7 @@ void bc_log_init(bc_log_level_t level, const char *log_file_path)
     g_start_time = GetTickCount();
 
     if (log_file_path) {
-        g_log_file = fopen(log_file_path, "a");
+        g_log_file = fopen(log_file_path, "w");
         if (!g_log_file) {
             fprintf(stderr, "Warning: could not open log file: %s\n",
                     log_file_path);
@@ -67,5 +69,80 @@ void bc_log(bc_log_level_t level, const char *tag, const char *fmt, ...)
         fputc('\n', g_log_file);
         fflush(g_log_file);
         va_end(args);
+    }
+}
+
+void bc_log_packet_trace(const bc_packet_t *pkt, int slot, const char *label)
+{
+    if (g_log_level < LOG_TRACE) return;
+
+    LOG_TRACE("pkt", "%s slot=%d dir=0x%02X msgs=%d",
+              label, slot, pkt->direction, pkt->msg_count);
+
+    for (int i = 0; i < pkt->msg_count; i++) {
+        const bc_transport_msg_t *msg = &pkt->msgs[i];
+        const char *tname = bc_transport_type_name(msg->type);
+
+        if (msg->type == BC_TRANSPORT_ACK) {
+            LOG_TRACE("pkt", "  [%d] %s seq=%d flags=0x%02X",
+                      i, tname ? tname : "?", (int)msg->seq, msg->flags);
+            continue;
+        }
+
+        if (msg->type == BC_TRANSPORT_RELIABLE) {
+            /* Build hex dump of first 32 payload bytes */
+            char hex[128];
+            int hpos = 0;
+            int show = msg->payload_len < 32 ? msg->payload_len : 32;
+            for (int j = 0; j < show; j++)
+                hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
+                                 "%02X ", msg->payload[j]);
+            if (msg->payload_len > 32)
+                hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos), "...");
+            if (hpos > 0 && hex[hpos - 1] == ' ') hex[--hpos] = '\0';
+
+            /* Resolve game opcode name from first payload byte */
+            const char *oname = NULL;
+            u8 opcode = 0;
+            if (msg->payload_len > 0) {
+                opcode = msg->payload[0];
+                oname = bc_opcode_name(opcode);
+            }
+
+            const char *frag = (msg->flags & BC_RELIABLE_FLAG_FRAGMENT)
+                                ? "[FRAG]" : "";
+
+            if (oname) {
+                LOG_TRACE("pkt", "  [%d] Reliable seq=0x%04X flags=0x%02X%s "
+                          "opcode=0x%02X(%s) len=%d [%s]",
+                          i, msg->seq, msg->flags, frag,
+                          opcode, oname, msg->payload_len, hex);
+            } else {
+                LOG_TRACE("pkt", "  [%d] Reliable seq=0x%04X flags=0x%02X%s "
+                          "len=%d [%s]",
+                          i, msg->seq, msg->flags, frag,
+                          msg->payload_len, hex);
+            }
+            continue;
+        }
+
+        /* Keepalive, Connect, Disconnect, etc. */
+        char hex[128];
+        int hpos = 0;
+        int show = msg->payload_len < 32 ? msg->payload_len : 32;
+        for (int j = 0; j < show; j++)
+            hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
+                             "%02X ", msg->payload[j]);
+        if (msg->payload_len > 32)
+            hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos), "...");
+        if (hpos > 0 && hex[hpos - 1] == ' ') hex[--hpos] = '\0';
+
+        if (msg->payload_len > 0) {
+            LOG_TRACE("pkt", "  [%d] %s len=%d [%s]",
+                      i, tname ? tname : "?", msg->payload_len, hex);
+        } else {
+            LOG_TRACE("pkt", "  [%d] %s len=%d",
+                      i, tname ? tname : "?", msg->payload_len);
+        }
     }
 }

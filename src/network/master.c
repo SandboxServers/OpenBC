@@ -97,7 +97,7 @@ bool bc_master_add(bc_master_list_t *ml, const char *host_port, u16 game_port)
     memset(entry, 0, sizeof(*entry));
     snprintf(entry->hostname, sizeof(entry->hostname), "%s", host_port);
 
-    LOG_DEBUG("master", "Resolving %s...", host_port);
+    LOG_TRACE("master", "Resolving %s...", host_port);
 
     if (!resolve_address(host_port, &entry->addr)) {
         /* DNS failed -- don't add to active list */
@@ -111,7 +111,7 @@ bool bc_master_add(bc_master_list_t *ml, const char *host_port, u16 game_port)
 
     char addr_str[32];
     bc_addr_to_string(&entry->addr, addr_str, sizeof(addr_str));
-    LOG_DEBUG("master", "Resolved %s -> %s", host_port, addr_str);
+    LOG_TRACE("master", "Resolved %s -> %s", host_port, addr_str);
     return true;
 }
 
@@ -239,7 +239,7 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
         }
     }
 
-    LOG_INFO("master", "Master servers: %d/%d registered", registered, ml->count);
+    LOG_DEBUG("master", "Master probe complete: %d/%d registered", registered, ml->count);
 }
 
 bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from)
@@ -250,6 +250,21 @@ bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from)
             return true;
     }
     return false;
+}
+
+const char *bc_master_mark_verified(bc_master_list_t *ml, const bc_addr_t *from)
+{
+    for (int i = 0; i < ml->count; i++) {
+        if (!ml->entries[i].enabled) continue;
+        if (bc_addr_equal(&ml->entries[i].addr, from)) {
+            if (!ml->entries[i].verified) {
+                ml->entries[i].verified = true;
+                return ml->entries[i].hostname;
+            }
+            return NULL;  /* Already verified */
+        }
+    }
+    return NULL;  /* Not a known master */
 }
 
 void bc_master_tick(bc_master_list_t *ml, bc_socket_t *sock, u32 now_ms)
