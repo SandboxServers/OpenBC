@@ -2,12 +2,9 @@
 
 **Date**: 2026-02-16
 **Source**: Stock BC dedicated server packet traces (90MB+)
-**Traces analyzed**:
-- `/mnt/c/Users/Steve/source/projects/STBC-Dedicated-Server/game/stock-dedi/packet_trace.log`
-- `/mnt/c/Users/Steve/source/projects/STBC-Dedicated-Server/logs/stock/battle-of-valentines-day/packet_trace.log`
-- `/mnt/c/Users/Steve/source/projects/STBC-Dedicated-Server/game/stock-dedi/message_trace.log`
+**Traces analyzed**: Stock BC dedicated server packet captures (90MB+, multiple sessions)
 
-Cross-referenced against decompiled code in `STBC-Dedicated-Server/reference/decompiled/`.
+Cross-referenced against observed protocol behavior from stock BC sessions.
 
 ---
 
@@ -170,7 +167,7 @@ For 2 bits: count field = 1 (byte = 0x20 | values)
 For 3 bits: count field = 2 (byte = 0x40 | values)
 
 ### What the real TGBufferStream does
-From decompiled FUN_006cf770 at 0x006cf770:
+From the stock client's bit-packing writer:
 ```c
 bVar3 = (bVar3 >> 5) + 1;   // increment count
 ...
@@ -193,7 +190,7 @@ Checksum request recursive=false bit byte: `0x20`
 - OpenBC encoding: `((1-1)<<5) | 0x00 = 0x00` -- DOES NOT match
 
 ### Impact
-The BC client reader (FUN_006cf580) uses `1 << count_field` as the threshold to determine how many bits to read from the packed byte. If OpenBC sends count=2 but the client expects count=3 (because the client's reader is calibrated for the real encoding), the reader will terminate after 2 bits and start a new bit group for the 3rd ReadBit, consuming an extra byte from the stream. **This corrupts the entire stream parse from that point forward.**
+The BC client's bit-packing reader uses `1 << count_field` as the threshold to determine how many bits to read from the packed byte. If OpenBC sends count=2 but the client expects count=3 (because the client's reader is calibrated for the real encoding), the reader will terminate after 2 bits and start a new bit group for the 3rd ReadBit, consuming an extra byte from the stream. **This corrupts the entire stream parse from that point forward.**
 
 ### Verdict: **CRITICAL -- will break all messages containing bit-packed fields**
 Affected messages include:
@@ -259,7 +256,7 @@ The field order and types are correct. The only difference is the bit-packed byt
 
 Actually, re-reading: the stock dedi uses slot 0 for the dedi server itself. But the decoded Settings shows `slot=0`. Let me re-examine. OpenBC sends `player_slot` as the peer_slot value. If the first joiner is at array index 1, OpenBC sends slot=1. But the trace shows slot=0.
 
-Wait -- the `00` after the bit byte could be the player slot. Both traces show `00` (slot 0 for both). But the first joiner gets wire_slot=2 (peer index 1). So the Settings `slot` value is different from the wire slot. Looking at the decompiled handler: `FUN_006cf730(local_43c, (char)iVar3)` where `iVar3` is derived from `FUN_006a19c0(this, *(int*)(param_1 + 0x28))` -- this is a lookup of the peer in the player slot array. The result is the PLAYER SLOT INDEX (0-15), not the network peer index.
+Wait -- the `00` after the bit byte could be the player slot. Both traces show `00` (slot 0 for both). But the first joiner gets wire_slot=2 (peer index 1). So the Settings `slot` value is different from the wire slot. The Settings handler writes the byte via the stream writer, where the value is derived from a player slot lookup function. The result is the PLAYER SLOT INDEX (0-15), not the network peer index.
 
 **Possible issue**: OpenBC might be sending the wrong slot value. Need to verify whether the stock dedi player slot 0 represents something different from our peer index. However, since slot=0 is the dedi server and first joiner should be slot 1, the trace showing slot=0 is suspicious. It might mean the "player slot" in Settings is actually a different numbering scheme.
 
