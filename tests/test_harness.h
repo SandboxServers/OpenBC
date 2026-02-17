@@ -496,4 +496,100 @@ static void test_client_disconnect(bc_test_client_t *c)
     c->connected = false;
 }
 
+/* ======================================================================
+ * Packet Trace Logger
+ *
+ * Binary trace format per record:
+ *   [4 bytes: tick as u32 LE]
+ *   [1 byte: 'S'=sent / 'R'=received]
+ *   [1 byte: client slot]
+ *   [2 bytes: payload length as u16 LE]
+ *   [N bytes: raw game payload (starts with opcode byte)]
+ *
+ * File header: 8-byte magic "OBCTRACE"
+ * ====================================================================== */
+
+typedef struct {
+    FILE *fp;
+    bool enabled;
+} bc_packet_log_t;
+
+/* Global log pointer -- set by test to enable logging in send/recv helpers */
+__attribute__((unused))
+static bc_packet_log_t *g_packet_log = NULL;
+
+__attribute__((unused))
+static bool packet_log_open(bc_packet_log_t *log, const char *path)
+{
+    memset(log, 0, sizeof(*log));
+    log->fp = fopen(path, "wb");
+    if (!log->fp) return false;
+    fwrite("OBCTRACE", 1, 8, log->fp);
+    log->enabled = true;
+    return true;
+}
+
+__attribute__((unused))
+static void packet_log_write(bc_packet_log_t *log, u32 tick,
+                              char dir, u8 slot,
+                              const u8 *payload, u16 len)
+{
+    if (!log || !log->enabled || !log->fp) return;
+    fwrite(&tick, 4, 1, log->fp);
+    fwrite(&dir, 1, 1, log->fp);
+    fwrite(&slot, 1, 1, log->fp);
+    fwrite(&len, 2, 1, log->fp);
+    fwrite(payload, 1, len, log->fp);
+}
+
+__attribute__((unused))
+static void packet_log_close(bc_packet_log_t *log)
+{
+    if (!log) return;
+    if (log->fp) { fclose(log->fp); log->fp = NULL; }
+    log->enabled = false;
+}
+
+/* Dump a binary trace file to stdout in human-readable form */
+__attribute__((unused))
+static void packet_log_dump(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) { fprintf(stderr, "Cannot open %s\n", path); return; }
+
+    /* Verify header */
+    char hdr[8];
+    if (fread(hdr, 1, 8, fp) != 8 || memcmp(hdr, "OBCTRACE", 8) != 0) {
+        fprintf(stderr, "Bad trace header\n");
+        fclose(fp);
+        return;
+    }
+
+    int records = 0;
+    while (!feof(fp)) {
+        u32 tick; char dir; u8 slot; u16 len;
+        if (fread(&tick, 4, 1, fp) != 1) break;
+        if (fread(&dir, 1, 1, fp) != 1) break;
+        if (fread(&slot, 1, 1, fp) != 1) break;
+        if (fread(&len, 2, 1, fp) != 1) break;
+
+        u8 payload[4096];
+        if (len > sizeof(payload)) break;
+        if (fread(payload, 1, len, fp) != len) break;
+
+        const char *opname = (len > 0) ? bc_opcode_name(payload[0]) : "?";
+        if (!opname) opname = "?";
+
+        printf("[tick %4u] %c slot=%d op=0x%02X (%-20s) len=%d  ",
+               tick, dir, slot, len > 0 ? payload[0] : 0, opname, len);
+        int show = len < 24 ? len : 24;
+        for (int i = 0; i < show; i++) printf("%02X ", payload[i]);
+        if (len > 24) printf("...");
+        printf("\n");
+        records++;
+    }
+    printf("Total: %d records\n", records);
+    fclose(fp);
+}
+
 #endif /* TEST_HARNESS_H */
