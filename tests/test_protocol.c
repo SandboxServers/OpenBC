@@ -9,60 +9,93 @@
 #include <string.h>
 #include <math.h>
 
-/* === AlbyRules cipher tests === */
-
-TEST(cipher_known_key)
-{
-    /* Verify the cipher XORs with "AlbyRules!" */
-    u8 data[10] = {0};
-    alby_rules_cipher(data, 10);
-    /* XOR of 0 with key = key itself */
-    ASSERT_EQ(data[0], 0x41); /* 'A' */
-    ASSERT_EQ(data[1], 0x6C); /* 'l' */
-    ASSERT_EQ(data[2], 0x62); /* 'b' */
-    ASSERT_EQ(data[3], 0x79); /* 'y' */
-    ASSERT_EQ(data[4], 0x52); /* 'R' */
-    ASSERT_EQ(data[5], 0x75); /* 'u' */
-    ASSERT_EQ(data[6], 0x6C); /* 'l' */
-    ASSERT_EQ(data[7], 0x65); /* 'e' */
-    ASSERT_EQ(data[8], 0x73); /* 's' */
-    ASSERT_EQ(data[9], 0x21); /* '!' */
-}
+/* === AlbyRules stream cipher tests === */
 
 TEST(cipher_round_trip)
 {
-    u8 original[] = "Hello, Bridge Commander!";
-    u8 data[24];
-    memcpy(data, original, 24);
+    /* Encrypt then decrypt should recover the original plaintext.
+     * Byte 0 (direction flag) is preserved unchanged. */
+    u8 original[] = { 0x01, 0x01, 0x1C, 0x0F, 0x00, 0x00, 0x00,
+                      0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
+    u8 data[13];
+    memcpy(data, original, 13);
 
-    alby_rules_cipher(data, 24);
+    alby_cipher_encrypt(data, 13);
 
-    /* Should be different from original */
-    ASSERT(memcmp(data, original, 24) != 0);
+    /* Byte 0 (direction) should be unchanged */
+    ASSERT_EQ(data[0], 0x01);
 
-    /* Decrypt (same operation) */
-    alby_rules_cipher(data, 24);
+    /* Bytes 1+ should be different from original */
+    ASSERT(memcmp(data + 1, original + 1, 12) != 0);
 
-    /* Should match original */
-    ASSERT(memcmp(data, original, 24) == 0);
+    /* Decrypt should recover original */
+    alby_cipher_decrypt(data, 13);
+    ASSERT(memcmp(data, original, 13) == 0);
 }
 
-TEST(cipher_key_wraps)
+TEST(cipher_byte0_preserved)
 {
-    /* Key wraps around every 10 bytes */
-    u8 data[20] = {0};
-    alby_rules_cipher(data, 20);
+    /* Direction byte (0xFF for init, 0x01 for server, 0x02 for client)
+     * must never be modified by encrypt or decrypt. */
+    u8 pkt1[] = { 0xFF, 0x01, 0x03, 0x08 };
+    alby_cipher_encrypt(pkt1, 4);
+    ASSERT_EQ(pkt1[0], 0xFF);
 
-    /* Bytes 0-9 and 10-19 should be identical (both XOR with key) */
-    ASSERT(memcmp(data, data + 10, 10) == 0);
+    u8 pkt2[] = { 0x01, 0x01, 0x00, 0x02 };
+    alby_cipher_encrypt(pkt2, 4);
+    ASSERT_EQ(pkt2[0], 0x01);
+
+    u8 pkt3[] = { 0x02, 0x01, 0x00, 0x02 };
+    alby_cipher_encrypt(pkt3, 4);
+    ASSERT_EQ(pkt3[0], 0x02);
 }
 
-TEST(cipher_empty)
+TEST(cipher_not_simple_xor)
 {
-    /* Zero-length should be safe */
-    u8 data[1] = { 0x42 };
-    alby_rules_cipher(data, 0);
-    ASSERT_EQ(data[0], 0x42);  /* Unchanged */
+    /* The real cipher is a stream cipher with plaintext feedback.
+     * Unlike a simple repeating XOR, the same plaintext byte at
+     * different positions produces different ciphertext. */
+    u8 data[12] = { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    alby_cipher_encrypt(data, 12);
+
+    /* If it were simple XOR, bytes 1 and 11 would be the same
+     * (both are 0x00 XOR'd with the same key position). With the
+     * real stream cipher, plaintext feedback changes the keystream. */
+    ASSERT(data[1] != data[11]);
+}
+
+TEST(cipher_short_packets)
+{
+    /* 0-byte and 1-byte packets should not crash */
+    u8 d0[1] = { 0x42 };
+    alby_cipher_encrypt(d0, 0);
+    ASSERT_EQ(d0[0], 0x42);
+
+    alby_cipher_encrypt(d0, 1);
+    ASSERT_EQ(d0[0], 0x42);  /* 1-byte = only direction, no payload */
+
+    /* 2-byte packet: byte 0 preserved, byte 1 encrypted */
+    u8 d2[2] = { 0xFF, 0x00 };
+    u8 orig = d2[1];
+    alby_cipher_encrypt(d2, 2);
+    ASSERT_EQ(d2[0], 0xFF);
+    /* Decrypt to recover */
+    alby_cipher_decrypt(d2, 2);
+    ASSERT_EQ(d2[1], orig);
+}
+
+TEST(cipher_per_packet_reset)
+{
+    /* Each packet starts from fresh cipher state.
+     * Encrypting the same plaintext twice should produce identical ciphertext. */
+    u8 pkt1[] = { 0x01, 0x01, 0x03, 0x08, 0x01, 0x00 };
+    u8 pkt2[] = { 0x01, 0x01, 0x03, 0x08, 0x01, 0x00 };
+
+    alby_cipher_encrypt(pkt1, 6);
+    alby_cipher_encrypt(pkt2, 6);
+
+    ASSERT(memcmp(pkt1, pkt2, 6) == 0);
 }
 
 /* === Buffer stream tests === */
@@ -1296,10 +1329,11 @@ TEST(checksum_round_0xff_build)
 
 TEST_MAIN_BEGIN()
     /* Cipher */
-    RUN(cipher_known_key);
     RUN(cipher_round_trip);
-    RUN(cipher_key_wraps);
-    RUN(cipher_empty);
+    RUN(cipher_byte0_preserved);
+    RUN(cipher_not_simple_xor);
+    RUN(cipher_short_packets);
+    RUN(cipher_per_packet_reset);
 
     /* Buffer */
     RUN(buffer_write_read_u8);

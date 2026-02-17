@@ -596,12 +596,12 @@ TEST(full_join_flow_multi_client)
         ASSERT(len == 10);
         tc_send_raw(cl, pkt, len);
 
-        /* Step 3: Receive ConnectAck */
+        /* Step 3: Receive Connect response (server echoes Connect with slot) */
         ASSERT(tc_recv_raw(cl, 2000) > 0);
         bc_packet_t parsed;
         ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
         ASSERT(parsed.msg_count >= 1);
-        ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_CONNECT_ACK);
+        ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_CONNECT);
 
         /* Step 4: Send keepalive with name */
         len = bc_client_build_keepalive_name(pkt, sizeof(pkt), (u8)c,

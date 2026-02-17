@@ -50,7 +50,8 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-             "build\\openbc-server.exe --manifest %s -v --log-file server_test.log -p %u",
+             "build\\openbc-server.exe --manifest %s -v --log-file server_test.log"
+             " --no-master -p %u",
              manifest_path, port);
 
     STARTUPINFO si;
@@ -127,7 +128,7 @@ typedef struct {
 /* Internal: send a raw packet (encrypt + send) */
 static void tc_send_raw(bc_test_client_t *c, u8 *pkt, int len)
 {
-    alby_rules_cipher(pkt, (size_t)len);
+    alby_cipher_encrypt(pkt, (size_t)len);
     bc_socket_send(&c->sock, &c->server_addr, pkt, len);
 }
 
@@ -140,7 +141,7 @@ static int tc_recv_raw(bc_test_client_t *c, int timeout_ms)
     while ((int)(GetTickCount() - start) < timeout_ms) {
         int got = bc_socket_recv(&c->sock, &from, c->recv_buf, sizeof(c->recv_buf));
         if (got > 0) {
-            alby_rules_cipher(c->recv_buf, (size_t)got);
+            alby_cipher_decrypt(c->recv_buf, (size_t)got);
             c->recv_len = got;
             return got;
         }
@@ -490,7 +491,7 @@ static void test_client_disconnect(bc_test_client_t *c)
     pkt[1] = 1;
     pkt[2] = BC_TRANSPORT_DISCONNECT;
     pkt[3] = 2; /* totalLen */
-    alby_rules_cipher(pkt, 4);
+    alby_cipher_encrypt(pkt, 4);
     bc_socket_send(&c->sock, &c->server_addr, pkt, 4);
     bc_socket_close(&c->sock);
     c->connected = false;

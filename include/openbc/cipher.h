@@ -4,14 +4,33 @@
 #include "openbc/types.h"
 
 /*
- * AlbyRules XOR stream cipher.
+ * AlbyRules stream cipher (TGWinsockNetwork encryption).
  *
- * All game traffic (NOT GameSpy) is encrypted with a 10-byte XOR key
- * derived from "AlbyRules!". The cipher is symmetric -- encrypt and
- * decrypt are the same operation. Applied in-place.
+ * All game traffic (NOT GameSpy) is encrypted with a custom stream cipher
+ * using the hardcoded key "AlbyRules!" (at 0x0095abb4 in stbc.exe).
  *
- * Key: { 0x41, 0x6C, 0x62, 0x79, 0x52, 0x75, 0x6C, 0x65, 0x73, 0x21 }
+ * Critical properties:
+ *   - Byte 0 of each UDP packet (direction flag) is NOT encrypted.
+ *     Encryption applies to bytes 1 through len-1 only.
+ *   - Per-packet reset: cipher state resets at the start of every packet.
+ *   - Static key: no session randomness, no key exchange.
+ *   - Plaintext feedback: each decrypted byte modifies the key state,
+ *     making the cipher position-dependent (NOT a simple XOR).
+ *
+ * Reimplemented from decompiled TGWinsockNetwork functions:
+ *   Reset:        0x006c2280
+ *   Key schedule: 0x006c22f0
+ *   PRNG step:    0x006c23c0
+ *   Encrypt:      0x006c2490
+ *   Decrypt:      0x006c2520
  */
-void alby_rules_cipher(u8 *data, size_t len);
+
+/* Encrypt a packet in-place for sending.
+ * Byte 0 is left unchanged; bytes 1+ are encrypted. */
+void alby_cipher_encrypt(u8 *data, size_t len);
+
+/* Decrypt a received packet in-place.
+ * Byte 0 is left unchanged; bytes 1+ are decrypted. */
+void alby_cipher_decrypt(u8 *data, size_t len);
 
 #endif /* OPENBC_CIPHER_H */

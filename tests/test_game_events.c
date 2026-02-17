@@ -27,8 +27,8 @@ TEST(object_id_out_of_range)
     ASSERT_EQ_INT(bc_object_id_to_slot(0), -1);
     ASSERT_EQ_INT(bc_object_id_to_slot(0x3FFFFFFE), -1);
 
-    /* Beyond slot 5 */
-    ASSERT_EQ_INT(bc_object_id_to_slot(0x3FFFFFFF + 6 * 0x40000), -1);
+    /* Beyond last valid slot (BC_MAX_PLAYERS - 1) */
+    ASSERT_EQ_INT(bc_object_id_to_slot(0x3FFFFFFF + BC_MAX_PLAYERS * 0x40000), -1);
 }
 
 /* === TorpedoFire parser === */

@@ -119,12 +119,35 @@ int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags)
     return 6;
 }
 
+int bc_transport_build_connect_ack(u8 *out, int out_size, u8 slot, u32 ip_be)
+{
+    /* ConnectAck packet format from ddraw proxy trace:
+     * [0x02][0x01][0x05][0x0A][0xC0][0x02][0x00][slot][ip:4]
+     * direction=BC_DIR_CLIENT, count=1, type=ConnectAck(0x05),
+     * totalLen=10, flags=0xC0, status=0x02 (accept), pad=0x00,
+     * slot (1-based), ip in network byte order */
+    if (out_size < 12) return -1;
+
+    out[0]  = BC_DIR_CLIENT;              /* 0x02 -- client direction */
+    out[1]  = 1;                          /* 1 message */
+    out[2]  = BC_TRANSPORT_CONNECT_ACK;   /* 0x05 */
+    out[3]  = 0x0A;                       /* totalLen = 10 */
+    out[4]  = 0xC0;                       /* flags */
+    out[5]  = 0x02;                       /* status: accept connection */
+    out[6]  = 0x00;                       /* padding */
+    out[7]  = slot;                       /* player slot (1-based) */
+    out[8]  = (u8)(ip_be & 0xFF);         /* IP byte 0 (network order) */
+    out[9]  = (u8)((ip_be >> 8) & 0xFF);  /* IP byte 1 */
+    out[10] = (u8)((ip_be >> 16) & 0xFF); /* IP byte 2 */
+    out[11] = (u8)((ip_be >> 24) & 0xFF); /* IP byte 3 */
+
+    return 12;
+}
+
 int bc_transport_build_shutdown_notify(u8 *out, int out_size, u8 slot, u32 ip_be)
 {
-    /* Packet format from trace:
-     * [0x01][0x01][0x05][0x0A][0xC0][0x00][0x00][slot][ip:4]
-     * direction=server, count=1, type=ConnectAck, totalLen=10,
-     * flags=0xC0, pad=0x00, pad=0x00, slot, ip in network byte order */
+    /* Shutdown uses same type 0x05 but with status=0x00 (disconnect).
+     * [0x01][0x01][0x05][0x0A][0xC0][0x00][0x00][slot][ip:4] */
     if (out_size < 12) return -1;
 
     out[0]  = BC_DIR_SERVER;
@@ -132,9 +155,9 @@ int bc_transport_build_shutdown_notify(u8 *out, int out_size, u8 slot, u32 ip_be
     out[2]  = BC_TRANSPORT_CONNECT_ACK;   /* 0x05 */
     out[3]  = 0x0A;                       /* totalLen = 10 */
     out[4]  = 0xC0;                       /* flags */
-    out[5]  = 0x00;                       /* padding */
+    out[5]  = 0x00;                       /* status: disconnect */
     out[6]  = 0x00;                       /* padding */
-    out[7]  = slot;                       /* player slot */
+    out[7]  = slot;                       /* player slot (1-based) */
     out[8]  = (u8)(ip_be & 0xFF);         /* IP byte 0 (network order) */
     out[9]  = (u8)((ip_be >> 8) & 0xFF);  /* IP byte 1 */
     out[10] = (u8)((ip_be >> 16) & 0xFF); /* IP byte 2 */
@@ -234,7 +257,7 @@ void bc_outbox_flush(bc_outbox_t *outbox, bc_socket_t *sock, const bc_addr_t *to
     u8 pkt[BC_MAX_PACKET_SIZE];
     int len = bc_outbox_flush_to_buf(outbox, pkt, sizeof(pkt));
     if (len > 0) {
-        alby_rules_cipher(pkt, (size_t)len);
+        alby_cipher_encrypt(pkt, (size_t)len);
         bc_socket_send(sock, to, pkt, len);
     }
 }

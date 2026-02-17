@@ -69,9 +69,14 @@ int bc_transport_build_reliable(u8 *out, int out_size,
  * Returns total packet length. */
 int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags);
 
-/* Build a shutdown notification packet (ConnectAck format).
+/* Build a ConnectAck packet for a newly connected client.
+ * Format from trace: [dir=0x02][count=1][0x05][0x0A][0xC0][0x02][0x00][slot][ip:4]
+ * slot is 1-based. Returns packet length (12), or -1 on error. */
+int bc_transport_build_connect_ack(u8 *out, int out_size, u8 slot, u32 ip_be);
+
+/* Build a shutdown notification packet (ConnectAck format with status=disconnect).
  * Sent to each peer on graceful server shutdown.
- * Format: [dir=0x01][count=1][0x05][0x0A][flags][0x00][0x00][slot][ip_be:4]
+ * Format: [dir=0x01][count=1][0x05][0x0A][0xC0][0x00][0x00][slot][ip_be:4]
  * Returns packet length, or -1 on error. */
 int bc_transport_build_shutdown_notify(u8 *out, int out_size, u8 slot, u32 ip_be);
 

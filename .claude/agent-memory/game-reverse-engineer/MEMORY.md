@@ -39,6 +39,19 @@
 - Two network groups: "NoMe" (DAT_008e5528) = all peers except host, "Forward" = selective relay
 - MAX_MESSAGE_TYPES likely = 0x2C (44), making chat=0x2D, mission_init=0x36, end_game=0x39
 
+## Connect Handshake (VERIFIED from packet traces)
+- Server responds to client Connect(0x03) with Connect(0x03), NOT ConnectAck(0x05)
+- Connect messages use 2-byte flags/length: [type:1][flags_len:2 LE][seq:2][data...]
+- flags_len: bit15=reliable, bit14=priority, bits13-0=totalLen (includes type byte)
+- Server Connect response payload: 1 byte = assigned peer slot number
+- Wire: [0x03][0x06][0xC0][0x00][0x00][slot] = 6 bytes transport message
+- ConnectAck(0x05) is used ONLY for shutdown notification cascade, not connection acceptance
+- FUN_006b6640 is the server-side Connect handler, FUN_006b7540 allocates peer slot
+- FUN_006be730 constructs Connect message objects (vtable PTR_LAB_008959ec)
+- FUN_006bf2e0 constructs ConnectAck message objects (vtable PTR_LAB_00895a0c)
+- FUN_006bac70 constructs rejection messages (vtable PTR_LAB_0089596c), [0x10]=reason code
+- See [connect-handshake-analysis.md](connect-handshake-analysis.md) for full details
+
 ## Lessons
 - FUN_006b0030 in 11_tgnetwork.c is actually Bink video code, NOT TGNetwork - file organization is by address range not by topic
 - The file 14_gamespy.c contains VarManager/Config code, NOT GameSpy SDK - actual GameSpy is in 10_netfile_checksums.c (0x006Axxxx range)
@@ -48,3 +61,4 @@
 - FUN_006b4de0 is SendToGroup(groupName, msg) -- finds group by name, sends to all members
 - FUN_006b4ec0 is SendToGroupMembers(groupPtr, msg) -- sends to all members of group object
 - FUN_0047dab0 is ShipObject constructor (creates network ship wrapper from deserialized data)
+- Connect/ConnectAck factory funcs parse 2-byte flags/len, NOT 1-byte len like the simple packet tracer

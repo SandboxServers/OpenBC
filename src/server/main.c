@@ -72,7 +72,7 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     bc_addr_to_string(from, addr_str, sizeof(addr_str));
     LOG_DEBUG("gamespy", "Query from %s: %.*s", addr_str, len, (const char *)data);
 
-    g_info.numplayers = g_peers.count;
+    g_info.numplayers = g_peers.count > 0 ? g_peers.count - 1 : 0; /* exclude dedi slot */
 
     /* Handle \secure\ challenge from master server */
     if (bc_gamespy_is_secure(data, len)) {
@@ -148,7 +148,7 @@ static void send_unreliable_direct(const bc_addr_t *to,
     int len = bc_transport_build_unreliable(pkt, sizeof(pkt),
                                             payload, payload_len);
     if (len > 0) {
-        alby_rules_cipher(pkt, (size_t)len);
+        alby_cipher_encrypt(pkt, (size_t)len);
         bc_socket_send(&g_socket, to, pkt, len);
     }
 }
@@ -158,7 +158,7 @@ static void send_unreliable_direct(const bc_addr_t *to,
 static void relay_to_others(int sender_slot, const u8 *payload, int payload_len,
                             bool reliable)
 {
-    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {  /* skip slot 0 = dedi */
         if (i == sender_slot) continue;
         if (g_peers.peers[i].state < PEER_LOBBY) continue;
 
@@ -173,7 +173,7 @@ static void relay_to_others(int sender_slot, const u8 *payload, int payload_len,
 /* Send a reliable message to all connected peers (including the target). */
 static void send_to_all(const u8 *payload, int payload_len)
 {
-    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {  /* skip slot 0 = dedi */
         if (g_peers.peers[i].state < PEER_LOBBY) continue;
         queue_reliable(i, payload, payload_len);
     }
@@ -268,7 +268,7 @@ static void handle_peer_disconnect(int slot)
 
     bc_peers_remove(&g_peers, slot);
     LOG_INFO("net", "Player removed: %s (slot %d), %d remaining",
-             addr_str, slot, g_peers.count);
+             addr_str, slot, g_peers.count - 1);
 }
 
 static void handle_connect(const bc_addr_t *from, int len)
@@ -296,17 +296,30 @@ static void handle_connect(const bc_addr_t *from, int len)
 
     g_peers.peers[slot].last_recv_time = GetTickCount();
     LOG_INFO("net", "Player connected from %s -> slot %d (%d/%d)",
-             addr_str, slot, g_peers.count, g_info.maxplayers);
+             addr_str, slot, g_peers.count - 1, g_info.maxplayers);
 
-    /* Send a connect acknowledgment.
-     * Format: [direction=0x01][count=1][type=0x05][len=2] */
-    u8 ack[4];
-    ack[0] = BC_DIR_SERVER;
-    ack[1] = 1;
-    ack[2] = BC_TRANSPORT_CONNECT_ACK;
-    ack[3] = 2;
-    alby_rules_cipher(ack, sizeof(ack));
-    bc_socket_send(&g_socket, from, ack, sizeof(ack));
+    /* Send Connect response (type 0x03) with assigned slot.
+     * Real BC responds to Connect with another Connect, NOT ConnectAck.
+     * Format: [dir=0x01][count=1][0x03][0x06][0xC0][0x00][0x00][slot]
+     * The 2-byte flags/len = 0xC006 = reliable+priority, totalLen=6.
+     * Seq=0x0000. Payload = 1 byte peer slot number.
+     *
+     * The wire slot becomes the client's direction byte.  Slot 0 is the
+     * dedicated server itself, so joining players start at slot 1.
+     * Wire value = slot + 1, so first joiner gets 0x02 (BC_DIR_CLIENT). */
+    {
+        u8 resp[8];
+        resp[0] = BC_DIR_SERVER;            /* 0x01 */
+        resp[1] = 1;                        /* msg_count=1 */
+        resp[2] = BC_TRANSPORT_CONNECT;     /* 0x03 */
+        resp[3] = 0x06;                     /* flags_len lo = totalLen 6 */
+        resp[4] = 0xC0;                     /* flags_len hi = reliable + priority */
+        resp[5] = 0x00;                     /* seq lo */
+        resp[6] = 0x00;                     /* seq hi */
+        resp[7] = (u8)(slot + 1);           /* wire slot = array index + 1 */
+        alby_cipher_encrypt(resp, sizeof(resp));
+        bc_socket_send(&g_socket, from, resp, sizeof(resp));
+    }
 
     /* Begin checksum exchange */
     g_peers.peers[slot].state = PEER_CHECKSUMMING;
@@ -617,8 +630,8 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
         g_peers.peers[slot].last_recv_time = GetTickCount();
     }
 
-    /* Decrypt */
-    alby_rules_cipher(data, (size_t)len);
+    /* Decrypt (byte 0 = direction flag, skipped by cipher) */
+    alby_cipher_decrypt(data, (size_t)len);
 
     /* Parse transport envelope */
     bc_packet_t pkt;
@@ -637,16 +650,50 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
 
     /* Handle connection requests (direction 0xFF) */
     if (pkt.direction == BC_DIR_INIT) {
-        handle_connect(from, len);
-        return;
+        if (slot < 0) {
+            /* Unknown peer with init direction -- new connection */
+            handle_connect(from, len);
+            return;
+        }
+        /* Known peer still using init direction (hasn't received ConnectAck yet).
+         * Check if this is a Connect retry or a regular message (e.g. ACK).
+         * Connect retries have transport type 0x03; other messages should
+         * be processed normally. */
+        bool has_connect = false;
+        for (int i = 0; i < pkt.msg_count; i++) {
+            if (pkt.msgs[i].type == BC_TRANSPORT_CONNECT) {
+                has_connect = true;
+                break;
+            }
+        }
+        if (has_connect) {
+            char dup_addr[32];
+            bc_addr_to_string(from, dup_addr, sizeof(dup_addr));
+            LOG_WARN("net", "Duplicate connect from %s (slot %d), resending Connect response",
+                     dup_addr, slot);
+            /* Resend Connect response with same wire slot */
+            u8 resp[8];
+            resp[0] = BC_DIR_SERVER;
+            resp[1] = 1;
+            resp[2] = BC_TRANSPORT_CONNECT;
+            resp[3] = 0x06;
+            resp[4] = 0xC0;
+            resp[5] = 0x00;
+            resp[6] = 0x00;
+            resp[7] = (u8)(slot + 1);  /* wire_slot = array index + 1 */
+            alby_cipher_encrypt(resp, sizeof(resp));
+            bc_socket_send(&g_socket, from, resp, sizeof(resp));
+            return;
+        }
+        /* Fall through to process ACKs and other messages normally */
     }
 
     if (slot < 0) return;  /* Unknown peer, ignore */
 
-    /* Validate direction byte: client packets use BC_DIR_CLIENT + slot_index.
-     * Log a warning on mismatch but continue processing (not a hard reject). */
-    u8 expected_dir = BC_DIR_CLIENT + (u8)slot;
-    if (pkt.direction != expected_dir) {
+    /* Validate direction byte: client's direction = wire_slot = slot + 1.
+     * Init direction (0xFF) is acceptable during early handshake. */
+    u8 expected_dir = (u8)(slot + 1);
+    if (pkt.direction != expected_dir && pkt.direction != BC_DIR_INIT) {
         LOG_WARN("net", "slot=%d direction byte mismatch: got 0x%02X, expected 0x%02X",
                  slot, pkt.direction, expected_dir);
     }
@@ -863,6 +910,17 @@ int main(int argc, char **argv)
 
     bc_peers_init(&g_peers);
 
+    /* Reserve slot 0 for the dedicated server itself.
+     * The stock BC dedi creates a "Dedicated Server" pseudo-player at slot 0
+     * that doesn't count as a joined player.  This ensures joining players
+     * start at slot 1 (wire_slot=2, direction=0x02), matching stock behavior. */
+    {
+        bc_peer_t *dedi = &g_peers.peers[0];
+        dedi->state = PEER_LOBBY;  /* Always "connected" */
+        snprintf(dedi->name, sizeof(dedi->name), "Dedicated Server");
+        g_peers.count++;
+    }
+
     /* Server info for GameSpy responses.
      * Fields must match stock BC QR1 callbacks (basic + info + rules). */
     memset(&g_info, 0, sizeof(g_info));
@@ -962,8 +1020,8 @@ int main(int argc, char **argv)
 
             /* Every 10 ticks (~1 second): retransmit, timeout, master heartbeat */
             if (tick_counter % 10 == 0) {
-                /* Retransmit unACKed reliable messages */
-                for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                /* Retransmit unACKed reliable messages (skip slot 0 = dedi) */
+                for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *peer = &g_peers.peers[i];
                     if (peer->state == PEER_EMPTY) continue;
 
@@ -986,14 +1044,14 @@ int main(int argc, char **argv)
                         int len = bc_transport_build_reliable(
                             pkt, sizeof(pkt), e->payload, e->payload_len, e->seq);
                         if (len > 0) {
-                            alby_rules_cipher(pkt, (size_t)len);
+                            alby_cipher_encrypt(pkt, (size_t)len);
                             bc_socket_send(&g_socket, &peer->addr, pkt, len);
                         }
                     }
                 }
 
-                /* Timeout stale peers (30 second timeout) */
-                for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                /* Timeout stale peers (skip slot 0 = dedi) */
+                for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     if (g_peers.peers[i].state == PEER_EMPTY) continue;
                     if (now - g_peers.peers[i].last_recv_time > 30000) {
                         LOG_INFO("net", "Peer slot %d timed out (no packets)", i);
@@ -1007,15 +1065,15 @@ int main(int argc, char **argv)
 
             /* Every 10 ticks (~1 second): send keepalive to all active peers */
             if (tick_counter % 10 == 0) {
-                for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+                for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *peer = &g_peers.peers[i];
                     if (peer->state < PEER_LOBBY) continue;
                     bc_outbox_add_keepalive(&peer->outbox);
                 }
             }
 
-            /* Flush all peer outboxes (sends batched messages) */
-            for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+            /* Flush all peer outboxes (skip slot 0 = dedi) */
+            for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                 bc_peer_t *peer = &g_peers.peers[i];
                 if (peer->state == PEER_EMPTY) continue;
                 bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
@@ -1030,8 +1088,8 @@ int main(int argc, char **argv)
 
     LOG_INFO("shutdown", "Shutting down...");
 
-    /* Flush all pending outbox data before sending shutdown */
-    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+    /* Flush all pending outbox data before sending shutdown (skip slot 0 = dedi) */
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
         bc_peer_t *peer = &g_peers.peers[i];
         if (peer->state == PEER_EMPTY) continue;
         bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
@@ -1039,8 +1097,8 @@ int main(int argc, char **argv)
 
     /* Send ConnectAck shutdown notification to all connected peers.
      * Real BC server sends ConnectAck (0x05) to each peer on shutdown,
-     * NOT BootPlayer or DeletePlayer. */
-    for (int i = 0; i < BC_MAX_PLAYERS; i++) {
+     * NOT BootPlayer or DeletePlayer. (skip slot 0 = dedi) */
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
         bc_peer_t *peer = &g_peers.peers[i];
         if (peer->state == PEER_EMPTY) continue;
 
@@ -1048,7 +1106,7 @@ int main(int argc, char **argv)
         int len = bc_transport_build_shutdown_notify(
             pkt, sizeof(pkt), (u8)(i + 1), peer->addr.ip);
         if (len > 0) {
-            alby_rules_cipher(pkt, (size_t)len);
+            alby_cipher_encrypt(pkt, (size_t)len);
             bc_socket_send(&g_socket, &peer->addr, pkt, len);
             LOG_INFO("shutdown", "Sent shutdown to slot %d", i);
         }
