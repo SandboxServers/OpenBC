@@ -23,7 +23,9 @@
 
 static volatile bool g_running = true;
 
-static bc_socket_t    g_socket;
+static bc_socket_t    g_socket;       /* Game port (default 22101) */
+static bc_socket_t    g_query_socket; /* LAN query port (6500) */
+static bool           g_query_socket_open = false;
 static bc_peer_mgr_t  g_peers;
 static bc_server_info_t g_info;
 
@@ -55,17 +57,41 @@ static BOOL WINAPI console_handler(DWORD type)
 
 /* --- Packet handling --- */
 
-static void handle_gamespy(const bc_addr_t *from, const u8 *data, int len)
+static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
+                           const u8 *data, int len)
 {
-    (void)data;
-    (void)len;
+    char addr_str[32];
+    bc_addr_to_string(from, addr_str, sizeof(addr_str));
+    LOG_DEBUG("gamespy", "Query from %s: %.*s", addr_str, len, (const char *)data);
 
-    u8 response[1024];
     g_info.numplayers = g_peers.count;
 
-    int resp_len = bc_gamespy_build_response(response, sizeof(response), &g_info);
+    /* Handle \secure\ challenge from master server */
+    if (bc_gamespy_is_secure(data, len)) {
+        char challenge[64];
+        int clen = bc_gamespy_extract_secure(data, len,
+                                              challenge, sizeof(challenge));
+        if (clen > 0) {
+            u8 response[512];
+            int resp_len = bc_gamespy_build_validate(
+                response, sizeof(response), challenge);
+            if (resp_len > 0) {
+                bc_socket_send(sock, from, response, resp_len);
+                LOG_INFO("gamespy", "Sent validate to %s (challenge: %s)",
+                         addr_str, challenge);
+            }
+        }
+        return;
+    }
+
+    /* Regular GameSpy query -- respond with server info */
+    u8 response[1024];
+    int resp_len = bc_gamespy_build_response(response, sizeof(response),
+                                             &g_info, data, len);
     if (resp_len > 0) {
-        bc_socket_send(&g_socket, from, response, resp_len);
+        int sent = bc_socket_send(sock, from, response, resp_len);
+        LOG_DEBUG("gamespy", "Response to %s (%d bytes, sent=%d): %.*s",
+                  addr_str, resp_len, sent, resp_len, (const char *)response);
     }
 }
 
@@ -804,15 +830,35 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* Open LAN query socket on port 6500 (GameSpy standard).
+     * BC clients broadcast queries here for LAN server discovery.
+     * Non-fatal if port is in use (e.g., another server instance). */
+    if (port != BC_GAMESPY_QUERY_PORT) {
+        if (bc_socket_open(&g_query_socket, BC_GAMESPY_QUERY_PORT)) {
+            g_query_socket_open = true;
+            LOG_INFO("init", "LAN query socket open on port %u",
+                     BC_GAMESPY_QUERY_PORT);
+        } else {
+            LOG_WARN("init", "Could not bind LAN query port %u "
+                     "(LAN browser discovery may not work)",
+                     BC_GAMESPY_QUERY_PORT);
+        }
+    }
+
     bc_peers_init(&g_peers);
 
-    /* Server info for GameSpy */
+    /* Server info for GameSpy responses.
+     * Fields must match stock BC QR1 callbacks (basic + info + rules). */
+    memset(&g_info, 0, sizeof(g_info));
     snprintf(g_info.hostname, sizeof(g_info.hostname), "%s", name);
+    snprintf(g_info.missionscript, sizeof(g_info.missionscript), "%s", map);
     snprintf(g_info.mapname, sizeof(g_info.mapname), "%s", map);
-    snprintf(g_info.gametype, sizeof(g_info.gametype), "Deathmatch");
-    g_info.hostport = port;
+    snprintf(g_info.gamemode, sizeof(g_info.gamemode), "openplaying");
+    snprintf(g_info.system, sizeof(g_info.system), "DeepSpace9");
     g_info.numplayers = 0;
     g_info.maxplayers = max_players;
+    g_info.timelimit = g_time_limit > 0 ? g_time_limit : -1;
+    g_info.fraglimit = g_frag_limit > 0 ? g_frag_limit : -1;
 
     /* Master server registration */
     memset(&g_masters, 0, sizeof(g_masters));
@@ -824,7 +870,7 @@ int main(int argc, char **argv)
             bc_master_init_defaults(&g_masters, port);
         }
         if (g_masters.count > 0)
-            bc_master_probe(&g_masters, &g_socket);
+            bc_master_probe(&g_masters, &g_socket, &g_info);
     }
 
     /* Register CTRL+C handler */
@@ -857,17 +903,26 @@ int main(int argc, char **argv)
     u32 tick_counter = 0;
 
     while (g_running) {
-        /* Receive all pending packets */
+        /* Receive all pending packets on game port */
         bc_addr_t from;
         int received;
         while ((received = bc_socket_recv(&g_socket, &from,
                                            recv_buf, sizeof(recv_buf))) > 0) {
             if (bc_gamespy_is_query(recv_buf, received)) {
-                if (bc_master_is_from_master(&g_masters, &from))
-                    continue;  /* Master server response, not a LAN query */
-                handle_gamespy(&from, recv_buf, received);
+                handle_gamespy(&g_socket, &from, recv_buf, received);
             } else {
                 handle_packet(&from, recv_buf, received);
+            }
+        }
+
+        /* Receive all pending packets on LAN query port (6500) */
+        if (g_query_socket_open) {
+            while ((received = bc_socket_recv(&g_query_socket, &from,
+                                               recv_buf, sizeof(recv_buf))) > 0) {
+                if (bc_gamespy_is_query(recv_buf, received)) {
+                    handle_gamespy(&g_query_socket, &from, recv_buf, received);
+                }
+                /* Non-GameSpy packets on port 6500 are ignored */
             }
         }
 
@@ -966,6 +1021,8 @@ int main(int argc, char **argv)
     }
 
     bc_master_shutdown(&g_masters, &g_socket);
+    if (g_query_socket_open)
+        bc_socket_close(&g_query_socket);
     bc_socket_close(&g_socket);
     bc_net_shutdown();
     bc_log_shutdown();

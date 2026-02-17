@@ -127,7 +127,8 @@ int bc_master_init_defaults(bc_master_list_t *ml, u16 game_port)
     return ml->count;
 }
 
-void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock)
+void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
+                     const bc_server_info_t *info)
 {
     if (ml->count == 0) return;
 
@@ -140,9 +141,18 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock)
         ml->entries[i].last_beat = GetTickCount();
     }
 
-    /* Poll for responses up to the probe timeout */
+    /* Poll for responses up to the probe timeout.
+     *
+     * Master server handshake (QR1 protocol):
+     *   1. We send:   \heartbeat\<port>\gamename\bcommander\
+     *   2. Master sends: \secure\<challenge>
+     *   3. We respond: \gamename\bcommander\...\validate\<hash>\final\...
+     *   4. Master registers us (may also send \status\ queries)
+     *
+     * A master is "registered" when it responds to our heartbeat with
+     * a \secure\ challenge and we successfully reply. */
     u32 start = GetTickCount();
-    int verified = 0;
+    int registered = 0;
 
     while (GetTickCount() - start < BC_MASTER_PROBE_TIMEOUT_MS) {
         u8 recv_buf[2048];
@@ -151,35 +161,85 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock)
 
         while ((received = bc_socket_recv(sock, &from,
                                            recv_buf, sizeof(recv_buf))) > 0) {
-            /* Check if this response is from a known master */
+            /* Find which master this response is from */
+            int master_idx = -1;
             for (int i = 0; i < ml->count; i++) {
                 if (!ml->entries[i].enabled) continue;
-                if (ml->entries[i].verified) continue;
                 if (bc_addr_equal(&ml->entries[i].addr, &from)) {
-                    ml->entries[i].verified = true;
-                    verified++;
-                    LOG_INFO("master", "Master %s: registered",
-                             ml->entries[i].hostname);
+                    master_idx = i;
                     break;
+                }
+            }
+
+            if (master_idx < 0) {
+                /* Not from a known master -- could be a LAN client or
+                 * a master responding from a different port. Respond to
+                 * GameSpy queries regardless. */
+                if (info && bc_gamespy_is_query(recv_buf, received)) {
+                    u8 resp[1024];
+                    int resp_len = bc_gamespy_build_response(
+                        resp, sizeof(resp), info, recv_buf, received);
+                    if (resp_len > 0)
+                        bc_socket_send(sock, &from, resp, resp_len);
+                }
+                continue;
+            }
+
+            /* Handle \secure\ challenge from master */
+            if (info && bc_gamespy_is_secure(recv_buf, received)) {
+                char challenge[64];
+                int clen = bc_gamespy_extract_secure(
+                    recv_buf, received, challenge, sizeof(challenge));
+                if (clen > 0) {
+                    u8 resp[512];
+                    int resp_len = bc_gamespy_build_validate(
+                        resp, sizeof(resp), challenge);
+                    if (resp_len > 0) {
+                        bc_socket_send(sock, &from, resp, resp_len);
+                        if (!ml->entries[master_idx].verified) {
+                            ml->entries[master_idx].verified = true;
+                            registered++;
+                            LOG_INFO("master", "Master %s: registered",
+                                     ml->entries[master_idx].hostname);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            /* Handle regular GameSpy queries (\basic\, \status\) */
+            if (info && bc_gamespy_is_query(recv_buf, received)) {
+                u8 resp[1024];
+                int resp_len = bc_gamespy_build_response(
+                    resp, sizeof(resp), info, recv_buf, received);
+                if (resp_len > 0)
+                    bc_socket_send(sock, &from, resp, resp_len);
+
+                if (!ml->entries[master_idx].verified) {
+                    ml->entries[master_idx].verified = true;
+                    registered++;
+                    LOG_INFO("master", "Master %s: registered",
+                             ml->entries[master_idx].hostname);
                 }
             }
         }
 
-        /* All verified -- no need to keep waiting */
-        if (verified >= ml->count) break;
+        /* All registered -- no need to keep waiting */
+        if (registered >= ml->count) break;
 
         Sleep(10);
     }
 
-    /* Log warnings for unverified masters */
+    /* Log results for each master */
     for (int i = 0; i < ml->count; i++) {
-        if (ml->entries[i].enabled && !ml->entries[i].verified) {
+        if (!ml->entries[i].enabled) continue;
+        if (!ml->entries[i].verified) {
             LOG_WARN("master", "Master %s: no response (will continue heartbeating)",
                      ml->entries[i].hostname);
         }
     }
 
-    LOG_INFO("master", "Master servers: %d/%d verified", verified, ml->count);
+    LOG_INFO("master", "Master servers: %d/%d registered", registered, ml->count);
 }
 
 bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from)

@@ -3,6 +3,7 @@
 
 #include "openbc/types.h"
 #include "openbc/net.h"
+#include "openbc/gamespy.h"
 
 /*
  * Master server heartbeat -- registers with GameSpy-compatible master
@@ -40,8 +41,10 @@ int bc_master_init_defaults(bc_master_list_t *ml, u16 game_port);
 /* Add a single master server by "host:port". Returns true if DNS resolved. */
 bool bc_master_add(bc_master_list_t *ml, const char *host_port, u16 game_port);
 
-/* Startup probe: heartbeat all masters, wait for responses, log results. */
-void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock);
+/* Startup probe: heartbeat all masters, wait for responses, log results.
+ * If info is non-NULL, responds to GameSpy queries received during probe. */
+void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
+                     const bc_server_info_t *info);
 
 /* Check if a packet came from a known master address. */
 bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from);

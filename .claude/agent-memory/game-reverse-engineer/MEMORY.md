@@ -10,6 +10,7 @@
 - [reversed-functions.md](reversed-functions.md) - Catalogue of reversed function signatures
 - [data-structures.md](data-structures.md) - Recovered data structure layouts
 - [gameplay-relay-analysis.md](gameplay-relay-analysis.md) - Full gameplay relay analysis for playable dedicated server
+- [gamespy-server-discovery.md](gamespy-server-discovery.md) - Complete GameSpy LAN + Internet server discovery analysis
 
 ## Key Patterns Discovered
 - Ghidra labels (LAB_xxx) are handler callback addresses registered via FUN_006da130/FUN_006db380
@@ -17,6 +18,11 @@
 - The ReceiveMessageHandler at 0x0069f2a0 is a label inside FUN_0069e590, not a separate function
 - Event types: 0x60001=network msg, 0x60002=host start, 0x60003=disconnect, 0x60004=new player, 0x60005=delete player
 - GameSpy query handler (FUN_006ac1e0) uses qr_t SDK with callback function pointers at offsets 0x32-0x35
+- GameSpy object (0xF4 bytes): +0xDC=qr_t (server QR1), +0xE0=server_browser_t (client browser)
+- LAN discovery: client broadcasts `\status\` to 255.255.255.255 ports 22101-22201 (101 ports, step 1)
+- Internet discovery: client TCP connects to master at port 28900, gets IP:port list, then UDP queries each
+- Master server: stbridgecmnd01.activision.com (overridable via masterserver.txt), gamename="bcommander", secret="Nm3aZ9"
+- Server-side QR1 shares game socket (qr_t[0] == WSN+0x194), client-side LAN creates separate broadcast socket with SO_BROADCAST
 - Peer structure stride: entries in peer array at WSN+0x2C, indexed by binary search on peer+0x18 (peer ID)
 - Player slot array: MultiplayerGame+0x74, stride 0x18, 16 slots max
 - Three send queues per peer: unreliable (+0x64/+0x7C), reliable (+0x80/+0x98), priority reliable (+0x9C/+0xB4)
