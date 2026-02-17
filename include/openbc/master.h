@@ -5,38 +5,51 @@
 #include "openbc/net.h"
 
 /*
- * Master server heartbeat -- registers with a GameSpy-compatible master
- * server for internet play discovery.
+ * Master server heartbeat -- registers with GameSpy-compatible master
+ * servers for internet play discovery.
  *
  * Heartbeat format: \heartbeat\<port>\gamename\bcommander\
  * Shutdown format:  \heartbeat\<port>\gamename\bcommander\final\
  *
- * Sent via UDP to the master server at a configurable interval (default 60s).
- * The master server tracks active game servers and responds to GameSpy
- * browser queries with server lists.
+ * Supports multiple master servers (333networks affiliates, OpenSpy, etc.).
+ * At startup, probes all masters and reports which responded.
+ * Continues heartbeating all enabled masters regardless of probe result.
  */
 
+#define BC_MAX_MASTERS              16
 #define BC_MASTER_HEARTBEAT_INTERVAL 60000  /* 60 seconds */
+#define BC_MASTER_PROBE_TIMEOUT_MS   3000   /* 3 second startup probe window */
 
 typedef struct {
-    bc_addr_t addr;         /* Master server address (resolved at init) */
-    u16       game_port;    /* Local game port to advertise */
-    u32       last_beat;    /* Timestamp of last heartbeat sent */
-    bool      enabled;      /* Heartbeat active */
-    bool      resolved;     /* DNS resolution succeeded */
-} bc_master_t;
+    bc_addr_t addr;              /* Resolved IP:port */
+    char      hostname[128];     /* Original "host:port" for logging */
+    u32       last_beat;         /* Timestamp of last heartbeat sent */
+    bool      enabled;           /* DNS resolved, active */
+    bool      verified;          /* Got response during startup probe */
+} bc_master_entry_t;
 
-/* Initialize the master server connection.
- * host_port is e.g. "master.gamespy.com:27900" or "192.168.1.100:27900".
- * game_port is the local game port being advertised.
- * Returns true if DNS resolution succeeded. */
-bool bc_master_init(bc_master_t *ms, const char *host_port, u16 game_port);
+typedef struct {
+    bc_master_entry_t entries[BC_MAX_MASTERS];
+    int  count;
+    u16  game_port;              /* Local port to advertise */
+} bc_master_list_t;
 
-/* Send a periodic heartbeat if the interval has elapsed.
- * Call this from the main loop every tick. */
-void bc_master_tick(bc_master_t *ms, bc_socket_t *sock, u32 now_ms);
+/* Initialize with default master servers. Returns count of resolved entries. */
+int bc_master_init_defaults(bc_master_list_t *ml, u16 game_port);
 
-/* Send a final heartbeat (server shutting down). */
-void bc_master_shutdown(bc_master_t *ms, bc_socket_t *sock);
+/* Add a single master server by "host:port". Returns true if DNS resolved. */
+bool bc_master_add(bc_master_list_t *ml, const char *host_port, u16 game_port);
+
+/* Startup probe: heartbeat all masters, wait for responses, log results. */
+void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock);
+
+/* Check if a packet came from a known master address. */
+bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from);
+
+/* Periodic tick: heartbeat all enabled masters if interval elapsed. */
+void bc_master_tick(bc_master_list_t *ml, bc_socket_t *sock, u32 now_ms);
+
+/* Shutdown: send final heartbeat to all. */
+void bc_master_shutdown(bc_master_list_t *ml, bc_socket_t *sock);
 
 #endif /* OPENBC_MASTER_H */

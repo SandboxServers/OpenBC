@@ -41,8 +41,8 @@ static bc_manifest_t g_manifest;
 static bool          g_manifest_loaded = false;
 static bool          g_no_checksum = false;  /* auto-set when no manifest */
 
-/* Master server */
-static bc_master_t   g_master;
+/* Master servers */
+static bc_master_list_t g_masters;
 
 /* --- Signal handler --- */
 
@@ -677,7 +677,8 @@ static void usage(const char *prog)
         "  --friendly-fire    Enable friendly fire\n"
         "  --no-friendly-fire Disable friendly fire (default)\n"
         "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
-        "  --master <h:p>     Master server address (e.g. master.gamespy.com:27900)\n"
+        "  --master <h:p>     Master server address (repeatable; replaces defaults)\n"
+        "  --no-master        Disable all master server heartbeating\n"
         "  --log-level <lvl>  Log verbosity: quiet|error|warn|info|debug|trace (default: info)\n"
         "  --log-file <path>  Also write log to file (append mode)\n"
         "  -q                 Shorthand for --log-level quiet\n"
@@ -707,7 +708,9 @@ int main(int argc, char **argv)
     const char *map = "Multiplayer.Episode.Mission1.Mission1";
     int max_players = BC_MAX_PLAYERS;
     const char *manifest_path = NULL;
-    const char *master_addr = NULL;
+    const char *user_masters[BC_MAX_MASTERS];
+    int user_master_count = 0;
+    bool no_master = false;
     bc_log_level_t log_level = LOG_INFO;
     const char *log_file_path = NULL;
 
@@ -742,7 +745,10 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--no-friendly-fire") == 0) {
             g_friendly_fire = false;
         } else if (strcmp(argv[i], "--master") == 0 && i + 1 < argc) {
-            master_addr = argv[++i];
+            if (user_master_count < BC_MAX_MASTERS)
+                user_masters[user_master_count++] = argv[++i];
+        } else if (strcmp(argv[i], "--no-master") == 0) {
+            no_master = true;
         } else if (strcmp(argv[i], "--log-level") == 0 && i + 1 < argc) {
             log_level = parse_log_level(argv[++i]);
         } else if (strcmp(argv[i], "--log-file") == 0 && i + 1 < argc) {
@@ -809,10 +815,16 @@ int main(int argc, char **argv)
     g_info.maxplayers = max_players;
 
     /* Master server registration */
-    if (master_addr) {
-        if (!bc_master_init(&g_master, master_addr, port)) {
-            LOG_WARN("init", "Master server registration failed");
+    memset(&g_masters, 0, sizeof(g_masters));
+    if (!no_master) {
+        if (user_master_count > 0) {
+            for (int i = 0; i < user_master_count; i++)
+                bc_master_add(&g_masters, user_masters[i], port);
+        } else {
+            bc_master_init_defaults(&g_masters, port);
         }
+        if (g_masters.count > 0)
+            bc_master_probe(&g_masters, &g_socket);
     }
 
     /* Register CTRL+C handler */
@@ -830,8 +842,12 @@ int main(int argc, char **argv)
     } else {
         printf("Checksum validation: off (no manifest, permissive mode)\n");
     }
-    if (g_master.enabled) {
-        printf("Master server: heartbeat enabled\n");
+    if (g_masters.count > 0) {
+        int verified = 0;
+        for (int i = 0; i < g_masters.count; i++)
+            if (g_masters.entries[i].verified) verified++;
+        printf("Master servers: %d registered, %d total\n",
+               verified, g_masters.count);
     }
     printf("Press Ctrl+C to stop.\n\n");
 
@@ -847,6 +863,8 @@ int main(int argc, char **argv)
         while ((received = bc_socket_recv(&g_socket, &from,
                                            recv_buf, sizeof(recv_buf))) > 0) {
             if (bc_gamespy_is_query(recv_buf, received)) {
+                if (bc_master_is_from_master(&g_masters, &from))
+                    continue;  /* Master server response, not a LAN query */
                 handle_gamespy(&from, recv_buf, received);
             } else {
                 handle_packet(&from, recv_buf, received);
@@ -902,7 +920,7 @@ int main(int argc, char **argv)
                 }
 
                 /* Master server heartbeat */
-                bc_master_tick(&g_master, &g_socket, now);
+                bc_master_tick(&g_masters, &g_socket, now);
             }
 
             /* Every 10 ticks (~1 second): send keepalive to all active peers */
@@ -947,7 +965,7 @@ int main(int argc, char **argv)
         }
     }
 
-    bc_master_shutdown(&g_master, &g_socket);
+    bc_master_shutdown(&g_masters, &g_socket);
     bc_socket_close(&g_socket);
     bc_net_shutdown();
     bc_log_shutdown();
