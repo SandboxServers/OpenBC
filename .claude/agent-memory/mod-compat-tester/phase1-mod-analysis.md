@@ -286,7 +286,7 @@ The checksum system is critical for mod compatibility:
 - Foundation Technologies modifies scripts OUTSIDE Custom/ and thus affects checksums
 - OpenBC Phase 1 must implement the checksum exchange protocol to support mixed mod states
 
-**For OpenBC dedicated server:** We can optionally skip checksum verification (the original game has a SkipChecksum flag at `DAT_0097f94c`), allowing any client to connect regardless of script differences. This is a common community request.
+**For OpenBC dedicated server:** We can optionally skip checksum verification (the original game has a SkipChecksum flag), allowing any client to connect regardless of script differences. This is a common community request.
 
 ### 6. The Dedicated Server Pattern (from STBC-Dedicated-Server)
 

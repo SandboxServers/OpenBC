@@ -66,11 +66,34 @@ static bc_game_registry_t g_registry;
 static bool               g_registry_loaded = false;
 static bc_torpedo_mgr_t   g_torpedoes;
 
+/* System lookup table: index 1-9 maps to SpeciesToSystem key + display name.
+ * Keys come from Multiplayer/SpeciesToSystem.py (clean room doc Section 4.2).
+ * Display names come from the BC multiplayer system selector (observable).
+ * Multi1 = Asteroids confirmed.  Other mappings are alphabetical best-guess
+ * and may need correction from live testing. */
+static const struct {
+    const char *key;    /* System key: "Multi1", "Multi2", etc. (used in mapname) */
+    const char *name;   /* Display name: "Asteroids", etc. (used in system field) */
+} g_system_table[] = {
+    [0] = { NULL,       NULL },            /* unused (1-based indexing) */
+    [1] = { "Multi1",   "Asteroids" },     /* confirmed */
+    [2] = { "Multi2",   "Cloudy" },
+    [3] = { "Multi3",   "Planetorama" },
+    [4] = { "Multi4",   "Showers" },
+    [5] = { "Multi5",   "Space" },
+    [6] = { "Multi6",   "StarSystem" },
+    [7] = { "Multi7",   "Sunny" },
+    [8] = { "Albirea",  "Albirea" },       /* campaign map */
+    [9] = { "Poseidon", "Poseidon" },      /* campaign map */
+};
+#define SYSTEM_TABLE_SIZE 10
+
 /* Game settings */
 static bool        g_collision_dmg = true;
 static bool        g_friendly_fire = false;
 static const char *g_map_name = "Multiplayer.Episode.Mission1.Mission1";
 static int         g_system_index = 1;   /* Star system 1-9 (SpeciesToSystem) */
+static int         g_max_players = BC_MAX_PLAYERS;  /* Total slots incl. dedi */
 static int         g_time_limit = -1;    /* Minutes, -1 = no limit */
 static int         g_frag_limit = -1;    /* Kills, -1 = no limit */
 static f32         g_game_time = 0.0f;
@@ -113,6 +136,18 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     LOG_DEBUG("gamespy", "Query from %s: %.*s", addr_str, len, (const char *)data);
 
     g_info.numplayers = g_peers.count > 0 ? g_peers.count - 1 : 0; /* exclude dedi slot */
+
+    /* Rebuild player list: player_0 = "Dedicated Server" (always),
+     * then one entry per connected human player. */
+    g_info.player_count = 1;  /* slot 0 = dedi, already set at init */
+    for (int i = 1; i < BC_MAX_PLAYERS && g_info.player_count < 8; i++) {
+        if (g_peers.peers[i].state != PEER_EMPTY) {
+            snprintf(g_info.player_names[g_info.player_count],
+                     sizeof(g_info.player_names[0]),
+                     "%s", g_peers.peers[i].name);
+            g_info.player_count++;
+        }
+    }
 
     /* Handle \secure\ challenge from master server */
     if (bc_gamespy_is_secure(data, len)) {
@@ -289,28 +324,27 @@ static void send_settings_and_gameinit(int peer_slot)
 
     /* --- Late-join data: existing ships, scores, DeletePlayerUI --- */
 
-    /* Send Score (0x37) with all players' current scores.
-     * Scores are indexed by game_slot (peer_slot - 1). */
+    /* Send Score (0x37) for each active player -- stock format sends one
+     * message per player: [0x37][player_id:i32][kills:i32][deaths:i32][score:i32] */
     {
-        i32 scores[BC_MAX_PLAYERS];
-        int score_count = 0;
+        int sent = 0;
         for (int i = 1; i < BC_MAX_PLAYERS; i++) {
             if (g_peers.peers[i].state >= PEER_LOBBY) {
-                scores[i - 1] = g_peers.peers[i].score;
-                if (i >= score_count + 1) score_count = i;
-            } else {
-                scores[i - 1] = 0;
+                u8 score_buf[32];
+                int slen = bc_build_score(score_buf, sizeof(score_buf),
+                                           g_peers.peers[i].ship.object_id,
+                                           g_peers.peers[i].kills,
+                                           g_peers.peers[i].deaths,
+                                           g_peers.peers[i].score);
+                if (slen > 0) {
+                    queue_reliable(peer_slot, score_buf, slen);
+                    sent++;
+                }
             }
         }
-        if (score_count > 0) {
-            u8 score_buf[128];
-            int slen = bc_build_score(score_buf, sizeof(score_buf),
-                                       scores, score_count);
-            if (slen > 0) {
-                queue_reliable(peer_slot, score_buf, slen);
-                LOG_DEBUG("handshake", "slot=%d sending Score (%d players)",
-                          peer_slot, score_count);
-            }
+        if (sent > 0) {
+            LOG_DEBUG("handshake", "slot=%d sending Score for %d players",
+                      peer_slot, sent);
         }
     }
 
@@ -373,7 +407,11 @@ static void handle_peer_disconnect(int slot)
 
         /* 1. DestroyObject (0x14) -- remove ship from game world */
         if (g_peers.peers[slot].spawn_len > 0) {
-            i32 ship_id = bc_make_ship_id(slot);
+            i32 ship_id = g_peers.peers[slot].object_id;
+            if (ship_id < 0) {
+                /* Fallback: compute from game_slot */
+                ship_id = bc_make_ship_id(slot > 0 ? slot - 1 : 0);
+            }
             len = bc_build_destroy_obj(payload, sizeof(payload), ship_id);
             if (len > 0) relay_to_others(slot, payload, len, true);
         }
@@ -565,7 +603,7 @@ static void handle_checksum_response(int peer_slot,
         send_checksum_request(peer_slot, peer->checksum_round);
     } else {
         /* All 4 regular rounds passed. Send the final 0xFF round.
-         * Decompiled code (FUN_006a35b0) shows the server sends
+         * The server sends
          * [0x20][0xFF] after rounds 0-3 complete. */
         LOG_DEBUG("handshake", "slot=%d rounds 0-3 passed, sending final round 0xFF",
                   peer_slot);
@@ -590,12 +628,16 @@ static const char *peer_name(int slot)
     return fallback;
 }
 
-/* Resolve an object ID to its owning player's name. */
+/* Resolve an object ID to its owning player's name.
+ * bc_object_id_to_slot() returns game_slot (0-based), but peers[]
+ * uses peer_slot (1-based for humans).  game_slot 0 = peer_slot 1. */
 static const char *object_owner_name(i32 object_id)
 {
-    int slot = bc_object_id_to_slot(object_id);
-    if (slot < 0) return "???";
-    return peer_name(slot);
+    int game_slot = bc_object_id_to_slot(object_id);
+    if (game_slot < 0) return "???";
+    int peer_slot = game_slot + 1;
+    if (peer_slot >= BC_MAX_PLAYERS) return "???";
+    return peer_name(peer_slot);
 }
 
 /* Send a message to ALL peers (including the sender) reliably. */
@@ -610,13 +652,17 @@ static void send_to_all(const u8 *payload, int payload_len, bool reliable)
     }
 }
 
-/* Find the peer that owns an object_id. Returns slot or -1. */
+/* Find the peer that owns an object_id. Returns peer_slot or -1.
+ * bc_object_id_to_slot() returns game_slot (0-based from Settings).
+ * peer_slot = game_slot + 1 because peers[0] is the dedi server. */
 static int find_peer_by_object(i32 object_id)
 {
-    int slot = bc_object_id_to_slot(object_id);
-    if (slot < 0 || slot >= BC_MAX_PLAYERS) return -1;
-    if (!g_peers.peers[slot].has_ship) return -1;
-    return slot;
+    int game_slot = bc_object_id_to_slot(object_id);
+    if (game_slot < 0) return -1;
+    int peer_slot = game_slot + 1;
+    if (peer_slot >= BC_MAX_PLAYERS) return -1;
+    if (!g_peers.peers[peer_slot].has_ship) return -1;
+    return peer_slot;
 }
 
 /* Apply beam damage: compute, send Explosion, check kill. */
@@ -679,14 +725,17 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
         if (dlen > 0) send_to_all(dest, dlen, true);
 
         /* Update scores */
-        u8 killer_game_slot = (u8)(shooter_slot > 0 ? shooter_slot - 1 : 0);
-        u8 victim_game_slot = (u8)(target_slot > 0 ? target_slot - 1 : 0);
         shooter->score++;
+        shooter->kills++;
+        target->deaths++;
 
-        u8 sc[16];
+        u8 sc[64];
         int slen = bc_build_score_change(sc, sizeof(sc),
-                                          killer_game_slot, victim_game_slot,
-                                          shooter->score);
+                                          shooter->ship.object_id,
+                                          shooter->kills, shooter->score,
+                                          target->ship.object_id,
+                                          target->deaths,
+                                          NULL, 0);
         if (slen > 0) send_to_all(sc, slen, true);
 
         /* Clear victim ship state */
@@ -695,8 +744,8 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
 
         /* Check frag limit */
         if (g_frag_limit > 0 && shooter->score >= g_frag_limit) {
-            u8 eg[4];
-            int eglen = bc_build_end_game(eg, sizeof(eg), killer_game_slot);
+            u8 eg[8];
+            int eglen = bc_build_end_game(eg, sizeof(eg), BC_END_REASON_FRAG_LIMIT);
             if (eglen > 0) send_to_all(eg, eglen, true);
             LOG_INFO("game", "Frag limit reached by %s (%d kills)",
                      peer_name(shooter_slot), shooter->score);
@@ -752,22 +801,25 @@ static void torpedo_hit_callback(int shooter_slot, i32 target_id,
                                          target->ship.object_id);
         if (dlen > 0) send_to_all(dest, dlen, true);
 
-        u8 killer_game_slot = (u8)(shooter_slot > 0 ? shooter_slot - 1 : 0);
-        u8 victim_game_slot = (u8)(target_slot > 0 ? target_slot - 1 : 0);
         shooter->score++;
+        shooter->kills++;
+        target->deaths++;
 
-        u8 sc[16];
+        u8 sc[64];
         int slen = bc_build_score_change(sc, sizeof(sc),
-                                          killer_game_slot, victim_game_slot,
-                                          shooter->score);
+                                          shooter->ship.object_id,
+                                          shooter->kills, shooter->score,
+                                          target->ship.object_id,
+                                          target->deaths,
+                                          NULL, 0);
         if (slen > 0) send_to_all(sc, slen, true);
 
         target->has_ship = false;
         target->spawn_len = 0;
 
         if (g_frag_limit > 0 && shooter->score >= g_frag_limit) {
-            u8 eg[4];
-            int eglen = bc_build_end_game(eg, sizeof(eg), killer_game_slot);
+            u8 eg[8];
+            int eglen = bc_build_end_game(eg, sizeof(eg), BC_END_REASON_FRAG_LIMIT);
             if (eglen > 0) send_to_all(eg, eglen, true);
         }
     }
@@ -783,26 +835,6 @@ static bool torpedo_target_pos(i32 target_id, bc_vec3_t *out_pos,
     if (!g_peers.peers[slot].has_ship || !g_peers.peers[slot].ship.alive)
         return false;
     *out_pos = g_peers.peers[slot].ship.pos;
-    return true;
-}
-
-/* Anti-cheat: check fire rate for a weapon.
- * Returns true if fire is allowed, false if rate-limited. */
-static bool check_fire_rate(bc_peer_t *peer, u32 *last_fire, f32 min_interval_s)
-{
-    u32 now = GetTickCount();
-    u32 min_interval_ms = (u32)(min_interval_s * 800.0f); /* 0.8x = 20% tolerance */
-
-    if (*last_fire > 0 && (now - *last_fire) < min_interval_ms) {
-        /* Violation */
-        if (now - peer->violation_window_start > 30000) {
-            peer->fire_violations = 0;
-            peer->violation_window_start = now;
-        }
-        peer->fire_violations++;
-        return false;
-    }
-    *last_fire = now;
     return true;
 }
 
@@ -890,6 +922,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     case BC_OP_SUBSYS_STATUS:
     case BC_OP_ADD_REPAIR_LIST:
     case BC_OP_CLIENT_EVENT:
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+
     case BC_OP_START_CLOAK:
         if (g_registry_loaded && peer->has_ship) {
             const bc_ship_class_t *cls =
@@ -968,31 +1003,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 break;
             }
 
-            /* Anti-cheat: fire rate limiting (per tube) */
-            if (cls) {
-                int tube_idx = 0; /* use first tube as reference */
-                f32 min_interval = 2.0f; /* default torpedo reload */
-                for (int si = 0; si < cls->subsystem_count; si++) {
-                    if (strcmp(cls->subsystems[si].type, "torpedo_tube") == 0) {
-                        min_interval = cls->subsystems[si].reload_delay;
-                        break;
-                    }
-                }
-                if (tube_idx < BC_MAX_TORPEDO_TUBES &&
-                    !check_fire_rate(peer, &peer->last_torpedo_time[tube_idx],
-                                     min_interval)) {
-                    LOG_WARN("cheat", "slot=%d torpedo fire rate exceeded", peer_slot);
-                    if (peer->fire_violations >= 5) {
-                        LOG_WARN("cheat", "slot=%d booted: excessive rapid fire", peer_slot);
-                        u8 boot[4];
-                        int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
-                        if (blen > 0) queue_reliable(peer_slot, boot, blen);
-                        handle_peer_disconnect(peer_slot);
-                        return;
-                    }
-                    break;
-                }
-            }
+            /* TODO: fire rate limiting -- disabled pending proper tuning.
+             * Sovereign torpedoes fire every ~0.5s which tripped the old 2.0s limit. */
         }
 
         /* Relay torpedo visual to all others */
@@ -1046,32 +1058,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 break;
             }
 
-            /* Anti-cheat: fire rate limiting */
-            if (cls) {
-                f32 min_interval = 0.5f; /* default phaser recharge ~0.5s */
-                for (int si = 0; si < cls->subsystem_count; si++) {
-                    const bc_subsystem_def_t *ss = &cls->subsystems[si];
-                    if (strcmp(ss->type, "phaser") == 0 ||
-                        strcmp(ss->type, "pulse_weapon") == 0) {
-                        if (ss->recharge_rate > 0.0f) {
-                            min_interval = ss->max_charge / ss->recharge_rate;
-                        }
-                        break;
-                    }
-                }
-                if (!check_fire_rate(peer, &peer->last_fire_time[0], min_interval)) {
-                    LOG_WARN("cheat", "slot=%d beam fire rate exceeded", peer_slot);
-                    if (peer->fire_violations >= 5) {
-                        LOG_WARN("cheat", "slot=%d booted: excessive rapid fire", peer_slot);
-                        u8 boot[4];
-                        int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
-                        if (blen > 0) queue_reliable(peer_slot, boot, blen);
-                        handle_peer_disconnect(peer_slot);
-                        return;
-                    }
-                    break;
-                }
-            }
+            /* TODO: beam fire rate limiting -- disabled pending proper tuning. */
 
             /* Anti-cheat: range plausibility */
             if (ev.has_target && cls) {
@@ -1152,30 +1139,16 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 }
                 if (su.dirty & 0x10) {
                     peer->ship.speed = su.speed;
-                    /* Speed validation: clamp to max */
-                    const bc_ship_class_t *cls =
-                        bc_registry_get_ship(&g_registry, peer->class_index);
-                    if (cls && peer->ship.speed > cls->max_speed * 1.1f) {
-                        LOG_WARN("cheat", "slot=%d speed %.1f > max %.1f, clamped",
-                                 peer_slot, peer->ship.speed, cls->max_speed);
-                        peer->ship.speed = cls->max_speed;
-                    }
                 }
 
-                /* Strip server-authoritative flags (0x20 subsystem, 0x80 weapon) */
-                if (su.dirty & (0x20 | 0x80)) {
-                    /* Rebuild with stripped dirty flags.
-                     * For simplicity, only strip if ONLY 0x20/0x80 are set.
-                     * If mixed with movement flags, relay the original
-                     * (client shouldn't mix these, but be safe). */
-                    u8 client_flags = su.dirty & ~(u8)(0x20 | 0x80);
-                    if (client_flags == 0) {
-                        /* Entirely server-authoritative data, drop entirely */
-                        LOG_DEBUG("cheat", "slot=%d StateUpdate 0x%02X suppressed",
-                                  peer_slot, su.dirty);
-                        break;
-                    }
-                    /* Mixed flags -- relay as-is (rare edge case) */
+                /* Strip server-authoritative flag 0x20 (subsystem health).
+                 * 0x80 (weapon state) is CLIENT-authoritative and must be relayed.
+                 * Verified: client always sends 0x80, server always sends 0x20. */
+                if (su.dirty == 0x20) {
+                    /* Pure subsystem health update -- server-authoritative, drop */
+                    LOG_DEBUG("cheat", "slot=%d StateUpdate 0x20 suppressed",
+                              peer_slot);
+                    break;
                 }
             }
         }
@@ -1203,6 +1176,12 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         if (payload_len <= (int)sizeof(peer->spawn_payload)) {
             memcpy(peer->spawn_payload, payload, (size_t)payload_len);
             peer->spawn_len = payload_len;
+        }
+
+        /* Always set object_id from known game_slot (deterministic) */
+        {
+            int game_slot = peer_slot > 0 ? peer_slot - 1 : 0;
+            peer->object_id = bc_make_ship_id(game_slot);
         }
 
         /* Initialize server-side ship state from the ship blob */
@@ -1270,7 +1249,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
          * to load and what the match rules are. */
         u8 mi[32];
         int mi_len = bc_mission_init_build(mi, sizeof(mi),
-                                            g_system_index, g_info.maxplayers,
+                                            g_system_index, g_max_players,
                                             g_time_limit, g_frag_limit);
         if (mi_len > 0) {
             LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
@@ -1286,88 +1265,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         LOG_DEBUG("game", "slot=%d host message len=%d", peer_slot, payload_len);
         break;
 
-    /* --- Collision effect: server computes damage when authoritative --- */
+    /* --- Collision effect: relay to others, server tracks damage for
+     * player-vs-player collisions when authoritative.
+     * Clients apply their own collision damage locally; the CollisionEffect
+     * message is a report that must be relayed for other clients to see. */
     case BC_OP_COLLISION_EFFECT: {
         LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
-        if (g_registry_loaded && g_collision_dmg) {
-            /* Parse: [0x15][obj1:i32][obj2:i32][impact_data...]
-             * Apply collision damage to both ships based on mass * relative speed. */
-            if (payload_len >= 9) {
-                bc_buffer_t cbuf;
-                bc_buf_init(&cbuf, (u8 *)payload, (size_t)payload_len);
-                u8 cop;
-                i32 obj1, obj2;
-                bc_buf_read_u8(&cbuf, &cop);
-                if (bc_buf_read_i32(&cbuf, &obj1) && bc_buf_read_i32(&cbuf, &obj2)) {
-                    int s1 = find_peer_by_object(obj1);
-                    int s2 = find_peer_by_object(obj2);
-                    if (s1 >= 0 && s2 >= 0) {
-                        bc_peer_t *p1 = &g_peers.peers[s1];
-                        bc_peer_t *p2 = &g_peers.peers[s2];
-                        const bc_ship_class_t *c1 =
-                            bc_registry_get_ship(&g_registry, p1->class_index);
-                        const bc_ship_class_t *c2 =
-                            bc_registry_get_ship(&g_registry, p2->class_index);
-                        if (c1 && c2 && p1->ship.alive && p2->ship.alive) {
-                            f32 rel_speed = fabsf(p1->ship.speed - p2->ship.speed);
-                            if (rel_speed < 1.0f) rel_speed = 1.0f;
-                            f32 dmg1 = c2->mass * rel_speed * 0.001f;
-                            f32 dmg2 = c1->mass * rel_speed * 0.001f;
-
-                            bc_vec3_t dir12 = bc_vec3_normalize(
-                                bc_vec3_sub(p2->ship.pos, p1->ship.pos));
-                            bc_vec3_t dir21 = bc_vec3_scale(dir12, -1.0f);
-
-                            bc_combat_apply_damage(&p1->ship, c1, dmg1, dir21);
-                            bc_combat_apply_damage(&p2->ship, c2, dmg2, dir12);
-
-                            /* Send explosions */
-                            u8 expl[32];
-                            int elen;
-                            elen = bc_build_explosion(expl, sizeof(expl),
-                                                       p1->ship.object_id,
-                                                       dir21.x, dir21.y, dir21.z,
-                                                       dmg1, 1.0f);
-                            if (elen > 0) send_to_all(expl, elen, true);
-                            elen = bc_build_explosion(expl, sizeof(expl),
-                                                       p2->ship.object_id,
-                                                       dir12.x, dir12.y, dir12.z,
-                                                       dmg2, 1.0f);
-                            if (elen > 0) send_to_all(expl, elen, true);
-
-                            LOG_INFO("combat", "Collision: %s (%.1f dmg) <-> %s (%.1f dmg)",
-                                     peer_name(s1), dmg1, peer_name(s2), dmg2);
-
-                            /* Check kills (collision can kill both!) */
-                            /* Note: no score awarded for collision kills */
-                            if (!p1->ship.alive) {
-                                u8 dest[8];
-                                int dlen = bc_build_destroy_obj(dest, sizeof(dest),
-                                                                 p1->ship.object_id);
-                                if (dlen > 0) send_to_all(dest, dlen, true);
-                                p1->has_ship = false;
-                                p1->spawn_len = 0;
-                                LOG_INFO("combat", "%s destroyed in collision",
-                                         peer_name(s1));
-                            }
-                            if (!p2->ship.alive) {
-                                u8 dest[8];
-                                int dlen = bc_build_destroy_obj(dest, sizeof(dest),
-                                                                 p2->ship.object_id);
-                                if (dlen > 0) send_to_all(dest, dlen, true);
-                                p2->has_ship = false;
-                                p2->spawn_len = 0;
-                                LOG_INFO("combat", "%s destroyed in collision",
-                                         peer_name(s2));
-                            }
-                        }
-                    }
-                }
-            }
-            /* Do NOT relay client's CollisionEffect -- server generated its own damage */
-        } else {
-            relay_to_others(peer_slot, payload, payload_len, true);
-        }
+        /* Always relay -- clients need this for local collision processing */
+        relay_to_others(peer_slot, payload, payload_len, true);
         break;
     }
 
@@ -1734,7 +1639,7 @@ int main(int argc, char **argv)
     const char *map = "Multiplayer.Episode.Mission1.Mission1";
     int max_players = BC_MAX_PLAYERS;
     const char *manifest_path = NULL;
-    const char *data_path = "data/vanilla-1.1.json";
+    const char *data_path = NULL;
     const char *user_masters[BC_MAX_MASTERS];
     int user_master_count = 0;
     bool no_master = false;
@@ -1799,6 +1704,7 @@ int main(int argc, char **argv)
 
     /* Apply parsed settings to globals */
     g_map_name = map;
+    g_max_players = max_players;
 
     /* Generate default log file name if none specified and not disabled.
      * Format: openbc-YYYYMMDD-HHMMSS.log (one file per session). */
@@ -1863,9 +1769,33 @@ int main(int argc, char **argv)
         g_no_checksum = true;
     }
 
-    /* Load ship data registry for server-authoritative damage */
+    /* Load ship data registry for server-authoritative damage.
+     * If --data was given, use that path.  Otherwise, scan data/
+     * for .json files -- if exactly one exists, auto-load it. */
     memset(&g_registry, 0, sizeof(g_registry));
     bc_torpedo_mgr_init(&g_torpedoes);
+    if (!data_path) {
+        WIN32_FIND_DATAA dfd;
+        HANDLE dFind = FindFirstFileA("data\\*.json", &dfd);
+        if (dFind != INVALID_HANDLE_VALUE) {
+            static char auto_data[MAX_PATH];
+            int data_count = 0;
+            do {
+                if (!(dfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                    if (data_count == 0)
+                        snprintf(auto_data, sizeof(auto_data),
+                                 "data/%s", dfd.cFileName);
+                    data_count++;
+                }
+            } while (FindNextFileA(dFind, &dfd));
+            FindClose(dFind);
+
+            if (data_count == 1) {
+                data_path = auto_data;
+                LOG_INFO("init", "Auto-detected data registry: %s", data_path);
+            }
+        }
+    }
     if (data_path) {
         if (bc_registry_load(&g_registry, data_path)) {
             g_registry_loaded = true;
@@ -1920,17 +1850,32 @@ int main(int argc, char **argv)
     }
 
     /* Server info for GameSpy responses.
-     * Fields must match stock BC QR1 callbacks (basic + info + rules). */
+     * Fields must match stock BC QR1 callbacks (basic + info + rules).
+     * missionscript = game mode (e.g. "DM"), mapname = system key (e.g. "Multi1"),
+     * system = display name (e.g. "Asteroids"), maxplayers excludes dedi slot. */
     memset(&g_info, 0, sizeof(g_info));
     snprintf(g_info.hostname, sizeof(g_info.hostname), "%s", name);
     snprintf(g_info.missionscript, sizeof(g_info.missionscript), "%s", map);
-    snprintf(g_info.mapname, sizeof(g_info.mapname), "%s", map);
+    /* mapname = game mode display (e.g. "DM"), system = system key (e.g. "Multi1").
+     * Verified from stock trace + live client: Type column shows mapname,
+     * Game Info panel shows system. */
+    snprintf(g_info.mapname, sizeof(g_info.mapname), "DM");
+    if (g_system_index >= 1 && g_system_index < SYSTEM_TABLE_SIZE &&
+        g_system_table[g_system_index].key) {
+        snprintf(g_info.system, sizeof(g_info.system), "%s",
+                 g_system_table[g_system_index].key);
+    } else {
+        snprintf(g_info.system, sizeof(g_info.system), "Multi1");
+    }
     snprintf(g_info.gamemode, sizeof(g_info.gamemode), "openplaying");
-    snprintf(g_info.system, sizeof(g_info.system), "DeepSpace9");
     g_info.numplayers = 0;
-    g_info.maxplayers = max_players;
+    g_info.maxplayers = max_players > 1 ? max_players - 1 : 1; /* exclude dedi slot */
     g_info.timelimit = g_time_limit > 0 ? g_time_limit : -1;
     g_info.fraglimit = g_frag_limit > 0 ? g_frag_limit : -1;
+    /* Player list: slot 0 = "Dedicated Server" (always present, not shown in lobby/scoreboard) */
+    snprintf(g_info.player_names[0], sizeof(g_info.player_names[0]),
+             "Dedicated Server");
+    g_info.player_count = 1;
 
     /* Master server registration */
     memset(&g_masters, 0, sizeof(g_masters));
@@ -1950,8 +1895,9 @@ int main(int argc, char **argv)
 
     /* Startup banner (raw printf, not a log message) */
     printf("OpenBC Server v0.1.0\n");
-    printf("Listening on port %u (%d max players)\n", port, max_players);
-    printf("Server name: %s | Map: %s\n", name, map);
+    printf("Listening on port %u (%d max players)\n", port, g_info.maxplayers);
+    printf("Server name: %s | System: %s (%s)\n", name,
+           g_info.system, g_info.mapname);
     printf("Collision damage: %s | Friendly fire: %s\n",
            g_collision_dmg ? "on" : "off",
            g_friendly_fire ? "on" : "off");
@@ -2118,7 +2064,11 @@ int main(int argc, char **argv)
                         &p->ship, cls, g_game_time,
                         p->subsys_rr_idx, batch, hbuf, sizeof(hbuf));
                     if (hlen > 0) {
+                        /* Send to OTHER clients only -- never to the ship owner.
+                         * Stock BC: server sends 0x20 to others, owner manages
+                         * its own health locally. */
                         for (int j = 1; j < BC_MAX_PLAYERS; j++) {
+                            if (j == i) continue;  /* skip owner */
                             if (g_peers.peers[j].state >= PEER_LOBBY)
                                 queue_unreliable(j, hbuf, hlen);
                         }

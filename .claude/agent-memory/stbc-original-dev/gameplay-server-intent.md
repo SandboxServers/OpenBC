@@ -1,7 +1,7 @@
 # Gameplay Server Design Intent Analysis
 
 ## Source Context
-All analysis grounded in decompiled reference scripts at:
+All analysis grounded in reference scripts at:
 - `/mnt/c/users/Steve/source/projects/STBC-Dedicated-Server/reference/scripts/Multiplayer/`
 - `/mnt/c/users/Steve/source/projects/STBC-Dedicated-Server/src/scripts/Custom/DedicatedServer.py`
 - `/mnt/c/users/Steve/source/projects/STBC-Dedicated-Server/docs/multiplayer-flow.md`

@@ -4,7 +4,7 @@
 #include "openbc/types.h"
 
 /*
- * StringHash -- 4-lane Pearson hash (FUN_007202e0)
+ * StringHash -- 4-lane Pearson hash
  *
  * Uses four 256-byte substitution tables to produce a 32-bit hash
  * from a string. Used to match directory names and filenames between
@@ -15,7 +15,7 @@
 u32 string_hash(const char *str);
 
 /*
- * FileHash -- rotate-XOR hash (FUN_006a62f0)
+ * FileHash -- rotate-XOR hash
  *
  * Hashes file contents by XORing each DWORD and rotating left by 1.
  * Deliberately skips DWORD index 1 (bytes 4-7) to ignore .pyc

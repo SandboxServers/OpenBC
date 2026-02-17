@@ -6,7 +6,7 @@
  *
  * Three layers of opcodes:
  *   1. Transport layer (UDP packet framing, reliability)
- *   2. Game layer (C++ opcode handlers, jump table at 0x0069F534)
+ *   2. Game layer (C++ opcode handlers, dispatched by game opcode table)
  *   3. Python message layer (sent via SendTGMessage, received by Python scripts)
  *
  * Reference: docs/phase1-verified-protocol.md
@@ -26,7 +26,7 @@
 
 /* === Game Layer Opcodes ===
  * These are the payload opcode byte inside transport messages.
- * Dispatched by the jump table at 0x0069F534 (28 active entries).
+ * Dispatched by the game opcode table (28 active entries).
  */
 #define BC_OP_SETTINGS             0x00  /* Server settings (game time, collision, etc.) */
 #define BC_OP_GAME_INIT            0x01  /* Game initialization data */
@@ -39,14 +39,14 @@
 #define BC_OP_STOP_FIRING          0x08  /* Weapon stop firing */
 #define BC_OP_STOP_FIRING_AT       0x09  /* Stop firing at specific target */
 #define BC_OP_SUBSYS_STATUS        0x0A  /* Subsystem status update */
-#define BC_OP_ADD_REPAIR_LIST      0x0B  /* Add to crew repair list (event 0x008000DF) */
+#define BC_OP_ADD_REPAIR_LIST      0x0B  /* Add to crew repair list */
 #define BC_OP_CLIENT_EVENT         0x0C  /* Generic event forward (preserve=0) */
 #define BC_OP_PYTHON_EVENT2        0x0D  /* Python event dispatch (variant) */
 #define BC_OP_START_CLOAK          0x0E  /* Start cloaking */
 #define BC_OP_STOP_CLOAK           0x0F  /* Stop cloaking */
 #define BC_OP_START_WARP           0x10  /* Enter warp speed */
-#define BC_OP_REPAIR_PRIORITY      0x11  /* Repair list priority ordering (event 0x008000E1) */
-#define BC_OP_SET_PHASER_LEVEL     0x12  /* Phaser power/intensity setting (event 0x008000E0) */
+#define BC_OP_REPAIR_PRIORITY      0x11  /* Repair list priority ordering */
+#define BC_OP_SET_PHASER_LEVEL     0x12  /* Phaser power/intensity setting */
 #define BC_OP_HOST_MSG             0x13  /* Host-specific message */
 #define BC_OP_DESTROY_OBJ          0x14  /* Destroy object */
 #define BC_OP_COLLISION_EFFECT     0x15  /* Collision damage relay (C->S, host processes) */

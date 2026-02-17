@@ -110,9 +110,18 @@ int bc_gamespy_build_response(u8 *out, int out_size,
 
     if (written < 0 || written >= out_size) return -1;
 
+    /* Append \player_N\ entries (stock order: after rules, before \final\).
+     * Stock trace: \player_0\Dedicated Server\final\ */
+    for (int i = 0; i < info->player_count && i < 8; i++) {
+        int added = snprintf((char *)out + written,
+                              (size_t)(out_size - written),
+                              "\\player_%d\\%s", i, info->player_names[i]);
+        if (added < 0 || written + added >= out_size) return -1;
+        written += added;
+    }
+
     /* Append \final\ THEN \queryid\ (stock QR SDK order).
-     * qr_send_final (0x006ac950) appends \final\, then
-     * qr_flush_send (0x006ac550) appends \queryid\N.M and sends.
+     * The QR response handler appends \final\, then \queryid\N.M and sends.
      * No trailing backslash after queryid. */
     int added = snprintf((char *)out + written,
                           (size_t)(out_size - written), "\\final\\");

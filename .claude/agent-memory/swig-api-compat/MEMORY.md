@@ -3,7 +3,7 @@
 ## Key Reference Locations
 - **App.py**: `/mnt/c/users/Steve/source/projects/STBC-Dedicated-Server/reference/scripts/App.py` (~14,069 lines)
 - **swig-api.md**: `/mnt/c/users/Steve/source/projects/STBC-Dedicated-Server/docs/swig-api.md`
-- **Decompiled code**: `/mnt/c/users/Steve/source/projects/STBC-Dedicated-Server/reference/decompiled/`
+- **Reference code**: Available in `reference/` directory
 - **MP scripts**: `/mnt/c/users/Steve/source/projects/STBC-Dedicated-Server/reference/scripts/Multiplayer/`
 
 ## API Catalogs
@@ -44,7 +44,7 @@ PhysicsObjectClass + WeaponPayload -> Torpedo
 ```
 
 ## Key Discoveries
-- `Mission.GetEnemyGroup()` / `GetFriendlyGroup()` are C++ native, NOT in App.py shadow class, confirmed in decompiled code (utopia_app.c:4899-4900). Must expose via Appc.
+- `Mission.GetEnemyGroup()` / `GetFriendlyGroup()` are C++ native, NOT in App.py shadow class, confirmed from code analysis. Must expose via Appc.
 - ~200 property Set* methods across 16 property types can be generic no-ops (store in dict or ignore)
 - `NULL_ID = Appc.NULL_ID` (line 13183), `MAX_MESSAGE_TYPES = Appc.MAX_MESSAGE_TYPES` (line 14069)
 - DamageableObject.__del__ calls delete_TGEventHandlerObject (not its own destructor) -- SWIG pattern

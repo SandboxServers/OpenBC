@@ -229,7 +229,7 @@ Used by Mission1-5 for tracking enemy/friendly teams.
 #### Mission.GetEnemyGroup / GetFriendlyGroup
 | Function | Classification | Notes |
 |----------|---------------|-------|
-| `Mission_GetEnemyGroup(self)` -> ObjectGroupPtr | MUST IMPLEMENT | C++ native, NOT in App.py shadow, but in Appc. Confirmed in decompiled code. |
+| `Mission_GetEnemyGroup(self)` -> ObjectGroupPtr | MUST IMPLEMENT | C++ native, NOT in App.py shadow, but in Appc. Confirmed from code analysis. |
 | `Mission_GetFriendlyGroup(self)` -> ObjectGroupPtr | MUST IMPLEMENT | Same. Both return ObjectGroup instances managed by Mission. |
 
 ---
@@ -479,7 +479,7 @@ Functions needed for gameplay flow that were not fully enumerated in lobby catal
 | `Mission_GetFriendlyGroup(self)` -> ObjectGroupPtr | MUST IMPLEMENT | C++ native, not in App.py shadow |
 
 These are registered in the Appc module via SWIG but NOT generated as App.py shadow methods (confirmed
-in decompiled code at utopia_app.c line 4899-4900). They must be exposed as Appc functions and made
+from code analysis). They must be exposed as Appc functions and made
 accessible through the Mission shadow class.
 
 #### MultiplayerGame additional methods (already in lobby catalog but now confirmed needed)

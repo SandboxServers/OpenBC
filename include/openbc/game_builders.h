@@ -63,21 +63,36 @@ int bc_build_destroy_obj(u8 *buf, int buf_size, i32 object_id);
 int bc_build_chat(u8 *buf, int buf_size,
                    u8 sender_slot, bool team, const char *message);
 
-/* Score: [0x37][count:u8][{slot:u8, score:i32}...]
- * Sent to a newly joining player so they see everyone's current scores.
- * scores array is indexed by game_slot (0 = first joiner, etc.).
- * player_count is the number of entries (max 6). */
+/* Score: [0x37][player_id:i32][kills:i32][deaths:i32][score:i32]
+ * 17 bytes total. Sent once per player to a newly joining client.
+ * Stock BC sends one message per player (not batched). */
 int bc_build_score(u8 *buf, int buf_size,
-                    const i32 *scores, int player_count);
+                    i32 player_id, i32 kills, i32 deaths, i32 score);
 
-/* ScoreChange: [0x36][killer_slot:u8][victim_slot:u8][new_score:i32]
- * 7 bytes total. Sent when a kill occurs. */
+/* ScoreChange: [0x36][killer_id:i32][if killer!=0: kills:i32, killer_score:i32]
+ *              [victim_id:i32][deaths:i32][update_count:u8]
+ *              [{player_id:i32, score:i32}...]
+ * Variable length. Sent when a kill occurs. killer_id=0 for environmental kills.
+ * extra_scores is an array of {player_id, score} pairs for damage-share updates. */
+typedef struct {
+    i32 player_id;
+    i32 score;
+} bc_score_entry_t;
+
 int bc_build_score_change(u8 *buf, int buf_size,
-                           u8 killer_slot, u8 victim_slot, i32 new_score);
+                           i32 killer_id, i32 killer_kills, i32 killer_score,
+                           i32 victim_id, i32 victim_deaths,
+                           const bc_score_entry_t *extra, int extra_count);
 
-/* EndGame: [0x38][winner_slot:u8]
- * 2 bytes total. Sent when frag/time limit reached. */
-int bc_build_end_game(u8 *buf, int buf_size, u8 winner_slot);
+/* EndGame: [0x38][reason:i32]
+ * 5 bytes total. Sent when frag/time limit reached.
+ * Reason codes: 0=over, 1=time_up, 2=frag_limit, 3=score_limit,
+ *               4=starbase_dead, 5=borg_dead, 6=enterprise_dead */
+#define BC_END_REASON_OVER          0
+#define BC_END_REASON_TIME_UP       1
+#define BC_END_REASON_FRAG_LIMIT    2
+#define BC_END_REASON_SCORE_LIMIT   3
+int bc_build_end_game(u8 *buf, int buf_size, i32 reason);
 
 /* --- Tier 2: Generic builders --- */
 

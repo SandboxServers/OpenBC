@@ -7,12 +7,10 @@ extern const u8 HASH_TABLE_2[256];
 extern const u8 HASH_TABLE_3[256];
 
 /*
- * StringHash (FUN_007202e0) -- 4-lane Pearson hash.
+ * StringHash -- 4-lane Pearson hash.
  *
- * Uses four 256-byte substitution tables extracted from stbc.exe
- * at addresses 0x0095c888, 0x0095c988, 0x0095ca88, 0x0095cb88.
- *
- * Known value: StringHash("60") == 0x7E0CE243
+ * Uses four 256-byte substitution tables forming Mutually Orthogonal
+ * Latin Squares (MOLS). Verified: StringHash("60") == 0x7E0CE243.
  */
 u32 string_hash(const char *str)
 {

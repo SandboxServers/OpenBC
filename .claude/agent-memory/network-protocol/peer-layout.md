@@ -1,101 +1,79 @@
 # Peer Data Structure Layout
 
-Reconstructed from decompiled code, especially FUN_006b55b0 (SendOutgoingPackets).
+Reconstructed from behavioral analysis of the network send/receive pipeline.
 
-## Per-Peer Structure (estimated 0xC0+ bytes)
-```
-+0x18  peerID (int, used for binary search in sorted peer array)
-+0x1C  address info (sockaddr or equivalent)
-+0x24  seqRecvUnreliable (ushort) - expected sequence from this peer
-+0x26  seqSendReliable (ushort) - next reliable sequence to assign
-+0x28  seqRecvReliable (ushort) - expected reliable sequence from this peer
-+0x2A  seqSendPriority (ushort) - next priority sequence to assign
-+0x2C  lastRecvTime (float, game time)
-+0x30  lastSendTime (float, game time)
+## Per-Peer Structure (estimated ~192 bytes)
 
-# Unreliable send queue
-+0x64  unreliable_head (linked list node ptr)
-+0x68  unreliable_tail
-+0x6C  unreliable_cursor (iteration ptr)
-+0x70  unreliable_cursor2
-+0x74  unreliable_iterIndex
-+0x78  unreliable_???
-+0x7C  unreliable_count (int)
+### Identity
+- **peerID** (int) - unique identifier, used for binary search in sorted peer array
+- **address** - socket address info (sockaddr or equivalent)
 
-# Reliable send queue
-+0x80  reliable_head
-+0x84  reliable_tail
-+0x88  reliable_???
-+0x8C  reliable_cursor
-+0x90  reliable_iterIndex
-+0x94  reliable_???
-+0x98  reliable_count (int)
+### Sequence Tracking
+- **seqRecvUnreliable** (ushort) - expected unreliable sequence from this peer
+- **seqSendReliable** (ushort) - next reliable sequence to assign
+- **seqRecvReliable** (ushort) - expected reliable sequence from this peer
+- **seqSendPriority** (ushort) - next priority sequence to assign
 
-# Priority reliable send queue
-+0x9C  priority_head
-+0xA0  priority_tail
-+0xA4  priority_???
-+0xA8  priority_cursor
-+0xAC  priority_iterIndex
-+0xB0  priority_???
-+0xB4  priority_count (int)
+### Timestamps
+- **lastRecvTime** (float, game time) - last received packet timestamp
+- **lastSendTime** (float, game time) - last sent packet timestamp
 
-# Stats
-+0x38  bytesRecvPayload
-+0x40  bytesRecvTotal (payload + headers)
-+0x48  bytesSentPayload
-+0x54  bytesSentTotal
-+0x38  bytesRecv (alternate interpretation for host-peer self stats)
-+0xB8  disconnectTimestamp (float)
-+0xBC  isDisconnecting (1 byte)
+### Unreliable Send Queue
+- Linked list with head, tail, cursor, iteration index, and count fields
+- Count tracks total items in queue
 
-# Recv queues (incoming, parallel structure)
-+0x38  (incoming queue uses offsets 0x38-0x54 area for stats)
-+0x70  incomingQueue (linked list) - used in DispatchIncomingQueue
-+0x8C  incomingReliableQueue (linked list)
-```
+### Reliable Send Queue
+- Same linked list structure as unreliable queue
+- Separate head, tail, cursor, iteration index, and count
+
+### Priority Reliable Send Queue
+- Same linked list structure
+- Separate head, tail, cursor, iteration index, and count
+
+### Statistics
+- **bytesRecvPayload** - received payload bytes
+- **bytesRecvTotal** - received total bytes (payload + headers)
+- **bytesSentPayload** - sent payload bytes
+- **bytesSentTotal** - sent total bytes
+
+### Connection State
+- **disconnectTimestamp** (float) - when disconnect initiated
+- **isDisconnecting** (1 byte) - disconnect in progress flag
 
 ## Queue Node (linked list element)
 Each queue is a singly-linked list of 8-byte nodes:
-```
-+0x00  messagePtr (pointer to message object)
-+0x04  nextNode (pointer to next node, or 0)
-```
-Head points to first node, tail points to last node.
-Count tracks total items.
+- **messagePtr** - pointer to message object
+- **nextNode** - pointer to next node, or NULL
 
-## Message Object Layout (approx 0x44 bytes)
-```
-+0x00  vtable (polymorphic message types)
-+0x0C  senderPeerID
-+0x10  recipientSockAddr
-+0x14  sequenceNumber (ushort)
-+0x18  ???
-+0x20  sendTimestamp (float)
-+0x24  lastSendTimestamp (float)
-+0x28  targetPeerID
-+0x38  ???
-+0x39  fragmentFlag (byte)
-+0x3A  isReliable (byte, 0=unreliable, 1=reliable)
-+0x3B  isPriority (byte)
-+0x3C  ???
-+0x3D  ???
-+0x40  boolFlag
-```
+Head points to first node, tail points to last node. Count tracks total items.
+
+## Message Object Layout (approx 68 bytes)
+
+### Fields
+- **vtable** - polymorphic message types (determines serialization behavior)
+- **senderPeerID** - who sent this message
+- **recipientSockAddr** - destination address
+- **sequenceNumber** (ushort) - for ordering
+- **sendTimestamp** (float) - when first sent
+- **lastSendTimestamp** (float) - when last retransmitted
+- **targetPeerID** - intended recipient
+- **fragmentFlag** (byte) - fragmentation indicator
+- **isReliable** (byte) - 0=unreliable, 1=reliable
+- **isPriority** (byte) - priority queue flag
 
 ## Message Types (vtable dispatch)
-Message type returned by vtable[0] (GetType):
-- 0: Connection message (FUN_006b63a0)
-- 1: Reliable ACK message (FUN_006b64d0)
+Message type returned by GetType virtual method:
+- 0: Keepalive message
+- 1: Reliable ACK message
 - 2: Internal/discard
-- 3: Data message (FUN_006b6640) - normal game data
-- 4: Disconnect message (FUN_006b6a70)
-- 5: Keepalive/ping (FUN_006b6a20)
+- 3: Connect message (connection handshake)
+- 4: ConnectData message (rejection/notification)
+- 5: ConnectAck message (shutdown notification)
+- 0x32: Data message (normal game data -- reliable)
 
 ## Retry Logic
-From FUN_006b55b0:
-- FUN_006b8700 checks if message is ready to send (timing check)
-- FUN_006b8670 sets retry count
+From the outbound packet processing:
+- Ready-to-send check uses timing comparison
 - Priority queue: retries up to 3 before escalating; drops after 8 retries
-- Reliable queue: drops after reliableTimeout (360.0f default)
-- Max 0xFE (254) messages per outbound packet
+- Reliable queue: drops after reliableTimeout (360.0s default)
+- Max 254 (0xFE) messages per outbound packet

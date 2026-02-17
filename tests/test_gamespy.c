@@ -94,12 +94,12 @@ TEST(response_basic_fields)
     ASSERT(gs_has_value((char *)buf, len, "maxplayers", "6"));
     ASSERT(gs_has_value((char *)buf, len, "gamemode", "openplaying"));
 
-    /* Info callback fields (come FIRST in stock BC, format at 0x00959c50) */
+    /* Info callback fields (come FIRST in stock BC response) */
     ASSERT(gs_has_value((char *)buf, len, "gamename", "bcommander"));
     ASSERT(gs_has_value((char *)buf, len, "gamever", "60"));
     ASSERT(gs_has_value((char *)buf, len, "location", "0"));
 
-    /* Rules callback fields (format at 0x00959cf8) */
+    /* Rules callback fields */
     ASSERT(gs_has_value((char *)buf, len, "timelimit", "0"));
     ASSERT(gs_has_value((char *)buf, len, "fraglimit", "0"));
     ASSERT(gs_has_value((char *)buf, len, "system", "DeepSpace9"));

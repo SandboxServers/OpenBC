@@ -180,10 +180,13 @@ bool bc_parse_object_create_header(const u8 *payload, int len,
 /*
  * Ship blob header (inside ObjCreateTeam)
  *
- * The ship blob starts with:
- *   [object_id:i32][species_id:u16][pos_x:f32][pos_y:f32][pos_z:f32]...
+ * Wire format (from packet captures of real BC 1.1 client):
+ *   [prefix:4 bytes][object_id:i32][species_id:u8][pos:3xf32]...
  *
- * Minimum: 4+2+12 = 18 bytes
+ * The 4-byte prefix (observed: 08 80 00 00) purpose is unknown.
+ * species_id is a u8 (observed values 0x01, 0x05 matching registry indices 1-16).
+ *
+ * Minimum: 4+4+1+12 = 21 bytes
  */
 bool bc_parse_ship_blob_header(const u8 *blob, int len,
                                 bc_ship_blob_header_t *out)
@@ -193,8 +196,19 @@ bool bc_parse_ship_blob_header(const u8 *blob, int len,
     bc_buffer_t buf;
     bc_buf_init(&buf, (u8 *)blob, (size_t)len);
 
+    /* Skip 4-byte prefix */
+    u8 skip;
+    for (int i = 0; i < 4; i++) {
+        if (!bc_buf_read_u8(&buf, &skip)) return false;
+    }
+
     if (!bc_buf_read_i32(&buf, &out->object_id)) return false;
-    if (!bc_buf_read_u16(&buf, &out->species_id)) return false;
+
+    /* species_id is a single byte on the wire */
+    u8 species_u8;
+    if (!bc_buf_read_u8(&buf, &species_u8)) return false;
+    out->species_id = (u16)species_u8;
+
     if (!bc_buf_read_f32(&buf, &out->pos_x)) return false;
     if (!bc_buf_read_f32(&buf, &out->pos_y)) return false;
     if (!bc_buf_read_f32(&buf, &out->pos_z)) return false;

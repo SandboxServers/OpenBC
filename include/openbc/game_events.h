@@ -60,10 +60,12 @@ typedef struct {
     int  message_len;
 } bc_chat_event_t;
 
-/* Ship blob header -- extracted from ObjCreateTeam ship data */
+/* Ship blob header -- extracted from ObjCreateTeam ship data.
+ * Wire format (from packet captures):
+ *   [prefix:4 bytes][object_id:i32][species_id:u8][pos:3xf32]... */
 typedef struct {
     i32 object_id;
-    u16 species_id;
+    u16 species_id;     /* read as u8 from wire, widened to u16 */
     f32 pos_x, pos_y, pos_z;
 } bc_ship_blob_header_t;
 

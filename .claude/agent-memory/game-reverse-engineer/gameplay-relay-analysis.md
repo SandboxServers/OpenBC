@@ -16,7 +16,7 @@ BC multiplayer uses a **hybrid relay architecture**. The host (or dedicated serv
 
 ### Complete Message Type Enumeration
 
-From the SWIG API surface (App.py constants), correlated with handler registrations in FUN_0069e590 and FUN_0069efe0, here is the complete native message type table:
+From the SWIG API surface (App.py constants), correlated with handler registrations in RegisterMPGameHandlers, here is the complete native message type table:
 
 ```
 Opcode  SWIG Constant                    Event Type        Handler Name
@@ -82,19 +82,19 @@ Python script messages start at `MAX_MESSAGE_TYPES + N`:
 **The server MUST understand (parse content):**
 - 0x00: Verification/settings -- server constructs this, never receives it
 - 0x01: Status -- server constructs this, never receives it
-- 0x03: Reject message (type=3 at piVar7[0x10]) -- server constructs for full-server rejection
+- 0x03: Reject message -- server constructs for full-server rejection
 
 **The server acts as SMART RELAY for native opcodes (0x02-0x1F+):**
 - The server receives the raw network message
-- Calls `FUN_006b8530` to get the payload
+- Gets the payload data
 - Reads byte[1] as the sender's player slot index
-- Optionally reads byte[2] as additional data (when `param_2 != 0`)
-- Calls `FUN_005a1f50` to **deserialize the payload into a game object** on the host
+- Optionally reads byte[2] as additional data (when hasPlayerSlot flag is set)
+- **Deserializes the payload into a game object** on the host for bookkeeping
 - If deserialization succeeds, the host then:
-  - **If host (DAT_0097fa8a != '\0')**: Iterates all 16 player slots, clones the message via vtable+0x18, and sends to each active peer EXCEPT the sender and the host itself
-  - **If client (DAT_0097fa8a == '\0')**: Processes locally only
+  - **If host (IsMultiplayer flag set)**: Iterates all 16 player slots, clones the message, and sends to each active peer EXCEPT the sender and the host itself
+  - **If client (IsMultiplayer not set)**: Processes locally only
 
-**Confidence: HIGH** -- Verified from FUN_0069f620 decompiled code analysis.
+**Confidence: HIGH** -- Verified from ProcessGameMessage analysis.
 
 ---
 
@@ -115,7 +115,7 @@ When the host's mission script starts the game (after all players are in the lob
 
 2. The engine fires **ET_OBJECT_CREATED (0x8000C8)** internally.
 
-3. **MultiplayerGame::ObjectCreatedHandler (LAB_006a0f90)** catches this event. This handler:
+3. **MultiplayerGame::ObjectCreatedHandler** catches this event. This handler:
    - Is registered for event type 0x8000C8
    - Serializes the created object into a network message
    - The message format uses opcode `CREATE_OBJECT_MESSAGE (0x04)` or `CREATE_PLAYER_OBJECT_MESSAGE (0x05)`
@@ -123,27 +123,18 @@ When the host's mission script starts the game (after all players are in the lob
 
 4. **Each client** receives the CREATE_OBJECT/CREATE_PLAYER_OBJECT message, deserializes it, and creates the ship object locally.
 
-### NewPlayerInGameHandler (LAB_006a1590)
+### NewPlayerInGameHandler
 
-This handler fires when event **ET_NEW_PLAYER_IN_GAME (0x8000F1)** is posted. It is registered for both host and client. In the constructor:
+This handler fires when event **ET_NEW_PLAYER_IN_GAME (0x8000F1)** is posted. It is registered for both host and client.
 
-```c
-// Line 5482: Register for ET_NEW_PLAYER_IN_GAME
-FUN_006db380(&DAT_0097f864, &DAT_008000f1, this,
-    s_MultiplayerGame____NewPlayerInGa_0095a028, '\x01', '\x01', DAT_0095adf8);
+When the host constructs MultiplayerGame, it fires ET_NEW_PLAYER_IN_GAME for ITSELF:
 ```
-
-And at lines 5509-5523, when the host constructs MultiplayerGame, it fires ET_NEW_PLAYER_IN_GAME for ITSELF:
-```c
-if (DAT_0097fa8a != '\0' && DAT_0097fa88 != '\0') {
+// Pseudocode from constructor:
+if (IsMultiplayer && IsClient) {
     // Create event with type ET_NEW_PLAYER_IN_GAME (0x8000F1)
-    puVar2[4] = &DAT_008000f1;
-    puVar2[10] = *(WSN + 0x20);  // host's own peer ID
-    // Post event
-    FUN_006da2a0(&DAT_0097f838, puVar2);
-    // Set first slot active with host's peer ID
-    *(this + 0x78) = 1;   // slot[0].active = 1
-    *(this + 0x7c) = *(WSN + 0x20);  // slot[0].peerID = hostPeerID
+    // Set event data to host's own peer ID
+    // Post event to EventManager
+    // Set first player slot active with host's peer ID
 }
 ```
 
@@ -156,7 +147,7 @@ The server does not need to validate ship selection. The engine automatically ha
 2. Serialization into network message
 3. Broadcasting to peers
 
-For a **dedicated server**, since `DAT_0097fa88 == '\0'` (IsHost=true but IsClient=false), the host itself doesn't create a ship. It only relays ship creation messages from clients to other clients.
+For a **dedicated server** (IsHost=true but IsClient=false), the host itself doesn't create a ship. It only relays ship creation messages from clients to other clients.
 
 **Confidence: HIGH** -- from constructor code, handler registration, and Python script analysis.
 
@@ -230,7 +221,7 @@ Game end is triggered by the host's Python mission script when conditions are me
 
 ## Question 4: The ReceiveMessageHandler Relay Pattern (THE KEY QUESTION)
 
-### Analysis of FUN_0069f620 (ProcessGameMessage)
+### Analysis of ProcessGameMessage
 
 This is the core relay function. Here is the reconstructed logic:
 
@@ -240,7 +231,7 @@ void MultiplayerGame::ProcessGameMessage(TGMessage* msg, bool hasPlayerSlot) {
     char* payload = msg->GetData(&payloadSize);
 
     // 2. Save/restore current player slot context
-    int savedSlot = g_currentPlayerSlot;  // _DAT_0097fa84
+    int savedSlot = g_currentPlayerSlot;
 
     // 3. Read sender's player slot from byte[1] of payload
     char senderSlot = payload[1];
@@ -254,14 +245,13 @@ void MultiplayerGame::ProcessGameMessage(TGMessage* msg, bool hasPlayerSlot) {
     }
 
     // 5. Swap player slot context (sets current slot to sender's slot)
-    // This is a slot-swap operation for the game object system
     this->playerSlots[g_currentPlayerSlot].objectID = g_currentObjectID;
     g_currentObjectID = this->playerSlots[senderSlot].objectID;
     g_currentPlayerSlot = senderSlot;
 
     // 6. DESERIALIZE the remaining payload into a game object
-    //    FUN_005a1f50 reads [objectTypeID:int][objectClassID:int] then
-    //    creates the appropriate game object and deserializes its state
+    //    Reads [objectTypeID:int][objectClassID:int] then creates the
+    //    appropriate game object and deserializes its state
     TGObject* gameObj = DeserializeGameObject(payload + headerSize, payloadSize - headerSize);
 
     // 7. Restore slot context
@@ -273,68 +263,64 @@ void MultiplayerGame::ProcessGameMessage(TGMessage* msg, bool hasPlayerSlot) {
 
     // 8. If hasPlayerSlot, store extra data on the object
     if (hasPlayerSlot) {
-        gameObj->field_0x2E4 = extraData;  // piVar4[0xb9] = local_10
+        gameObj->networkExtraData = extraData;
     }
 
     // 9. Check network state
-    TGNetwork* wsn = g_pNetwork;  // DAT_0097fa78
+    TGNetwork* wsn = g_pNetwork;
     if (wsn == NULL) return;
 
     // ============ THE RELAY LOGIC ============
 
-    if (!g_isMultiplayer) {  // DAT_0097fa8a == '\0' -- single player or client
+    if (!g_isMultiplayer) {
         // CLIENT PATH:
         // Check if object type is 0x8009 (some skip type)
         if (gameObj->GetType() == 0x8009) return;
-        // Allocate a 0x58-byte ShipObject wrapper
+        // Allocate a ShipObject wrapper
         // Fall through to object creation below
     }
     else {
         // HOST PATH: RELAY TO ALL OTHER PEERS
         for (int i = 0; i < 16; i++) {
-            int* slot = &this->playerSlots[i];  // this + 0x7c + i*0x18
-            if (slot[-1] == 0) continue;  // slot not active
+            PlayerSlot* slot = &this->playerSlots[i];
+            if (!slot->active) continue;
 
-            if (slot[0] == msg->senderPeerID) {
+            if (slot->peerID == msg->senderPeerID) {
                 // This is the SENDER's slot -- don't relay back
                 // But if hasPlayerSlot, update slot's objectID
                 if (hasPlayerSlot) {
-                    slot[1] = gameObj->field_0x04;  // objectID
+                    slot->objectID = gameObj->objectID;
                 }
             }
-            else if (slot[0] != wsn->localPeerID) {
+            else if (slot->peerID != wsn->localPeerID) {
                 // This is ANOTHER PEER (not sender, not host)
                 // CLONE the original message and SEND to this peer
-                TGMessage* clone = msg->Clone();  // vtable+0x18
-                TGNetwork::Send(wsn, slot[0], clone, 0);
+                TGMessage* clone = msg->Clone();
+                TGNetwork::Send(wsn, slot->peerID, clone, 0);
             }
-            // If slot[0] == wsn->localPeerID, this is the host itself -- skip
+            // If slot->peerID == wsn->localPeerID, this is the host itself -- skip
         }
 
         // After relay, check if host should also process locally
-        if (!g_isHost) {  // DAT_0097fa88 == '\0' -- dedicated server
-            if (!hasPlayerSlot) return;  // no local processing for non-player msgs
-            // Check skip type
+        if (!g_isClient) {
+            // Dedicated server (IsClient=false): minimal local processing
+            if (!hasPlayerSlot) return;
             if (gameObj->GetType() == 0x8009) return;
-            // Allocate wrapper
         }
         else {
             // Host IS a client too (non-dedicated)
             if (!hasPlayerSlot) return;
-            // Skip if object belongs to host's own slot
-            if (gameObj->field_0x04 == this->playerSlots[0].objectID) return;
-            // Check skip type
+            if (gameObj->objectID == this->playerSlots[0].objectID) return;
             if (gameObj->GetType() == 0x8009) return;
-            // Allocate wrapper
         }
     }
 
-    // 10. Create a ShipObject wrapper (FUN_0047dab0) and add to game
+    // 10. Create a ShipObject wrapper and add to game
     ShipObject* shipObj = new ShipObject(wrapper, gameObj, "Network");
 
     // 11. Fire the object's update handler
-    gameObj->vtable[0x134/4](shipObj, 1, 1);  // AddToWorld(shipObj, true, true)
-    gameObj->field_0xF0 = 0;  // Clear dirty flag
+    gameObj->AddToWorld(shipObj, true, true);
+    gameObj->ClearDirtyFlag();
 }
 ```
 
@@ -342,7 +328,7 @@ void MultiplayerGame::ProcessGameMessage(TGMessage* msg, bool hasPlayerSlot) {
 
 **YES, the host/server performs a SIMPLE RELAY with message cloning.**
 
-The relay loop at lines 5754-5770 of the decompiled code is:
+The relay loop is:
 ```c
 for each of 16 player slots:
     if (slot.active && slot.peerID != msg.senderPeerID && slot.peerID != wsn.localPeerID):
@@ -365,7 +351,7 @@ For a dedicated server that doesn't run game simulation:
 - **Clone the raw message and relay to all other peers** (the core relay)
 - **Read byte[1] to find sender slot** (for routing, not for processing)
 - **Track player slot <-> peerID mapping** (established during checksum completion)
-- **DON'T deserialize game objects** (skip FUN_005a1f50 entirely)
+- **DON'T deserialize game objects** (skip object deserialization entirely)
 
 The only messages the server must construct/understand:
 - 0x00 (verification) -- server builds this
@@ -373,7 +359,7 @@ The only messages the server must construct/understand:
 - 0x03 (reject) -- server builds this when full
 - 0x20-0x27 (checksum) -- server handles checksum exchange
 
-**Confidence: VERIFIED** -- Clear from decompiled relay loop in FUN_0069f620.
+**Confidence: VERIFIED** -- Clear from the relay loop in ProcessGameMessage.
 
 ---
 
@@ -400,7 +386,7 @@ TEAM_CHAT_MESSAGE:
 
 ### Chat Relay Logic (Python)
 
-From `MultiplayerMenus.py` line 2273:
+From `MultiplayerMenus.py`:
 ```python
 if (cType == CHAT_MESSAGE):
     if (App.g_kUtopiaModule.IsHost()):
@@ -419,13 +405,7 @@ For team chat, the host iterates through players and sends only to teammates.
 
 ### Server Implementation
 
-For a dedicated server, chat handling must be in the Python mission scripts. The native engine relay (FUN_0069f620) handles chat messages the same as any other -- it clones and forwards. But the Python scripts also do their own forwarding for chat. This means:
-
-**IMPORTANT**: Chat messages flow through BOTH paths:
-1. The native C++ relay in FUN_0069f620 handles the raw network message
-2. The Python ProcessMessageHandler also handles it
-
-Wait -- re-reading more carefully: chat messages are sent via `pNetwork.SendTGMessage(pNetwork.GetHostID(), pMessage)` -- they are sent **TO THE HOST ONLY**, not broadcast. So the native relay in FUN_0069f620 won't forward them (since they're not received as broadcast). The Python script on the host explicitly copies and forwards.
+Chat messages are sent via `pNetwork.SendTGMessage(pNetwork.GetHostID(), pMessage)` -- they are sent **TO THE HOST ONLY**, not broadcast. So the native relay in ProcessGameMessage won't forward them (since they're not received as broadcast). The Python script on the host explicitly copies and forwards.
 
 **For the dedicated server**: The Python scripts must handle chat forwarding. The native relay won't do it because chat is sent point-to-point to the host.
 
@@ -454,7 +434,7 @@ pShip = Multiplayer.SpeciesToShip.CreateShip(iType)
 This creates the ship game object, which triggers:
 1. `ET_OBJECT_CREATED` event in the engine
 2. ObjectCreatedHandler serializes it and sends CREATE_PLAYER_OBJECT_MESSAGE (0x05) to the host
-3. Host relays it to all other clients via FUN_0069f620
+3. Host relays it to all other clients via ProcessGameMessage
 
 ### Team Assignment
 
@@ -534,15 +514,15 @@ Client A                    Server (Host)                    Client B
 
 ### Critical Implementation Detail: The "Forward" Group
 
-The "Forward" group is a TGNetwork group (WSN+0xF4 group list) that contains peer IDs of players who should receive forwarded game events. When a game event fires on the host (like ET_START_FIRING), the handler:
+The "Forward" group is a TGNetwork group that contains peer IDs of players who should receive forwarded game events. When a game event fires on the host (like ET_START_FIRING), the handler:
 
 1. Looks up the "Forward" group by name
 2. Checks if the source player is in the group's per-player tracking list
-3. Sends to all members of the group using FUN_006b4ec0
+3. Sends to all members of the group
 
-This is different from the simple relay in FUN_0069f620 which uses the player slot array directly. The Forward group is used by the LOCAL event handlers (FUN_0069f930, FUN_0069fbb0, FUN_0069fda0) for events that originate from the host's own game engine, not from network messages.
+This is different from the simple relay in ProcessGameMessage which uses the player slot array directly. The Forward group is used by the LOCAL event handlers (StartFiringHandler, BeamFireHandler, EventForwardHandler) for events that originate from the host's own game engine, not from network messages.
 
-For a dedicated server doing pure relay, the Forward group is less important -- the FUN_0069f620 relay loop handles the network message forwarding directly.
+For a dedicated server doing pure relay, the Forward group is less important -- the ProcessGameMessage relay loop handles the network message forwarding directly.
 
 ---
 
@@ -561,8 +541,8 @@ Offset  Size  Field
 
 The serialized game object data starts with:
 ```
-+0      4     objectTypeID (read by FUN_005a1f50 via FUN_006cf670)
-+4      4     objectClassID (read by FUN_005a1f50 via FUN_006cf670)
++0      4     objectTypeID (read by the game object deserializer)
++4      4     objectClassID (read by the game object deserializer)
 +8      var   object-specific serialized state
 ```
 
@@ -570,13 +550,13 @@ The serialized game object data starts with:
 
 ```
 Offset  Size  Name           Notes
-+0x00   1     active         0=empty, 1=in use
-+0x04   4     peerID         TGNetwork peer identifier
-+0x08   4     objectID       Game object ID for this player's ship
-+0x0C   ?     ???            Possibly checksum state, team, etc.
++0      1     active         0=empty, 1=in use
++4      4     peerID         TGNetwork peer identifier
++8      4     objectID       Game object ID for this player's ship
++12     ?     ???            Possibly checksum state, team, etc.
 ```
 
-The slot objectID is updated by FUN_0069f620 when processing messages with hasPlayerSlot=true:
+The slot objectID is updated by ProcessGameMessage when processing messages with hasPlayerSlot=true:
 ```c
 if (slot.peerID == msg.senderPeerID && hasPlayerSlot) {
     slot.objectID = gameObj->objectID;
@@ -589,10 +569,10 @@ if (slot.peerID == msg.senderPeerID && hasPlayerSlot) {
 
 1. **What is 0x8009?** -- The type check `gameObj->GetType() == 0x8009` causes the host to skip local processing. This might be a "network-only" object type that shouldn't be instantiated on the host.
 
-2. **What does param_2 (hasPlayerSlot) indicate?** -- The ReceiveMessageHandler at LAB_0069f2a0 calls FUN_0069f620 with param_2 set based on something. Some message types include a player slot byte, others don't. Need to trace the ReceiveMessageHandler to see what determines this.
+2. **What does param_2 (hasPlayerSlot) indicate?** -- The ReceiveMessageHandler calls ProcessGameMessage with param_2 set based on something. Some message types include a player slot byte, others don't. Need to trace the ReceiveMessageHandler to see what determines this.
 
-3. **How does FUN_0069f930 differ from FUN_0069f620?** -- FUN_0069f930 appears to handle position/state update messages (SHIP_UPDATE_MESSAGE) and calls the "Forward" group rather than the raw relay. It also reads more complex payload (position, rotation, velocity).
+3. **How does the state update handler differ from ProcessGameMessage?** -- The state update handler appears to handle position/state update messages (SHIP_UPDATE_MESSAGE) and calls the "Forward" group rather than the raw relay. It also reads more complex payload (position, rotation, velocity).
 
-4. **What is DAT_008e5528?** -- This is the name of a network group. Based on the Python API, `SendTGMessageToGroup("NoMe", msg)` is used for chat forwarding. The two groups created in the constructor are registered with FUN_006b70d0. One is DAT_008e5528 (likely "NoMe"), the other is "Forward" (s_Forward_008d94a0).
+4. **What is the "NoMe" group name?** -- Based on the Python API, `SendTGMessageToGroup("NoMe", msg)` is used for chat forwarding. The two groups created in the constructor are "NoMe" and "Forward".
 
-5. **Exact value of MAX_MESSAGE_TYPES** -- I inferred 0x2C (44) based on the enumeration count. This needs verification from the Appc.pyd SWIG module or runtime testing. If wrong, all the Python-level opcode numbers shift.
+5. **Exact value of MAX_MESSAGE_TYPES** -- I inferred 0x2C (44) based on the enumeration count. This needs verification from the Appc SWIG module or runtime testing. If wrong, all the Python-level opcode numbers shift.

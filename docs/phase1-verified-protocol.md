@@ -453,14 +453,33 @@ teamId            u8         1      Team assignment
 serializedObject  data       var    Full ship state (108 bytes observed)
 ```
 
-The serialized object contains (observed from hex analysis):
-- Object network ID (i32)
-- Position (3 x f32 LE: x, y, z)
-- Orientation (4 x f32 LE: quaternion)
-- Velocity (f32 LE, zero at spawn)
-- Player name (length-prefixed string)
-- Ship class (length-prefixed string, e.g., "Multi1")
-- Subsystem health array (0xFF = 100% health per subsystem)
+The serialized object blob contains (decoded from hex dumps of packets #56 and #311):
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+headerByte1       u8         1      Observed: 0x08 (purpose uncertain)
+headerByte2       u8         1      Observed: 0x80 (purpose uncertain, possibly flags)
+padding           u8[2]      2      Observed: 0x00 0x00
+objectId          i32 LE     4      Ship's network object ID (e.g., 0x3FFFFFFF)
+speciesId         u8         1      Ship species/type (observed: 0x01)
+posX              f32 LE     4      Position X
+posY              f32 LE     4      Position Y
+posZ              f32 LE     4      Position Z
+orientW           f32 LE     4      Orientation quaternion W
+orientX           f32 LE     4      Orientation quaternion X
+orientY           f32 LE     4      Orientation quaternion Y
+orientZ           f32 LE     4      Orientation quaternion Z
+speed             f32 LE     4      Current speed (0.0 at spawn)
+padding2          u8[2]      2      Observed: 0x00 0x00
+nameLen           u8         1      Player name length
+name              bytes      N      Player name (ASCII, not null-terminated)
+classLen          u8         1      Ship class name length
+className         bytes      M      Ship class name (e.g., "Multi1")
+subsystems        bytes      var    Subsystem health array (see below)
+```
+
+The subsystem health data uses a compact encoding. Each subsystem has one byte of health (0xFF = 100%, 0x00 = destroyed). Some subsystems use 0x64 (100 decimal) as a delimiter or sentinel value. The exact grouping pattern is consistent across all observed ship creation messages but its internal structure (which byte maps to which subsystem) requires further analysis.
 
 ### Hex Dump: Ship Creation (Packet #56, first player selects ship)
 
@@ -605,21 +624,84 @@ Client -> Server, 31 bytes total (25-byte payload):
 
 ### 6.8 Score Message (Opcode 0x37)
 
-Full score synchronization sent to each player at join time (and periodically during gameplay).
+Per-player score synchronization. The server sends **one 0x37 message per existing player** when a new player joins, giving them the full roster state. Not batched -- each message carries exactly one player's score data.
 
 ```
 Field             Type       Size   Notes
 -----             ----       ----   -----
 opcode            u8         1      0x37
-count             u8         1      Number of score entries
-[repeated count times:]
-  slot            u8         1      Player slot index
-  score           i32 LE     4      Current score (signed, can be negative)
+playerId          i32 LE     4      Player's object ID (from GetObjID())
+kills             i32 LE     4      Kill count
+deaths            i32 LE     4      Death count
+score             i32 LE     4      Current score (signed, can be negative)
 ```
 
-Observed in second-player join (packet #311): 16 bytes of zero scores for all 16 possible player slots.
+Total: 17 bytes per message. Source: readable Python scripts shipped with the game (Mission1.py `SendScoreMessage`).
 
-### 6.9 DeletePlayerAnim (Opcode 0x18)
+**Verified from packet #311** (second player joining): The server sends one 0x37 message with 17 bytes for the existing player (host). All four i32 values are zero (fresh game, no kills/deaths/score yet).
+
+### 6.9 ScoreChange Message (Opcode 0x36)
+
+Sent when a kill occurs. Contains updated kill/death/score counts for the killer and victim, plus optional score updates for other players who contributed damage.
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+opcode            u8         1      0x36
+killerId          i32 LE     4      Killer's object ID (0 for environmental kills)
+[if killerId != 0:]
+  killerKills     i32 LE     4      Killer's updated kill count
+  killerScore     i32 LE     4      Killer's updated score
+victimId          i32 LE     4      Victim's object ID
+victimDeaths      i32 LE     4      Victim's updated death count
+updateCount       u8         1      Number of extra score updates
+[repeated updateCount times:]
+  playerId        i32 LE     4      Player's object ID
+  score           i32 LE     4      Player's updated score
+```
+
+Variable length. When `killerId == 0` (environmental death, e.g., collision or self-destruct), the `killerKills` and `killerScore` fields are omitted. The `updateCount` list carries damage-share score updates for players who contributed damage to the victim but didn't get the final kill.
+
+Source: readable Python scripts shipped with the game (MissionShared.py `SendScoreChangeMessage`).
+
+### 6.10 EndGame Message (Opcode 0x38)
+
+Broadcast to all clients when the match ends.
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+opcode            u8         1      0x38
+reason            i32 LE     4      End reason code (see below)
+```
+
+Total: 5 bytes.
+
+| Reason | Code | Description |
+|--------|------|-------------|
+| OVER | 0 | Generic game over |
+| TIME_UP | 1 | Time limit reached |
+| FRAG_LIMIT | 2 | Frag/kill limit reached |
+| SCORE_LIMIT | 3 | Score limit reached |
+| STARBASE_DEAD | 4 | Starbase destroyed (objective mode) |
+| BORG_DEAD | 5 | Borg destroyed (objective mode) |
+| ENTERPRISE_DEAD | 6 | Enterprise destroyed (objective mode) |
+
+Source: readable Python scripts shipped with the game (MissionShared.py `ReceiveEndGameMessage`).
+
+### 6.11 RestartGame Message (Opcode 0x39)
+
+Broadcast to all clients to restart the match. No payload.
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+opcode            u8         1      0x39
+```
+
+Total: 1 byte. Source: readable Python scripts shipped with the game (MissionShared.py `SendRestartGameMessage`).
+
+### 6.12 DeletePlayerAnim (Opcode 0x18)
 
 Triggers a "Player X has left" floating notification on the client.
 
@@ -631,7 +713,7 @@ nameLen           u16 LE     2      Player name string length
 name              bytes      N      Player name (ASCII, not null-terminated)
 ```
 
-### 6.10 BootPlayer (Opcode 0x04)
+### 6.13 BootPlayer (Opcode 0x04)
 
 Kicks a player from the game. Sent by the host to the target player.
 
@@ -653,7 +735,7 @@ Reason codes:
 
 **Note**: On the wire, BootPlayer uses the game-layer opcode 0x04. The transport-layer type 0x05 (ConnectAck) with status=0x00 serves as a separate shutdown notification mechanism (see Section 1).
 
-### 6.11 Keepalive Wire Format
+### 6.14 Keepalive Wire Format
 
 The server echoes the client's identity data as a keepalive message (transport type 0x00). The client's keepalive payload contains:
 

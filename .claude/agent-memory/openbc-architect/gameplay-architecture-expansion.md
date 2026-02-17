@@ -89,7 +89,7 @@ peer-to-peer**. Every game message passes through the host:
    - Team chat: host checks group membership, forwards selectively
    - Scoring: host processes the event, computes scores, broadcasts updates
    - Ship selection: host validates, creates ship object, broadcasts
-4. The engine-level `ReceiveMessageHandler` at 0x0069f2a0 also handles
+4. The engine-level `ReceiveMessageHandler` also handles
    certain opcodes (0x00-0x1F) at the C++ level, forwarding position
    updates, firing events, etc.
 
@@ -110,7 +110,7 @@ the relay point.
 
 The message relay is NOT a new standalone subsystem. It operates at two levels:
 
-**Level 1: C++ Engine (ReceiveMessageHandler at 0x0069f2a0)**
+**Level 1: C++ Engine (ReceiveMessageHandler)**
 - Handles opcodes 0x00-0x1F (game state messages)
 - Position updates, firing events, cloak/warp state changes
 - These are handled in the engine C++ code and rebroadcast to peers
@@ -195,7 +195,7 @@ This maps to `TGNetwork_SendTGMessageToGroup(net, "NoMe", msg)` in the SWIG API.
 
 ### Engine-Level Relay (ReceiveMessageHandler Opcodes 0x00-0x1F)
 
-The C++ ReceiveMessageHandler at 0x0069f2a0 uses a dispatch table to handle
+The C++ ReceiveMessageHandler uses a dispatch table to handle
 game opcodes. For a dedicated server, the critical opcodes are:
 
 | Opcode | Name | Server Action |
@@ -226,8 +226,8 @@ This makes Phase 1 gameplay significantly simpler than it first appears.
 
 ### Critical Risk: Opcode Dispatch Table
 
-The dispatch table at DAT_009962d4 determines which function handles each
-opcode. We need to extract or reverse-engineer this table to know:
+The opcode dispatch table determines which function handles each
+opcode. We need to understand this table to know:
 - Which opcodes are just relay (copy + rebroadcast)
 - Which opcodes trigger events (fire ET_OBJECT_EXPLODING, etc.)
 - Which opcodes modify server state (ship creation, etc.)

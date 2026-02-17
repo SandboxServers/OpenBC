@@ -34,7 +34,7 @@ Extracts ship stats and projectile data from Bridge Commander reference scripts.
 
 ```
 # Extract from reference scripts directory
-python3 tools/scrape_bc.py ../STBC-Dedicated-Server/reference/scripts/ -o data/vanilla-1.1.json
+python3 tools/scrape_bc.py <bc-scripts-dir> -o data/vanilla-1.1.json
 ```
 
 Output: JSON with 16 flyable ships (hull, shields, subsystems, weapon hardpoints) and 15 projectile types (damage, speed, lifetime, guidance).
@@ -47,7 +47,7 @@ Compares OpenBC's OBCTRACE binary output against reference payloads from the Val
 python3 tools/compare_traces.py battle_trace.bin
 ```
 
-Reference payloads are embedded in the script, extracted from `STBC-Dedicated-Server/logs/stock/battle-of-valentines-day/packet_trace.log`.
+Reference payloads are embedded in the script, extracted from the Valentine's Day battle trace.
 
 ## gs_query.py
 

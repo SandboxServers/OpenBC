@@ -6,7 +6,7 @@
  * ships, weapons fire, damage, repairs, collisions, and chat --
  * all through the wire protocol.
  *
- * Source traces: STBC-Dedicated-Server/logs/stock/battle-of-valentines-day/
+ * Source: reference battle trace (3-player, 15 minutes, all opcode types)
  */
 
 #include "test_util.h"

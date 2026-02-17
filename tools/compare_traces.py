@@ -4,7 +4,7 @@ Wire Format Comparison: OpenBC vs Valentine's Day Reference Traces
 
 Compares game payload structures byte-by-byte between our OBCTRACE binary
 and reference payloads extracted from the Valentine's Day battle trace
-(STBC-Dedicated-Server/logs/stock/battle-of-valentines-day/packet_trace.log).
+(Valentine's Day battle trace).
 
 Each reference payload was manually extracted from the decrypted hex dumps
 by removing the transport envelope (dir + msgCount + reliable/unreliable framing)
@@ -520,7 +520,7 @@ def main():
     print()
     print(f'  OpenBC trace:  {obc_path} ({file_size:,} bytes, {total_records:,} records)')
     print(f'  Reference:     Valentine\'s Day battle (2025-02-14)')
-    print(f'                 STBC-Dedicated-Server/logs/stock/battle-of-valentines-day/')
+    print(f'                 Reference payloads embedded in this script')
     print()
 
     # Stats

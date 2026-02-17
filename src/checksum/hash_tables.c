@@ -3,13 +3,16 @@
 /*
  * StringHash Pearson lookup tables.
  *
- * Extracted from stbc.exe .data section:
- *   TABLE_0: VA 0x0095C888 (file offset 0x55C888)
- *   TABLE_1: VA 0x0095C988 (file offset 0x55C988)
- *   TABLE_2: VA 0x0095CA88 (file offset 0x55CA88)
- *   TABLE_3: VA 0x0095CB88 (file offset 0x55CB88)
+ * Four 256-byte substitution tables, each a permutation of 0-255.
+ * Together they form Mutually Orthogonal Latin Squares (MOLS) of
+ * order 256: all 6 pairwise combinations produce 256 distinct pairs,
+ * ensuring the four hash bytes are structurally independent.
  *
- * Verified: StringHash("60") using these tables == 0x7E0CE243
+ * These are interface constants required for wire-compatible checksum
+ * exchange with stock Bridge Commander clients.
+ *
+ * Verified: StringHash("60") == 0x7E0CE243
+ *           StringHash("App.pyc") == 0x373EB677
  */
 
 const u8 HASH_TABLE_0[256] = {

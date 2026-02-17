@@ -39,6 +39,8 @@ typedef struct {
     u8                  spawn_payload[256]; /* Cached ObjCreateTeam for late-join forwarding */
     int                 spawn_len;         /* 0 = no ship spawned yet */
     i32                 score;             /* Preserved across disconnect for rejoin */
+    i32                 kills;             /* Kill count */
+    i32                 deaths;            /* Death count */
     bc_fragment_buf_t   fragment;        /* Fragment reassembly state */
     bc_reliable_queue_t reliable_out;    /* Outgoing reliable delivery queue */
     bc_outbox_t         outbox;          /* Outgoing message accumulator */

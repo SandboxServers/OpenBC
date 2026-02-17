@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 /*
- * FileHash (FUN_006a62f0) -- rotate-XOR over file contents.
+ * FileHash -- rotate-XOR over file contents.
  *
  * Algorithm:
  *   hash = 0

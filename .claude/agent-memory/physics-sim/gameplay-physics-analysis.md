@@ -107,7 +107,7 @@ For Option A, the server needs to maintain per-ship:
 destruction because every peer runs the full simulation. The explosion happens simultaneously
 on all peers (approximately -- network state sync keeps them close enough).
 
-However, the `ObjectExplodingHandler` at 0x006a1240 in MultiplayerGame IS registered as
+However, the `ObjectExplodingHandler` in MultiplayerGame IS registered as
 a handler and likely relays the explosion event to other peers for synchronization. The
 pattern would be: the peer where the ship's hull reaches zero first generates the event,
 and the host relays it.

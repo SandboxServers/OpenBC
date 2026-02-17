@@ -123,7 +123,7 @@ typedef struct {
 } bc_checksum_subdir_resp_t;
 
 typedef struct {
-    u8   round_index;      /* 0-3, or 0xFF for empty */
+    u8   round_index;      /* 0-3, or 0xFF for final Multiplayer round */
     u32  ref_hash;         /* Reference hash from client */
     u32  dir_hash;         /* Directory name hash */
     bool empty;            /* True if client reported empty dir (index=0xFF) */

@@ -2,7 +2,7 @@
 #include <string.h>
 
 /*
- * AlbyRules stream cipher -- reimplemented from stbc.exe decompilation.
+ * AlbyRules stream cipher -- reimplemented from protocol specification.
  *
  * Per-byte cipher with PRNG-derived keystream and plaintext feedback.
  * The key "AlbyRules!" is split into 5 key words, which drive a
@@ -35,7 +35,7 @@ static void cipher_reset(cipher_state_t *s)
     memcpy(s->key_string, ALBY_KEY, 10);
 }
 
-/* LCG-variant PRNG step (FUN_006c23c0).
+/* LCG-variant PRNG step.
  * Multiplier 0x4E35, addend 0x15A, cross-multiplication. */
 static void cipher_prng_step(cipher_state_t *s)
 {
@@ -54,7 +54,7 @@ static void cipher_prng_step(cipher_state_t *s)
     s->round_counter = rnd + 1;
 }
 
-/* Key schedule (FUN_006c22f0).
+/* Key schedule -- see transport-cipher.md.
  * Derives 5 key words from key_string, runs 5 PRNG rounds,
  * accumulates XOR of all PRNG outputs. */
 static void cipher_key_schedule(cipher_state_t *s)
@@ -87,7 +87,7 @@ static void cipher_key_schedule(cipher_state_t *s)
     s->accumulator ^= s->prng_output;
 }
 
-/* Encrypt payload bytes in-place (FUN_006c2490).
+/* Encrypt payload bytes in-place.
  * Per-byte: key_schedule → XOR with accumulator → feed plaintext into key. */
 static void encrypt_payload(u8 *data, int len)
 {
@@ -113,7 +113,7 @@ static void encrypt_payload(u8 *data, int len)
     }
 }
 
-/* Decrypt payload bytes in-place (FUN_006c2520).
+/* Decrypt payload bytes in-place.
  * Per-byte: key_schedule → XOR with accumulator → feed plaintext into key. */
 static void decrypt_payload(u8 *data, int len)
 {

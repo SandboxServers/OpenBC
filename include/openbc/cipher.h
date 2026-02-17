@@ -7,7 +7,7 @@
  * AlbyRules stream cipher (TGWinsockNetwork encryption).
  *
  * All game traffic (NOT GameSpy) is encrypted with a custom stream cipher
- * using the hardcoded key "AlbyRules!" (at 0x0095abb4 in stbc.exe).
+ * using the hardcoded key "AlbyRules!".
  *
  * Critical properties:
  *   - Byte 0 of each UDP packet (direction flag) is NOT encrypted.
@@ -17,12 +17,7 @@
  *   - Plaintext feedback: each decrypted byte modifies the key state,
  *     making the cipher position-dependent (NOT a simple XOR).
  *
- * Reimplemented from decompiled TGWinsockNetwork functions:
- *   Reset:        0x006c2280
- *   Key schedule: 0x006c22f0
- *   PRNG step:    0x006c23c0
- *   Encrypt:      0x006c2490
- *   Decrypt:      0x006c2520
+ * Reimplemented from transport-cipher.md specification.
  */
 
 /* Encrypt a packet in-place for sending.

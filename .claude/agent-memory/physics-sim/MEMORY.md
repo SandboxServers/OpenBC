@@ -47,5 +47,5 @@
 
 ### Game Loop
 - Original runs at ~30fps (33ms timer in dedicated server)
-- SimulationPipelineTick at 0x00451ac0 drives physics + network
-- Game logic is Category 5: 0x0052-0x005A (2,073 functions)
+- SimulationPipelineTick drives physics + network each frame
+- Game logic is a major category (~2,073 functions)

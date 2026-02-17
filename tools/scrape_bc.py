@@ -8,7 +8,7 @@ they depend on App/GlobalPropertyTemplates modules we don't have.
 
 Usage:
     python3 tools/scrape_bc.py <scripts_dir> [-o output.json]
-    python3 tools/scrape_bc.py ../STBC-Dedicated-Server/reference/scripts/ -o data/vanilla-1.1.json
+    python3 tools/scrape_bc.py <bc-scripts-dir> -o data/vanilla-1.1.json
 """
 
 import argparse

@@ -582,12 +582,12 @@ The transition is incremental. Each phase produces a working server:
 - Damage system (collision + weapon + explosion)
 - Subsystem state tracking and round-robin serialization
 - Game rules engine (frag limit, time limit, respawn)
-- Deliverable: fully functional multiplayer, no stbc.exe dependency
+- Deliverable: fully functional multiplayer, standalone server
 
 ### Coexistence
 
 During migration, both servers can operate:
-- **Proxy server** (current): runs stbc.exe, full fidelity, proven stable
+- **Proxy server** (current): runs game executable, full fidelity, proven stable
 - **OpenBC server**: standalone, mod-extensible, growing feature set
 
 Clients can connect to either — they speak the same protocol.

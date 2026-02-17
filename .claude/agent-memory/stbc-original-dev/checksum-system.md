@@ -26,7 +26,7 @@
 - Behavioral equivalence = bytecode equivalence
 
 ## Index 0 Reference Hash
-- PTR_DAT_008d9af4: Hardcoded hash of retail App.pyc
+- Hardcoded hash of retail App.pyc stored in game binary
 - Version stamp to ensure retail version, not just any matching version
 - Probably added after QA found beta App.pyc causing subtle desyncs
 
@@ -36,8 +36,8 @@
 - Serialized to keep memory usage low (one comparison in flight)
 - Queue in NetFile hash table B, dequeue on verify
 
-## SkipChecksum Flag (DAT_0097f94c)
-- Debug/development feature left accessible
+## SkipChecksum Flag
+- Debug/development feature left accessible in the game binary
 - Likely controllable via command-line, config, or memory write
 - LAN hosting mode probably sets this (HOST_LAN_BUTTON in MultiplayerMenus.py)
 - Legitimate for LAN play where file matching is assumed

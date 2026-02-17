@@ -137,7 +137,7 @@ int bc_transport_build_ack(u8 *out, int out_size, u16 seq, u8 flags)
 
 int bc_transport_build_connect_ack(u8 *out, int out_size, u8 slot, u32 ip_be)
 {
-    /* ConnectAck packet format from ddraw proxy trace:
+    /* ConnectAck packet format from wire capture:
      * [0x02][0x01][0x05][0x0A][0xC0][0x02][0x00][slot][ip:4]
      * direction=BC_DIR_CLIENT, count=1, type=ConnectAck(0x05),
      * totalLen=10, flags=0xC0, status=0x02 (accept), pad=0x00,

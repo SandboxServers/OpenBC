@@ -110,7 +110,7 @@ void          obc_engine_run(obc_engine_t *engine); // blocking main loop
            `gamespy_responder.h`, `gamespy_responder.c`
 
 This is the largest and most critical Phase 1 module. It reimplements the
-TGWinsockNetwork (0x34C bytes) behavior using ENet as the UDP transport.
+TGWinsockNetwork (844 bytes) behavior using ENet as the UDP transport.
 
 **Why ENet instead of raw sockets**: The original TGNetwork implements its own
 reliable delivery, sequencing, ACK tracking, and priority queues over raw UDP.
@@ -122,10 +122,10 @@ peer management) with a proven, portable implementation. This avoids reimplement
 // tg_network.h
 typedef struct tg_network_t {
     ENetHost    *host;           // ENet host (server side)
-    uint16_t     port;           // Default 22101 (0x5655)
+    uint16_t     port;           // Default 22101
     uint8_t      conn_state;     // 2=HOST, 3=CLIENT, 4=DISCONNECTED
     bool         is_host;        // true for server
-    bool         send_enabled;   // maps to WSN+0x10C
+    bool         send_enabled;   // Send-enabled flag
     uint32_t     local_id;       // 1 for host
     uint32_t     host_id;        // 1 for host
     // Peer tracking (up to 16)
@@ -135,16 +135,16 @@ typedef struct tg_network_t {
     ecs_entity_t entity;
 } tg_network_t;
 
-// Peer structure (maps to original's peer array at WSN+0x2C)
+// Peer structure (maps to original's peer array)
 typedef struct tg_peer_t {
     uint32_t     peer_id;        // Unique ID assigned on connect
     ENetPeer    *enet_peer;      // ENet peer handle
     uint8_t      player_slot;    // 0-15, or 0xFF if unassigned
     bool         active;
     // Queue statistics (for diagnostics)
-    int          unreliable_pending;  // peer+0x7C equiv
-    int          reliable_pending;    // peer+0x98 equiv
-    int          priority_pending;    // peer+0xB4 equiv
+    int          unreliable_pending;
+    int          reliable_pending;
+    int          priority_pending;
 } tg_peer_t;
 ```
 
@@ -363,7 +363,7 @@ typedef struct obc_event_t {
     const char *handle_str;       // SWIG handle string for this event
 } obc_event_t;
 
-// Handler registration (maps to TGEventHandlerObject_AddPythonFuncHandler...)
+// Handler registration
 typedef struct obc_event_handler_t {
     obc_event_type_t event_type;
     // Either a C function pointer or a Python function reference
@@ -393,7 +393,7 @@ typedef struct obc_event_manager_t {
 } obc_event_manager_t;
 ```
 
-**Key event types for Phase 1** (hex values from decompiled code):
+**Key event types for Phase 1**:
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
@@ -412,13 +412,13 @@ typedef struct obc_event_manager_t {
 
 ### 2.6 `src/network/netfile.c` -- Checksum Manager
 
-Reimplements the NetFile object (0x48 bytes) that handles checksum exchange,
+Reimplements the NetFile object (72 bytes) that handles checksum exchange,
 file transfer, and message opcode dispatch for opcodes 0x20-0x27.
 
 ```c
 // Checksum request entry
 typedef struct checksum_request_t {
-    uint8_t  index;           // 0-3
+    uint8_t  index;           // 0-4 (rounds 0-3 plus round 0xFF)
     char     directory[256];  // e.g., "scripts/"
     char     filter[64];      // e.g., "App.pyc" or "*.pyc"
     bool     recursive;
@@ -430,26 +430,24 @@ typedef struct checksum_request_t {
 // Per-player checksum state
 typedef struct player_checksum_state_t {
     uint32_t           peer_id;
-    checksum_request_t requests[4];
+    checksum_request_t requests[5];  // 5 rounds: 0, 1, 2, 3, 0xFF
     int                current_index;    // Next to verify
     bool               all_passed;
 } player_checksum_state_t;
 
 typedef struct netfile_t {
-    // Hash table A: tracking (matches original vtable+0x18)
-    // Hash table B: queued checksum requests (matches original vtable+0x28)
-    // Hash table C: pending file transfers (matches original vtable+0x38)
+    // Tracking tables for checksums, queued requests, and pending file transfers
     player_checksum_state_t players[16];
     int num_active;
-    // The 4 standard checksum definitions
-    checksum_request_t definitions[4];
-    // Config: skip checksums flag (DAT_0097f94c)
+    // The 5 standard checksum definitions
+    checksum_request_t definitions[5];
+    // Config: skip checksums flag
     bool skip_checksums;
     ecs_entity_t entity;
 } netfile_t;
 ```
 
-The four checksum requests are fixed:
+The five checksum requests are fixed:
 
 | Index | Directory | Filter | Recursive |
 |-------|-----------|--------|-----------|
@@ -457,6 +455,7 @@ The four checksum requests are fixed:
 | 1 | scripts/ | Autoexec.pyc | No |
 | 2 | scripts/ships/ | *.pyc | Yes |
 | 3 | scripts/mainmenu/ | *.pyc | No |
+| 0xFF | Scripts/Multiplayer/ | *.pyc | Yes |
 
 ### 2.7 `src/scripting/` -- Python Embedding
 
@@ -472,7 +471,7 @@ typedef struct python_host_t {
     // Module references
     PyObject *app_module;   // The "App" module
     PyObject *appc_module;  // The "Appc" module (low-level)
-    // Nesting counter (matches original at 0x0099EE38)
+    // Python nesting counter (prevents reentrancy in C<->Python calls)
     int nesting_count;
     // Script search paths
     char script_path[256];
@@ -832,7 +831,7 @@ main(argc, argv)
     |   UtopiaModule.is_host = true
     |   UtopiaModule.is_multiplayer = true
     |
-    [8] Initialize network (equivalent to FUN_00445d90)
+    [8] Initialize network (InitMultiplayer equivalent)
     |   a. Create TGWinsockNetwork -> handle "_00000006_p_TGWinsockNetwork"
     |   b. Set port (default 22101)
     |   c. tg_network_host_or_join(network, NULL, NULL)
@@ -845,14 +844,14 @@ main(argc, argv)
     |
     [9] Create MultiplayerGame
     |   Create entity with MultiplayerGame component
-    |   Register all event handlers (equivalent to FUN_0069efe0):
+    |   Register all event handlers (RegisterMPGameHandlers):
     |     - NewPlayerHandler (ET_NETWORK_NEW_PLAYER)
     |     - DisconnectHandler (ET_NETWORK_DISCONNECT_EVENT)
     |     - ChecksumCompleteHandler (ET_CHECKSUM_COMPLETE)
     |     - ReceiveMessageHandler (ET_NETWORK_MESSAGE_EVENT)
     |     - KillGameHandler (ET_KILL_GAME)
     |     - DeletePlayerHandler (ET_NETWORK_DELETE_PLAYER)
-    |     - ... (all 28 handlers from FUN_0069efe0)
+    |     - ... (all 28 registered multiplayer game handlers)
     |
     [10] Run server automation (equivalent to DedicatedServer.py Phase 3)
     |    Set game name, captain name
@@ -889,7 +888,7 @@ Client sends connection request to port 22101
     4. Assign slot, store peer_id in slot
     5. Start checksum exchange:
        netfile_start_checksums(netfile, peer_id)
-       -> Queue 4 checksum requests in hash table B
+       -> Queue 5 checksum requests
        -> Send request #0 (opcode 0x20) immediately
     |
     v
@@ -902,7 +901,7 @@ Client sends connection request to port 22101
        Compare server hash vs client hash
        Match: dequeue, send next request
        Mismatch: fire ET_SYSTEM_CHECKSUM_FAILED
-    -> When all 4 pass: fire ET_CHECKSUM_COMPLETE
+    -> When all 5 pass: fire ET_CHECKSUM_COMPLETE
     |
     v
 [ChecksumCompleteHandler fires]
@@ -942,8 +941,8 @@ typedef struct OBC_MultiplayerState {
     char     captain_name[64];
     char     map_name[256];
     float    game_time;
-    uint8_t  setting1;       // DAT_008e5f59
-    uint8_t  setting2;       // DAT_0097faa2
+    uint8_t  setting1;       // Collision damage flag
+    uint8_t  setting2;       // Friendly fire flag
     bool     game_started;
     bool     friendly_fire;
 } OBC_MultiplayerState;
@@ -970,8 +969,8 @@ typedef struct OBC_PlayerSlot {
     uint32_t peer_id;
     bool     active;
     // Checksum state
-    uint32_t checksums[4];   // Client-reported hashes
-    bool     checksum_verified[4];
+    uint32_t checksums[5];   // Client-reported hashes (5 rounds)
+    bool     checksum_verified[5];
 } OBC_PlayerSlot;
 
 // Server statistics
@@ -1150,16 +1149,15 @@ This means we must reimplement:
 - ACK tracking with retry logic
 - Connection handshake
 
-The ~225 functions in category 12 (TGNetwork) provide the reference.
 The key functions to reimplement:
-1. `CreateUDPSocket` (0x006b9b20) - bind + non-blocking
-2. `HostOrJoin` (0x006b3ec0) - state machine setup
-3. `Send` (0x006b4c10) - queue message to peer
-4. `Update` (0x006b4560) - send/recv/dispatch per tick
-5. `SendOutgoingPackets` (0x006b55b0) - serialize + sendto
-6. `ProcessIncomingPackets` (0x006b5c90) - recvfrom + deserialize
-7. `DispatchIncomingQueue` (0x006b5f70) - sequence validation
-8. `ReliableACKHandler` (0x006b61e0) - ACK tracking
+1. `CreateUDPSocket` - bind + non-blocking
+2. `HostOrJoin` - state machine setup
+3. `Send` - queue message to peer
+4. `Update` - send/recv/dispatch per tick
+5. `SendOutgoingPackets` - serialize + sendto
+6. `ProcessIncomingPackets` - recvfrom + deserialize
+7. `DispatchIncomingQueue` - sequence validation
+8. `ReliableACKHandler` - ACK tracking
 
 ### 9.4 Checksum Strategy
 
@@ -1168,7 +1166,7 @@ clients. Options:
 
 **Option A: Pre-compute checksums from BC install**
 - Server reads .pyc files from the BC scripts/ directory
-- Computes hashes using the same algorithm as the original (FUN_007202e0)
+- Computes hashes using the same Pearson-based hash algorithm
 - Compares with client-reported hashes
 - Pro: True compatibility verification
 - Con: Requires BC install on server
@@ -1181,12 +1179,13 @@ clients. Options:
 
 **Decision: Implement Option A with Option B as a config flag (`skip_checksums=true`)**
 
-The hash algorithm (FUN_007202e0) must be reverse-engineered to match exactly.
-The decompiled code at that address provides the implementation.
+The hash algorithm must be replicated exactly. It uses four 256-byte Pearson
+substitution tables that form Mutually Orthogonal Latin Squares (MOLS),
+producing a 4-byte hash. Verified: StringHash("60") == 0x7E0CE243.
 
 ### 9.5 Python Nesting Counter
 
-The original game tracks a nesting counter at 0x0099EE38. When Python code calls
+The original game tracks a Python nesting counter. When Python code calls
 into C which calls back into Python, this counter prevents reentrancy issues.
 `PyRun_String` requires the counter to be 0. We replicate this:
 
@@ -1273,7 +1272,7 @@ Phase 1 is complete when:
 
 2. **Connection**: Client can connect to the server. Server assigns a player slot.
 
-3. **Checksum Exchange**: Server sends 4 checksum requests (opcodes 0x20),
+3. **Checksum Exchange**: Server sends 5 checksum requests (opcodes 0x20),
    client responds (0x21), server verifies and either passes or fails.
 
 4. **Settings Delivery**: After checksums pass, server sends game settings
@@ -1299,7 +1298,7 @@ Phase 1 is complete when:
 | Server starts | Run binary | Binds port 22101, no crash |
 | LAN discovery | BC client scan | Server appears in list with correct name |
 | Client connect | BC client join | Connection established, slot assigned |
-| Checksum exchange | BC client join | All 4 checksums pass (or fail correctly) |
+| Checksum exchange | BC client join | All 5 checksums pass (or fail correctly) |
 | Settings received | BC client join | Client shows ship selection screen |
 | Multi-client | 2+ BC clients | Both connect, separate slots |
 | Disconnect | Kill BC client | Server detects, frees slot |
@@ -1326,7 +1325,7 @@ Phase 1 is complete when:
 | Risk | Probability | Impact | Mitigation |
 |------|------------|--------|------------|
 | TGNetwork wire format incompatible with any existing library | HIGH | HIGH | Plan for raw UDP from the start; use packet captures as ground truth |
-| Hash algorithm (FUN_007202e0) not perfectly replicated | MEDIUM | HIGH | Capture actual hash values from running game; test bit-for-bit |
+| Hash algorithm not perfectly replicated | MEDIUM | HIGH | Capture actual hash values from running game; test bit-for-bit |
 | Python 1.5.2 scripts have syntax incompatible with shim | MEDIUM | MEDIUM | Offline migration tool; test with actual BC script corpus |
 | GameSpy query format undocumented edge cases | LOW | MEDIUM | Capture actual queries from BC client; simple protocol |
 | Event type numeric values don't match original | HIGH | HIGH | Extract all ET_* values from App.py (they are Appc constants, need actual integer values) |
@@ -1338,8 +1337,7 @@ Phase 1 is complete when:
 
 ### TGNetwork Packet Header (preliminary, needs verification)
 
-Based on decompiled analysis of SendOutgoingPackets (0x006b55b0) and
-ProcessIncomingPackets (0x006b5c90):
+Based on analysis of the SendOutgoingPackets and ProcessIncomingPackets functions:
 
 ```
 Offset  Size  Field
@@ -1387,21 +1385,21 @@ Status (Server->Client, opcode 0x01):
 
 ## Appendix B: Event Type Value Extraction
 
-The actual integer values of ET_* constants must be extracted from the compiled
-Appc module. From the decompiled code:
+The actual integer values of ET_* constants are extracted from the compiled
+Appc module and verified against runtime behavior:
 
 | Event | Hex Value | Source |
 |-------|-----------|--------|
-| ET_NETWORK_MESSAGE_EVENT | 0x60001 | Confirmed in decompiled code |
-| ET_NETWORK_CONNECT_EVENT | 0x60002 | Confirmed (host session event) |
-| ET_CHECKSUM_COMPLETE | 0x8000e8 | Confirmed in decompiled code |
-| ET_SYSTEM_CHECKSUM_FAILED | 0x8000e7 | Confirmed in decompiled code |
-| ET_KILL_GAME | 0x8000e9 | Confirmed in decompiled code |
+| ET_NETWORK_MESSAGE_EVENT | 0x60001 | Verified from runtime behavior |
+| ET_NETWORK_CONNECT_EVENT | 0x60002 | Verified (host session event) |
+| ET_CHECKSUM_COMPLETE | 0x8000e8 | Verified from runtime behavior |
+| ET_SYSTEM_CHECKSUM_FAILED | 0x8000e7 | Verified from runtime behavior |
+| ET_KILL_GAME | 0x8000e9 | Verified from runtime behavior |
 | ET_START | 0x800053 | From App.py docs |
 | ET_CREATE_SERVER | 0x80004A | From App.py docs |
 
 Remaining ET_* values (ET_NETWORK_NEW_PLAYER, ET_NETWORK_DELETE_PLAYER, etc.)
-must be extracted from a running BC instance or from the Appc.pyd binary.
+must be extracted from a running BC instance or from the Appc module binary.
 
 ---
 

@@ -34,14 +34,18 @@
  */
 typedef struct {
     char hostname[64];
-    char missionscript[64];    /* Mission script name (e.g. "Multi1") */
-    char mapname[64];          /* Human-readable map name (e.g. "Deep Space Encounter") */
+    char missionscript[64];    /* Mission script path (e.g. "Multiplayer.Episode.Mission1.Mission1") */
+    char mapname[64];          /* Game mode display (e.g. "DM") -- shown in Type column */
     char gamemode[32];         /* "openplaying", "settings", etc. */
-    char system[64];           /* Star system script (e.g. "DeepSpace9") */
+    char system[64];           /* System key (e.g. "Multi1") -- shown in Game Info */
     int  numplayers;
     int  maxplayers;
     int  timelimit;            /* Minutes, 0 = no limit */
     int  fraglimit;            /* Kills, 0 = no limit */
+    /* Player list for GameSpy \player_N\ entries.
+     * player_names[0] = "Dedicated Server" (always present). */
+    char player_names[8][32];
+    int  player_count;         /* Number of entries in player_names[] */
 } bc_server_info_t;
 
 /* Check if a packet is a GameSpy query (starts with '\').

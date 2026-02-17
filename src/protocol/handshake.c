@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 
-/* Checksum round definitions (from RE of FUN_006a39b0).
+/* Checksum round definitions (from verified protocol specification).
  * Rounds 2-3 have NO trailing slash on the directory name -- verified
  * against stock dedi packet traces (dir bytes are "scripts/ships" not
  * "scripts/ships/").  The base "scripts/" in rounds 0-1 does keep its
@@ -83,7 +83,7 @@ int bc_settings_build(u8 *buf, int buf_size,
     bc_buffer_t b;
     bc_buf_init(&b, buf, (size_t)buf_size);
 
-    /* Wire format from ChecksumCompleteHandler (FUN_006a1b10):
+    /* Wire format from checksum-handshake-protocol.md:
      * [opcode:u8][gameTime:f32][collision:bit][friendly:bit][slot:u8]
      * [mapLen:u16][mapName:bytes][checksumFlag:bit] */
     if (!bc_buf_write_u8(&b, BC_OP_SETTINGS)) return -1;
@@ -256,19 +256,6 @@ bool bc_checksum_response_parse(bc_checksum_resp_t *resp,
     if (!bc_buf_read_u8(&b, &index)) return false;
     resp->round_index = index;
 
-    if (index == 0xFF) {
-        /* Empty directory response: [0x21][0xFF][dir_hash:u32][file_count:u32] */
-        resp->empty = true;
-        u32 dh;
-        if (!bc_buf_read_u32(&b, &dh)) return false;
-        resp->dir_hash = dh;
-        /* Read file_count (should be 0) */
-        u32 fc;
-        if (!bc_buf_read_u32(&b, &fc)) return false;
-        resp->file_count = (int)fc;
-        return true;
-    }
-
     /* Normal response: [0x21][index:u8][ref_hash:u32][dir_hash:u32][file_tree...] */
     u32 rh, dh;
     if (!bc_buf_read_u32(&b, &rh)) return false;
@@ -276,8 +263,8 @@ bool bc_checksum_response_parse(bc_checksum_resp_t *resp,
     resp->ref_hash = rh;
     resp->dir_hash = dh;
 
-    /* Determine if this round is recursive */
-    bool recursive = (index == 2); /* Round 2 = scripts/ships/ is recursive */
+    /* Round 2 (scripts/ships) and 0xFF (Scripts/Multiplayer) are recursive */
+    bool recursive = (index == 2 || index == 0xFF);
 
     if (!parse_file_tree(&b,
             resp->files, &resp->file_count, BC_CHECKSUM_MAX_RESP_FILES,

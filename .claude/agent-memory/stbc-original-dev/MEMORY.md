@@ -12,7 +12,7 @@
 - Player limit: 2-8 (Python), 16 slots (C++ array). NOT "2 player only"
 - Architecture: Lockstep simulation with input relay. NOT server-authoritative
 - Checksums: Anti-desync, not anti-cheat. 4 directories, sequential verification
-- SkipChecksum (0x0097f94c): Debug/LAN feature, legitimate to expose
+- SkipChecksum flag: Debug/LAN feature, legitimate to expose
 - Custom/ directory: Intentionally checksum-exempt for modding
 - Tick rate: 30fps (33ms) is appropriate for dedicated server
 - Lobby state: Push-based, host sends settings after checksum pass

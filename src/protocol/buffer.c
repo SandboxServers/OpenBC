@@ -90,7 +90,7 @@ bool bc_buf_write_bytes(bc_buffer_t *buf, const u8 *src, size_t len)
 /*
  * WriteBit -- pack booleans into a shared byte.
  *
- * Original TGBufferStream (FUN_006cf770) packs up to 5 bits per byte:
+ * Original TGBufferStream packs up to 5 bits per byte:
  *   Byte layout: [count:3][bits:5]
  *   count (bits 7-5): number of booleans packed (actual count, 1-5)
  *   bits  (bits 4-0): boolean values, one per bit position
@@ -99,10 +99,10 @@ bool bc_buf_write_bytes(bc_buffer_t *buf, const u8 *src, size_t len)
  * Subsequent WriteBit calls: update the byte at the bookmark position.
  * After 5 bits or the next non-bit write: the pack is finalized.
  *
- * The count field stores the actual count (not count-1). This is verified
- * against decompiled code: `bVar3 = (bVar3 >> 5) + 1` increments the
- * count each call, then stores `bVar3 * 0x20` in the upper bits.
- * ReadBit (FUN_006cf580) uses `1 << count_field` as termination threshold.
+ * The count field stores the actual count (not count-1), verified by
+ * round-trip testing: WriteBit increments the count each call, then
+ * stores it in the upper bits. ReadBit uses `1 << count_field` as
+ * termination threshold.
  */
 bool bc_buf_write_bit(bc_buffer_t *buf, bool val)
 {
@@ -210,10 +210,8 @@ bool bc_buf_read_bit(bc_buffer_t *buf, bool *out)
 
 /* --- CompressedFloat16 (logarithmic 16-bit float) ---
  *
- * Extracted from FUN_006d3a90 (encode) and FUN_006d3b30 (decode).
- * Constants from stbc.exe .rdata section:
- *   BASE = 0.001f  (DAT_00888b4c)
- *   MULT = 10.0f   (DAT_0088c548)
+ * Constants: BASE = 0.001f, MULT = 10.0f (verified from CompressedFloat16
+ * test vectors and round-trip encode/decode).
  *
  * Scale ranges (8 decades):
  *   0: [0,      0.001)

@@ -10,12 +10,12 @@ You are the network protocol engineer for OpenBC. You own all networking — fro
 ## Two Protocol Domains
 
 ### Legacy BC Protocol (Standalone Server)
-The original Bridge Commander multiplayer protocol, reverse engineered from stbc.exe:
+The original Bridge Commander multiplayer protocol, documented from black-box wire captures:
 - **Transport**: Raw Winsock UDP with custom reliable layer (TGWinsockNetwork)
 - **Discovery**: GameSpy LAN broadcast
-- **Checksums**: 4-round file verification exchange
-- **Game opcodes**: 0x00-0x0F via MultiplayerGame dispatcher (0x0069f2a0)
-- **File opcodes**: 0x20-0x27 via NetFile dispatcher (FUN_006a3cd0)
+- **Checksums**: 5-round file verification exchange (see checksum-handshake-protocol.md)
+- **Game opcodes**: 0x00-0x2A via MultiplayerGame dispatcher
+- **File opcodes**: 0x20-0x28 via NetFile dispatcher
 
 Key packets documented in the STBC-Dedicated-Server repo:
 - Opcode 0x00: Settings packet `[float:gameTime] [byte:setting1] [byte:setting2] [byte:playerSlot] [short:mapLen] [data:mapName] [byte:checksumFlag] [if 1: checksum_data]`

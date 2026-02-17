@@ -41,11 +41,11 @@ ScriptEventDispatch calls registered Python handlers synchronously.
 - Queries (v4): `ecs_query(world, {...})` + `ecs_query_iter` + `ecs_query_next` + `ecs_query_fini`
 
 ## Original BC Architecture Reference
-- Player slots: 0-15, each 0x18 bytes at MultiplayerGame+0x74
+- Player slots: 0-15, each 24 bytes in MultiplayerGame's player array
 - Checksum exchange: 4 rounds (scripts/App.pyc, scripts/Autoexec.pyc, scripts/ships/*.pyc, scripts/mainmenu/*.pyc)
 - Connection states: 2=hosting, 3=connected (counterintuitive)
-- Event types: 0x60001=message, 0x60002=host_start, 0x8000e7=checksum_fail, 0x8000e8=checksum_complete
-- SWIG pointer format: "_{hex}_p_{TypeName}" e.g. "_8097fa78_p_TGNetwork"
+- Event types: message, host_start, checksum_fail, checksum_complete
+- SWIG pointer format: "_{hex}_p_{TypeName}"
 
 ## Phase 1 Tick Pipeline
 ```

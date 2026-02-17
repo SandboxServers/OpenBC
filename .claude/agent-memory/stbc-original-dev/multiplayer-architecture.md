@@ -1,10 +1,10 @@
 # Multiplayer Architecture - Developer Intent
 
 ## Player Limits
-- C++ layer: 16-slot array at MultiplayerGame+0x74 (stride 0x18)
+- C++ layer: 16-slot player array in MultiplayerGame (24 bytes per slot)
 - Python layer: MIN_PLAYER_LIMIT=2, MAX_PLAYER_LIMIT=8 (MissionMenusShared.py:153-155)
 - Host cycles limit via ChangePlayerLimit(), calls pGame.SetMaxPlayers()
-- NewPlayerHandler (0x006a0a30) checks `active < maxPlayers(this+0x1FC)`
+- NewPlayerHandler checks active player count < maxPlayers
 - 16 slots = headroom. 8 max = bandwidth/CPU concession for 56k era
 - "2 player" misconception comes from typical usage, not a hard limit
 
