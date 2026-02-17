@@ -962,16 +962,22 @@ TEST(bootplayer_build_checksum_fail)
 
 TEST(delete_player_build)
 {
-    u8 buf[16];
+    u8 buf[64];
     int len;
 
-    len = bc_delete_player_ui_build(buf, sizeof(buf));
-    ASSERT_EQ_INT(len, 1);
+    /* DeletePlayerUI: [0x17][game_slot] */
+    len = bc_delete_player_ui_build(buf, sizeof(buf), 2);
+    ASSERT_EQ_INT(len, 2);
     ASSERT_EQ(buf[0], BC_OP_DELETE_PLAYER_UI);
+    ASSERT_EQ(buf[1], 2);
 
-    len = bc_delete_player_anim_build(buf, sizeof(buf));
-    ASSERT_EQ_INT(len, 1);
+    /* DeletePlayerAnim: [0x18][name_len:u16][name:bytes] */
+    len = bc_delete_player_anim_build(buf, sizeof(buf), "Cady");
+    ASSERT_EQ_INT(len, 7);  /* 1 + 2 + 4 */
     ASSERT_EQ(buf[0], BC_OP_DELETE_PLAYER_ANIM);
+    ASSERT_EQ(buf[1], 4);  /* name_len low byte */
+    ASSERT_EQ(buf[2], 0);  /* name_len high byte */
+    ASSERT_EQ(buf[3], 'C');
 }
 
 /* === Reliable delivery tests === */
@@ -1195,7 +1201,8 @@ TEST(outbox_single_unreliable)
     ASSERT(bc_transport_parse(pkt, len, &parsed));
     ASSERT_EQ(parsed.direction, BC_DIR_SERVER);
     ASSERT_EQ_INT(parsed.msg_count, 1);
-    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_KEEPALIVE);  /* type 0x00 = unreliable */
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_RELIABLE);  /* 0x32 with flags=0x00 = unreliable */
+    ASSERT_EQ(parsed.msgs[0].flags, 0x00);
     ASSERT_EQ_INT(parsed.msgs[0].payload_len, 3);
     ASSERT_EQ(parsed.msgs[0].payload[0], 0x1C);
 }
@@ -1225,8 +1232,9 @@ TEST(outbox_multi_message)
     ASSERT(bc_transport_parse(pkt, len, &parsed));
     ASSERT_EQ_INT(parsed.msg_count, 3);
 
-    /* Message 0: unreliable */
-    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_KEEPALIVE);
+    /* Message 0: unreliable (type 0x32 flags=0x00) */
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_RELIABLE);
+    ASSERT_EQ(parsed.msgs[0].flags, 0x00);
     ASSERT_EQ_INT(parsed.msgs[0].payload_len, 2);
 
     /* Message 1: reliable with seq=5 */
@@ -1251,10 +1259,10 @@ TEST(outbox_overflow)
     u8 big_payload[200];
     memset(big_payload, 0xAA, sizeof(big_payload));
 
-    /* 200 + 2 header = 202 per message. With 2 byte packet header, ~2.5 messages fit */
+    /* 200 + 3 header = 203 per message. With 2 byte packet header, ~2.5 messages fit */
     ASSERT(bc_outbox_add_unreliable(&outbox, big_payload, 200));
     ASSERT(bc_outbox_add_unreliable(&outbox, big_payload, 200));
-    /* Third should fail (2 + 202 + 202 + 202 = 608 > 512) */
+    /* Third should fail (2 + 203 + 203 + 203 = 611 > 512) */
     ASSERT(!bc_outbox_add_unreliable(&outbox, big_payload, 200));
 
     /* But a small one should still fit */

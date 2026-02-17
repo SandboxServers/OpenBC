@@ -178,13 +178,15 @@ static int tc_build_real_checksum(u8 *buf, int buf_size, u8 round,
 }
 
 /* Internal: find a reliable message with game payload in a parsed packet.
- * Auto-ACKs all reliable messages encountered. */
+ * Auto-ACKs all reliable messages encountered.
+ * Type 0x32 with flags & 0x80 = reliable; flags == 0x00 = unreliable (skip). */
 static bc_transport_msg_t *tc_find_reliable_payload(bc_test_client_t *c,
                                                       bc_packet_t *parsed)
 {
     bc_transport_msg_t *found = NULL;
     for (int i = 0; i < parsed->msg_count; i++) {
-        if (parsed->msgs[i].type == BC_TRANSPORT_RELIABLE) {
+        if (parsed->msgs[i].type == BC_TRANSPORT_RELIABLE &&
+            (parsed->msgs[i].flags & 0x80)) {
             tc_send_ack(c, parsed->msgs[i].seq);
             if (!found && parsed->msgs[i].payload_len > 0)
                 found = &parsed->msgs[i];
@@ -329,7 +331,7 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
 
         for (int i = 0; i < parsed.msg_count; i++) {
             bc_transport_msg_t *msg = &parsed.msgs[i];
-            if (msg->type == BC_TRANSPORT_RELIABLE) {
+            if (msg->type == BC_TRANSPORT_RELIABLE && (msg->flags & 0x80)) {
                 tc_send_ack(c, msg->seq);
                 if (msg->payload_len > 0) {
                     u8 op = msg->payload[0];
@@ -366,7 +368,7 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
 
         for (int i = 0; i < parsed.msg_count; i++) {
             bc_transport_msg_t *msg = &parsed.msgs[i];
-            if (msg->type == BC_TRANSPORT_RELIABLE) {
+            if (msg->type == BC_TRANSPORT_RELIABLE && (msg->flags & 0x80)) {
                 tc_send_ack(c, msg->seq);
                 if (msg->payload_len > 0 && msg->payload[0] == BC_MSG_MISSION_INIT)
                     got_mission = true;
@@ -415,8 +417,8 @@ static const u8 *tc_scan_cached(bc_test_client_t *c, int *out_len)
     while (c->cached_idx < c->cached_pkt.msg_count) {
         bc_transport_msg_t *msg = &c->cached_pkt.msgs[c->cached_idx++];
 
-        /* Auto-ACK reliables */
-        if (msg->type == BC_TRANSPORT_RELIABLE) {
+        /* Auto-ACK reliable messages (type 0x32 with flags & 0x80) */
+        if (msg->type == BC_TRANSPORT_RELIABLE && (msg->flags & 0x80)) {
             tc_send_ack(c, msg->seq);
         }
 
@@ -484,7 +486,8 @@ static void test_client_drain(bc_test_client_t *c, int timeout_ms)
             continue;
 
         for (int i = 0; i < parsed.msg_count; i++) {
-            if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE)
+            if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE &&
+                (parsed.msgs[i].flags & 0x80))
                 tc_send_ack(c, parsed.msgs[i].seq);
         }
     }

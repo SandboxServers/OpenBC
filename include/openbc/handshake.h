@@ -84,12 +84,15 @@ int bc_ui_collision_build(u8 *buf, int buf_size, bool collision_enabled);
 int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason);
 
 /* Build a DeletePlayerUI payload (opcode 0x17).
- * Returns bytes written (always 1), or -1 on error. */
-int bc_delete_player_ui_build(u8 *buf, int buf_size);
+ * game_slot: the 0-based game slot of the departing player.
+ * Returns bytes written, or -1 on error. */
+int bc_delete_player_ui_build(u8 *buf, int buf_size, u8 game_slot);
 
 /* Build a DeletePlayerAnim payload (opcode 0x18).
- * Returns bytes written (always 1), or -1 on error. */
-int bc_delete_player_anim_build(u8 *buf, int buf_size);
+ * player_name: the departing player's name (for "X has left" notification).
+ * Returns bytes written, or -1 on error. */
+int bc_delete_player_anim_build(u8 *buf, int buf_size,
+                                 const char *player_name);
 
 /* --- Checksum response parsing and validation --- */
 

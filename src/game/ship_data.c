@@ -203,6 +203,15 @@ const bc_ship_class_t *bc_registry_find_ship(const bc_game_registry_t *reg, u16 
     return NULL;
 }
 
+int bc_registry_find_ship_index(const bc_game_registry_t *reg, u16 species_id)
+{
+    if (!reg) return -1;
+    for (int i = 0; i < reg->ship_count; i++) {
+        if (reg->ships[i].species_id == species_id) return i;
+    }
+    return -1;
+}
+
 const bc_projectile_def_t *bc_registry_get_projectile(const bc_game_registry_t *reg, u8 net_type_id)
 {
     if (!reg) return NULL;

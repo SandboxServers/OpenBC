@@ -178,6 +178,90 @@ bool bc_parse_object_create_header(const u8 *payload, int len,
 }
 
 /*
+ * Ship blob header (inside ObjCreateTeam)
+ *
+ * The ship blob starts with:
+ *   [object_id:i32][species_id:u16][pos_x:f32][pos_y:f32][pos_z:f32]...
+ *
+ * Minimum: 4+2+12 = 18 bytes
+ */
+bool bc_parse_ship_blob_header(const u8 *blob, int len,
+                                bc_ship_blob_header_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)blob, (size_t)len);
+
+    if (!bc_buf_read_i32(&buf, &out->object_id)) return false;
+    if (!bc_buf_read_u16(&buf, &out->species_id)) return false;
+    if (!bc_buf_read_f32(&buf, &out->pos_x)) return false;
+    if (!bc_buf_read_f32(&buf, &out->pos_y)) return false;
+    if (!bc_buf_read_f32(&buf, &out->pos_z)) return false;
+
+    return true;
+}
+
+/*
+ * StateUpdate (opcode 0x1C)
+ *
+ * Wire format:
+ *   [0x1C][object_id:i32][game_time:f32][dirty:u8][field_data...]
+ *
+ * Field data depends on dirty flags:
+ *   0x01: [pos_x:f32][pos_y:f32][pos_z:f32]
+ *   0x02: [delta:cv4] (compressed vector4)
+ *   0x04: [fwd:cv3] (compressed vector3)
+ *   0x08: [up:cv3]
+ *   0x10: [speed:cf16]
+ *   0x20: [startIdx:u8][health_bytes...]
+ *   0x40: [cloak:u8]
+ *   0x80: [weapon data...]
+ */
+bool bc_parse_state_update(const u8 *payload, int len,
+                            bc_state_update_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_STATE_UPDATE) return false;
+
+    if (!bc_buf_read_i32(&buf, &out->object_id)) return false;
+    if (!bc_buf_read_f32(&buf, &out->game_time)) return false;
+    if (!bc_buf_read_u8(&buf, &out->dirty)) return false;
+
+    /* Parse fields in order of dirty flag bits */
+    if (out->dirty & 0x01) {
+        if (!bc_buf_read_f32(&buf, &out->pos_x)) return false;
+        if (!bc_buf_read_f32(&buf, &out->pos_y)) return false;
+        if (!bc_buf_read_f32(&buf, &out->pos_z)) return false;
+    }
+    if (out->dirty & 0x02) {
+        /* Delta position (cv4) -- skip 5 bytes, we only track absolute */
+        f32 dx, dy, dz;
+        if (!bc_buf_read_cv4(&buf, &dx, &dy, &dz)) return false;
+    }
+    if (out->dirty & 0x04) {
+        if (!bc_buf_read_cv3(&buf, &out->fwd_x, &out->fwd_y, &out->fwd_z))
+            return false;
+    }
+    if (out->dirty & 0x08) {
+        if (!bc_buf_read_cv3(&buf, &out->up_x, &out->up_y, &out->up_z))
+            return false;
+    }
+    if (out->dirty & 0x10) {
+        if (!bc_buf_read_cf16(&buf, &out->speed)) return false;
+    }
+    /* Flags 0x20, 0x40, 0x80 are server-authoritative or not needed here */
+
+    return true;
+}
+
+/*
  * Chat / Team Chat (opcode 0x2C / 0x2D)
  *
  * Wire format:

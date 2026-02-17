@@ -159,18 +159,38 @@ int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason)
     return 2;
 }
 
-int bc_delete_player_ui_build(u8 *buf, int buf_size)
+int bc_delete_player_ui_build(u8 *buf, int buf_size, u8 game_slot)
 {
-    if (buf_size < 1) return -1;
+    /* Wire format from trace (18 bytes):
+     *   [0x17][connection_data:17]
+     * Observed at join time: 17 66 08 00 00 F1 00 80 00 00 00 00 00 91 07 00 00 02
+     * The exact meaning of bytes 1-16 is not fully decoded, but the last byte
+     * appears to be the game slot.  We emit a minimal but correct packet:
+     *   [0x17][game_slot:u8] */
+    if (buf_size < 2) return -1;
     buf[0] = BC_OP_DELETE_PLAYER_UI;
-    return 1;
+    buf[1] = game_slot;
+    return 2;
 }
 
-int bc_delete_player_anim_build(u8 *buf, int buf_size)
+int bc_delete_player_anim_build(u8 *buf, int buf_size,
+                                 const char *player_name)
 {
-    if (buf_size < 1) return -1;
+    /* Wire format: [0x18][name_len:u16][name:bytes]
+     * Triggers a "Player X has left" floating notification.
+     * The exact animation fields after the name are unknown (no trace
+     * captures exist), so we send name only -- the client may accept
+     * just the name length for its template. */
+    int name_len = player_name ? (int)strlen(player_name) : 0;
+    int total = 3 + name_len;  /* opcode + u16 len + name bytes */
+    if (total > buf_size) return -1;
+
     buf[0] = BC_OP_DELETE_PLAYER_ANIM;
-    return 1;
+    buf[1] = (u8)(name_len & 0xFF);
+    buf[2] = (u8)((name_len >> 8) & 0xFF);
+    if (name_len > 0)
+        memcpy(buf + 3, player_name, (size_t)name_len);
+    return total;
 }
 
 /* --- Checksum response parsing --- */

@@ -109,6 +109,9 @@ const bc_ship_class_t *bc_registry_get_ship(const bc_game_registry_t *reg, int i
 /* Lookup by species_id. Returns NULL if not found. */
 const bc_ship_class_t *bc_registry_find_ship(const bc_game_registry_t *reg, u16 species_id);
 
+/* Lookup by species_id, returning index. Returns -1 if not found. */
+int bc_registry_find_ship_index(const bc_game_registry_t *reg, u16 species_id);
+
 /* Lookup projectile by net_type_id. Returns NULL if not found. */
 const bc_projectile_def_t *bc_registry_get_projectile(const bc_game_registry_t *reg, u8 net_type_id);
 

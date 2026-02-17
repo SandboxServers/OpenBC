@@ -28,16 +28,28 @@ bool bc_transport_parse(const u8 *data, int len, bc_packet_t *pkt)
             msg->payload_len = 0;
             pos += 4;
         } else if (msg->type == 0x32) {
-            /* Reliable: [0x32][totalLen][flags][seqHi][seqLo][payload...] */
+            /* Type 0x32 carries both reliable and unreliable game data.
+             * flags & 0x80 distinguishes them:
+             *   Reliable:   [0x32][totalLen][flags][seqHi][seqLo][payload...]
+             *   Unreliable: [0x32][totalLen][0x00][payload...]  (no seq bytes) */
             if (pos + 2 > len) return false;
             u8 total_len = data[pos + 1]; /* includes the 0x32 byte */
-            if (total_len < 5) return false;
+            if (total_len < 3) return false;
             if (pos + total_len > len) return false;
 
             msg->flags = data[pos + 2];
-            msg->seq = ((u16)data[pos + 3] << 8) | (u16)data[pos + 4];
-            msg->payload = (u8 *)data + pos + 5;
-            msg->payload_len = total_len - 5;
+            if (msg->flags & 0x80) {
+                /* Reliable: 5-byte header */
+                if (total_len < 5) return false;
+                msg->seq = ((u16)data[pos + 3] << 8) | (u16)data[pos + 4];
+                msg->payload = (u8 *)data + pos + 5;
+                msg->payload_len = total_len - 5;
+            } else {
+                /* Unreliable: 3-byte header, no seq bytes */
+                msg->seq = 0;
+                msg->payload = (u8 *)data + pos + 3;
+                msg->payload_len = total_len - 3;
+            }
             pos += total_len;
         } else {
             /* Generic: [type][totalLen][data...] */
@@ -62,17 +74,21 @@ bool bc_transport_parse(const u8 *data, int len, bc_packet_t *pkt)
 int bc_transport_build_unreliable(u8 *out, int out_size,
                                   const u8 *payload, int payload_len)
 {
-    /* Format: [direction=0x01][count=1][type=0x00][totalLen][payload] */
-    int total_msg_len = 2 + payload_len;  /* type + totalLen + payload */
+    /* Format: [direction=0x01][count=1][0x32][totalLen][0x00][payload]
+     * Trace-verified: clients send unreliable data as type 0x32 with
+     * flags=0x00.  For multi-player relay, receiving clients expect
+     * this format (not the bare type 0x00 keepalive format). */
+    int total_msg_len = 3 + payload_len;  /* type + totalLen + flags + payload */
     int packet_len = 2 + total_msg_len;   /* direction + count + msg */
 
-    if (packet_len > out_size) return -1;
+    if (packet_len > out_size || total_msg_len > 255) return -1;
 
     out[0] = BC_DIR_SERVER;
     out[1] = 1;  /* 1 message */
-    out[2] = 0x00;  /* unreliable type */
+    out[2] = BC_TRANSPORT_RELIABLE;  /* 0x32 -- same type byte, flags distinguish */
     out[3] = (u8)total_msg_len;
-    memcpy(out + 4, payload, (size_t)payload_len);
+    out[4] = 0x00;  /* flags = unreliable */
+    memcpy(out + 5, payload, (size_t)payload_len);
 
     return packet_len;
 }
@@ -176,13 +192,16 @@ void bc_outbox_init(bc_outbox_t *outbox)
 
 bool bc_outbox_add_unreliable(bc_outbox_t *outbox, const u8 *payload, int len)
 {
-    /* Format: [type=0x00][totalLen][payload...] */
-    int msg_len = 2 + len;  /* type + totalLen + payload */
+    /* Format: [0x32][totalLen][0x00][payload...]
+     * Same type byte as reliable, but flags=0x00 means no seq bytes.
+     * Matches the format clients use for unreliable StateUpdate sends. */
+    int msg_len = 3 + len;  /* type + totalLen + flags + payload */
     if (outbox->pos + msg_len > BC_MAX_PACKET_SIZE) return false;
     if (msg_len > 255) return false;
 
-    outbox->buf[outbox->pos++] = 0x00;         /* unreliable type */
-    outbox->buf[outbox->pos++] = (u8)msg_len;  /* totalLen */
+    outbox->buf[outbox->pos++] = BC_TRANSPORT_RELIABLE;  /* 0x32 */
+    outbox->buf[outbox->pos++] = (u8)msg_len;            /* totalLen */
+    outbox->buf[outbox->pos++] = 0x00;                   /* flags = unreliable */
     memcpy(outbox->buf + outbox->pos, payload, (size_t)len);
     outbox->pos += len;
     outbox->msg_count++;

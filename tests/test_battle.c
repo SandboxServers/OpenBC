@@ -701,7 +701,7 @@ TEST(full_join_flow_multi_client)
 
                 for (int i = 0; i < parsed.msg_count; i++) {
                     bc_transport_msg_t *msg = &parsed.msgs[i];
-                    if (msg->type == BC_TRANSPORT_RELIABLE) {
+                    if (msg->type == BC_TRANSPORT_RELIABLE && (msg->flags & 0x80)) {
                         tc_send_ack(cl, msg->seq);
                         if (msg->payload_len > 0) {
                             u8 op = msg->payload[0];
@@ -733,7 +733,7 @@ TEST(full_join_flow_multi_client)
                     continue;
                 for (int i = 0; i < parsed.msg_count; i++) {
                     bc_transport_msg_t *msg = &parsed.msgs[i];
-                    if (msg->type == BC_TRANSPORT_RELIABLE) {
+                    if (msg->type == BC_TRANSPORT_RELIABLE && (msg->flags & 0x80)) {
                         tc_send_ack(cl, msg->seq);
                         if (msg->payload_len > 0 &&
                             msg->payload[0] == BC_MSG_MISSION_INIT)

@@ -60,6 +60,24 @@ typedef struct {
     int  message_len;
 } bc_chat_event_t;
 
+/* Ship blob header -- extracted from ObjCreateTeam ship data */
+typedef struct {
+    i32 object_id;
+    u16 species_id;
+    f32 pos_x, pos_y, pos_z;
+} bc_ship_blob_header_t;
+
+/* Parsed StateUpdate -- position/orientation/speed fields */
+typedef struct {
+    i32 object_id;
+    f32 game_time;
+    u8  dirty;
+    f32 pos_x, pos_y, pos_z;   /* valid when dirty & 0x01 */
+    f32 fwd_x, fwd_y, fwd_z;   /* valid when dirty & 0x04 */
+    f32 up_x,  up_y,  up_z;    /* valid when dirty & 0x08 */
+    f32 speed;                  /* valid when dirty & 0x10 */
+} bc_state_update_t;
+
 /* --- Parser functions ---
  * Each takes payload (starting at the opcode byte) and length.
  * Returns true on success, false if payload is truncated/malformed. */
@@ -71,5 +89,16 @@ bool bc_parse_destroy_obj(const u8 *payload, int len, bc_destroy_event_t *out);
 bool bc_parse_object_create_header(const u8 *payload, int len,
                                    bc_object_create_header_t *out);
 bool bc_parse_chat_message(const u8 *payload, int len, bc_chat_event_t *out);
+
+/* Parse ship blob header from ObjCreateTeam payload.
+ * blob points to the serialized data AFTER [opcode][owner][team].
+ * Extracts object_id, species_id, and initial position. */
+bool bc_parse_ship_blob_header(const u8 *blob, int len,
+                                bc_ship_blob_header_t *out);
+
+/* Parse StateUpdate payload to extract position, orientation, speed.
+ * Only parses dirty flags 0x01-0x10 (client-authoritative fields). */
+bool bc_parse_state_update(const u8 *payload, int len,
+                            bc_state_update_t *out);
 
 #endif /* OPENBC_GAME_EVENTS_H */

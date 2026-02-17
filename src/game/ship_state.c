@@ -120,3 +120,51 @@ int bc_ship_build_create_packet(const bc_ship_state_t *ship,
                                        ship->owner_slot, ship->team_id,
                                        blob, blob_len);
 }
+
+int bc_ship_build_health_update(const bc_ship_state_t *ship,
+                                 const bc_ship_class_t *cls,
+                                 f32 game_time,
+                                 u8 start_idx, int batch_size,
+                                 u8 *buf, int buf_size)
+{
+    if (!ship->alive || cls->subsystem_count == 0) return 0;
+
+    /* Build field data: [startIdx:u8][health_bytes...][6 shield bytes][1 hull byte] */
+    u8 field[128];
+    int fpos = 0;
+
+    field[fpos++] = start_idx;
+
+    /* Subsystem health bytes (round-robin window) */
+    int count = cls->subsystem_count;
+    if (batch_size > count) batch_size = count;
+    for (int i = 0; i < batch_size; i++) {
+        int idx = ((int)start_idx + i) % count;
+        f32 max_hp = cls->subsystems[idx].max_condition;
+        f32 ratio = (max_hp > 0.0f) ? (ship->subsystem_hp[idx] / max_hp) : 0.0f;
+        if (ratio < 0.0f) ratio = 0.0f;
+        if (ratio > 1.0f) ratio = 1.0f;
+        field[fpos++] = (u8)(ratio * 255.0f);
+    }
+
+    /* Shield HP: 6 bytes, each 0-255 mapped to 0.0 - max_shield_hp */
+    for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+        f32 max_sh = cls->shield_hp[i];
+        f32 ratio = (max_sh > 0.0f) ? (ship->shield_hp[i] / max_sh) : 0.0f;
+        if (ratio < 0.0f) ratio = 0.0f;
+        if (ratio > 1.0f) ratio = 1.0f;
+        field[fpos++] = (u8)(ratio * 255.0f);
+    }
+
+    /* Hull HP: 1 byte, 0-255 mapped to 0.0 - max hull */
+    {
+        f32 ratio = (cls->hull_hp > 0.0f) ? (ship->hull_hp / cls->hull_hp) : 0.0f;
+        if (ratio < 0.0f) ratio = 0.0f;
+        if (ratio > 1.0f) ratio = 1.0f;
+        field[fpos++] = (u8)(ratio * 255.0f);
+    }
+
+    return bc_build_state_update(buf, buf_size,
+                                  ship->object_id, game_time, 0x20,
+                                  field, fpos);
+}

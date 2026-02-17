@@ -126,7 +126,45 @@ void bc_log_packet_trace(const bc_packet_t *pkt, int slot, const char *label)
             continue;
         }
 
+        /* Type 0x32 with flags=0x00 is unreliable game data -- decode opcode */
+        if (msg->type == BC_TRANSPORT_RELIABLE && msg->flags == 0x00) {
+            char hex[128];
+            int hpos = 0;
+            int show = msg->payload_len < 32 ? msg->payload_len : 32;
+            for (int j = 0; j < show; j++)
+                hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
+                                 "%02X ", msg->payload[j]);
+            if (msg->payload_len > 32)
+                hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
+                                 "...");
+            if (hpos > 0 && hex[hpos - 1] == ' ') hex[--hpos] = '\0';
+
+            const char *oname = NULL;
+            u8 opcode = 0;
+            if (msg->payload_len > 0) {
+                opcode = msg->payload[0];
+                oname = bc_opcode_name(opcode);
+            }
+
+            if (oname) {
+                LOG_TRACE("pkt", "  [%d] Unreliable flags=0x00 "
+                          "opcode=0x%02X(%s) len=%d [%s]",
+                          i, opcode, oname, msg->payload_len, hex);
+            } else {
+                LOG_TRACE("pkt", "  [%d] Unreliable flags=0x00 len=%d [%s]",
+                          i, msg->payload_len, hex);
+            }
+            continue;
+        }
+
         /* Keepalive, Connect, Disconnect, etc. */
+        char tname_buf[32];
+        const char *tname_display = tname;
+        if (!tname_display) {
+            snprintf(tname_buf, sizeof(tname_buf), "Unknown(0x%02X)", msg->type);
+            tname_display = tname_buf;
+        }
+
         char hex[128];
         int hpos = 0;
         int show = msg->payload_len < 32 ? msg->payload_len : 32;
@@ -139,10 +177,10 @@ void bc_log_packet_trace(const bc_packet_t *pkt, int slot, const char *label)
 
         if (msg->payload_len > 0) {
             LOG_TRACE("pkt", "  [%d] %s len=%d [%s]",
-                      i, tname ? tname : "?", msg->payload_len, hex);
+                      i, tname_display, msg->payload_len, hex);
         } else {
             LOG_TRACE("pkt", "  [%d] %s len=%d",
-                      i, tname ? tname : "?", msg->payload_len);
+                      i, tname_display, msg->payload_len);
         }
     }
 }

@@ -45,7 +45,7 @@ const char *bc_opcode_name(int opcode)
     case BC_OP_SYS_CHECKSUM_FAIL:  return "SysChecksumFail";
     case BC_OP_FILE_TRANSFER:      return "FileTransfer";
     case BC_OP_FILE_TRANSFER_ACK:  return "FileTransferACK";
-    case BC_OP_UNKNOWN_28:         return "Unknown_28";
+    case BC_OP_UNKNOWN_28:         return "PreSettings";
     /* Python messages */
     case BC_MSG_CHAT:              return "ChatMessage";
     case BC_MSG_TEAM_CHAT:         return "TeamChatMessage";

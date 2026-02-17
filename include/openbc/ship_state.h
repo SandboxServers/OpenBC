@@ -82,4 +82,14 @@ int bc_ship_build_create_packet(const bc_ship_state_t *ship,
                                 const bc_ship_class_t *cls,
                                 u8 *buf, int buf_size);
 
+/* Build a StateUpdate with dirty=0x20 for subsystem + shield + hull health.
+ * Sends batch_size subsystems starting at start_idx (wrapping), plus 6 shield
+ * bytes and 1 hull byte appended.
+ * Returns bytes written to buf, or 0 if nothing to send. */
+int bc_ship_build_health_update(const bc_ship_state_t *ship,
+                                 const bc_ship_class_t *cls,
+                                 f32 game_time,
+                                 u8 start_idx, int batch_size,
+                                 u8 *buf, int buf_size);
+
 #endif /* OPENBC_SHIP_STATE_H */

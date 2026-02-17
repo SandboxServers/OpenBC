@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <math.h>
 
 #include "openbc/types.h"
 #include "openbc/net.h"
@@ -15,6 +16,12 @@
 #include "openbc/reliable.h"
 #include "openbc/master.h"
 #include "openbc/game_events.h"
+#include "openbc/game_builders.h"
+#include "openbc/ship_data.h"
+#include "openbc/ship_state.h"
+#include "openbc/combat.h"
+#include "openbc/movement.h"
+#include "openbc/torpedo_tracker.h"
 #include "openbc/log.h"
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
@@ -53,6 +60,11 @@ static bc_socket_t    g_query_socket; /* LAN query port (6500) */
 static bool           g_query_socket_open = false;
 static bc_peer_mgr_t  g_peers;
 static bc_server_info_t g_info;
+
+/* Ship data registry (Phase E: server-authoritative damage) */
+static bc_game_registry_t g_registry;
+static bool               g_registry_loaded = false;
+static bc_torpedo_mgr_t   g_torpedoes;
 
 /* Game settings */
 static bool        g_collision_dmg = true;
@@ -275,8 +287,59 @@ static void send_settings_and_gameinit(int peer_slot)
     peer->state = PEER_LOBBY;
     LOG_INFO("handshake", "slot=%d reached LOBBY state", peer_slot);
 
-    /* Flush immediately so the client gets 0x28+Settings+GameInit without
-     * waiting for the next 100ms tick. */
+    /* --- Late-join data: existing ships, scores, DeletePlayerUI --- */
+
+    /* Send Score (0x37) with all players' current scores.
+     * Scores are indexed by game_slot (peer_slot - 1). */
+    {
+        i32 scores[BC_MAX_PLAYERS];
+        int score_count = 0;
+        for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+            if (g_peers.peers[i].state >= PEER_LOBBY) {
+                scores[i - 1] = g_peers.peers[i].score;
+                if (i >= score_count + 1) score_count = i;
+            } else {
+                scores[i - 1] = 0;
+            }
+        }
+        if (score_count > 0) {
+            u8 score_buf[128];
+            int slen = bc_build_score(score_buf, sizeof(score_buf),
+                                       scores, score_count);
+            if (slen > 0) {
+                queue_reliable(peer_slot, score_buf, slen);
+                LOG_DEBUG("handshake", "slot=%d sending Score (%d players)",
+                          peer_slot, score_count);
+            }
+        }
+    }
+
+    /* Forward cached ObjCreateTeam for every already-spawned ship */
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+        if (i == peer_slot) continue;
+        bc_peer_t *other = &g_peers.peers[i];
+        if (other->state >= PEER_LOBBY && other->spawn_len > 0) {
+            queue_reliable(peer_slot, other->spawn_payload, other->spawn_len);
+            LOG_DEBUG("handshake", "slot=%d forwarding spawn from slot %d (%d bytes)",
+                      peer_slot, i, other->spawn_len);
+        }
+    }
+
+    /* Send DeletePlayerUI (0x17) for each connected player slot so the
+     * joining client clears any stale UI entries for those slots. */
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+        if (i == peer_slot) continue;
+        if (g_peers.peers[i].state >= PEER_LOBBY) {
+            u8 del_ui[4];
+            u8 gs = (u8)(i > 0 ? i - 1 : 0);
+            int dlen = bc_delete_player_ui_build(del_ui, sizeof(del_ui), gs);
+            if (dlen > 0)
+                queue_reliable(peer_slot, del_ui, dlen);
+        }
+    }
+
+    /* Flush immediately so the client gets 0x28+Settings+GameInit+join data
+     * without waiting for the next 100ms tick. */
     flush_peer(peer_slot);
 
     /* Do NOT send NewPlayerInGame (0x2A) here -- that is a CLIENT-to-SERVER
@@ -305,16 +368,28 @@ static void handle_peer_disconnect(int slot)
 
     /* Only send delete notifications if the peer had reached LOBBY state */
     if (g_peers.peers[slot].state >= PEER_LOBBY) {
-        u8 payload[4];
+        u8 payload[64];
         int len;
 
-        len = bc_delete_player_ui_build(payload, sizeof(payload));
+        /* 1. DestroyObject (0x14) -- remove ship from game world */
+        if (g_peers.peers[slot].spawn_len > 0) {
+            i32 ship_id = bc_make_ship_id(slot);
+            len = bc_build_destroy_obj(payload, sizeof(payload), ship_id);
+            if (len > 0) relay_to_others(slot, payload, len, true);
+        }
+
+        /* 2. DeletePlayerUI (0x17) -- remove from scoreboard */
+        u8 game_slot = (u8)(slot > 0 ? slot - 1 : 0);
+        len = bc_delete_player_ui_build(payload, sizeof(payload), game_slot);
         if (len > 0) relay_to_others(slot, payload, len, true);
 
-        len = bc_delete_player_anim_build(payload, sizeof(payload));
+        /* 3. DeletePlayerAnim (0x18) -- "Player X has left" notification */
+        len = bc_delete_player_anim_build(payload, sizeof(payload),
+                                           g_peers.peers[slot].name);
         if (len > 0) relay_to_others(slot, payload, len, true);
 
-        LOG_DEBUG("net", "Sent DeletePlayer notifications for slot %d", slot);
+        LOG_DEBUG("net", "Sent disconnect notifications for slot %d "
+                  "(DestroyObj+DeletePlayerUI+DeletePlayerAnim)", slot);
     }
 
     bc_peers_remove(&g_peers, slot);
@@ -523,6 +598,214 @@ static const char *object_owner_name(i32 object_id)
     return peer_name(slot);
 }
 
+/* Send a message to ALL peers (including the sender) reliably. */
+static void send_to_all(const u8 *payload, int payload_len, bool reliable)
+{
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+        if (g_peers.peers[i].state < PEER_LOBBY) continue;
+        if (reliable)
+            queue_reliable(i, payload, payload_len);
+        else
+            queue_unreliable(i, payload, payload_len);
+    }
+}
+
+/* Find the peer that owns an object_id. Returns slot or -1. */
+static int find_peer_by_object(i32 object_id)
+{
+    int slot = bc_object_id_to_slot(object_id);
+    if (slot < 0 || slot >= BC_MAX_PLAYERS) return -1;
+    if (!g_peers.peers[slot].has_ship) return -1;
+    return slot;
+}
+
+/* Apply beam damage: compute, send Explosion, check kill. */
+static void apply_beam_damage(int shooter_slot, int target_slot)
+{
+    bc_peer_t *shooter = &g_peers.peers[shooter_slot];
+    bc_peer_t *target = &g_peers.peers[target_slot];
+    if (!target->has_ship || !target->ship.alive) return;
+
+    const bc_ship_class_t *shooter_cls =
+        bc_registry_get_ship(&g_registry, shooter->class_index);
+    const bc_ship_class_t *target_cls =
+        bc_registry_get_ship(&g_registry, target->class_index);
+    if (!shooter_cls || !target_cls) return;
+
+    /* Find the first alive phaser subsystem and use its max_damage.
+     * The beam_fire event's flags byte encodes the bank index. */
+    f32 damage = 0.0f;
+    for (int i = 0; i < shooter_cls->subsystem_count; i++) {
+        const bc_subsystem_def_t *ss = &shooter_cls->subsystems[i];
+        if (strcmp(ss->type, "phaser") == 0 || strcmp(ss->type, "pulse_weapon") == 0) {
+            if (shooter->ship.subsystem_hp[i] > 0.0f) {
+                damage = ss->max_damage;
+                break;
+            }
+        }
+    }
+    if (damage <= 0.0f) return;
+
+    /* Compute impact direction: shooter → target */
+    bc_vec3_t impact_dir = bc_vec3_normalize(
+        bc_vec3_sub(target->ship.pos, shooter->ship.pos));
+
+    /* Apply damage server-side */
+    bc_combat_apply_damage(&target->ship, target_cls, damage, impact_dir);
+
+    /* Build and send Explosion to all clients */
+    u8 expl[32];
+    int elen = bc_build_explosion(expl, sizeof(expl),
+                                   target->ship.object_id,
+                                   impact_dir.x, impact_dir.y, impact_dir.z,
+                                   damage, 1.0f);
+    if (elen > 0) {
+        send_to_all(expl, elen, true);
+    }
+
+    LOG_INFO("combat", "Server damage: %s -> %s, %.1f dmg (hull=%.1f)",
+             peer_name(shooter_slot), peer_name(target_slot),
+             damage, target->ship.hull_hp);
+
+    /* Check for kill */
+    if (!target->ship.alive) {
+        LOG_INFO("combat", "%s destroyed by %s",
+                 peer_name(target_slot), peer_name(shooter_slot));
+
+        /* Send DestroyObject to all */
+        u8 dest[8];
+        int dlen = bc_build_destroy_obj(dest, sizeof(dest),
+                                         target->ship.object_id);
+        if (dlen > 0) send_to_all(dest, dlen, true);
+
+        /* Update scores */
+        u8 killer_game_slot = (u8)(shooter_slot > 0 ? shooter_slot - 1 : 0);
+        u8 victim_game_slot = (u8)(target_slot > 0 ? target_slot - 1 : 0);
+        shooter->score++;
+
+        u8 sc[16];
+        int slen = bc_build_score_change(sc, sizeof(sc),
+                                          killer_game_slot, victim_game_slot,
+                                          shooter->score);
+        if (slen > 0) send_to_all(sc, slen, true);
+
+        /* Clear victim ship state */
+        target->has_ship = false;
+        target->spawn_len = 0;
+
+        /* Check frag limit */
+        if (g_frag_limit > 0 && shooter->score >= g_frag_limit) {
+            u8 eg[4];
+            int eglen = bc_build_end_game(eg, sizeof(eg), killer_game_slot);
+            if (eglen > 0) send_to_all(eg, eglen, true);
+            LOG_INFO("game", "Frag limit reached by %s (%d kills)",
+                     peer_name(shooter_slot), shooter->score);
+        }
+    }
+}
+
+/* Torpedo hit callback -- called from bc_torpedo_tick() */
+static void torpedo_hit_callback(int shooter_slot, i32 target_id,
+                                  f32 damage, f32 damage_radius,
+                                  bc_vec3_t impact_pos,
+                                  void *user_data)
+{
+    (void)damage_radius;
+    (void)user_data;
+
+    int target_slot = find_peer_by_object(target_id);
+    if (target_slot < 0) return;
+
+    bc_peer_t *shooter = &g_peers.peers[shooter_slot];
+    bc_peer_t *target = &g_peers.peers[target_slot];
+    if (!target->has_ship || !target->ship.alive) return;
+
+    const bc_ship_class_t *target_cls =
+        bc_registry_get_ship(&g_registry, target->class_index);
+    if (!target_cls) return;
+
+    /* Impact direction from torpedo position to target */
+    bc_vec3_t impact_dir = bc_vec3_normalize(
+        bc_vec3_sub(target->ship.pos, impact_pos));
+
+    bc_combat_apply_damage(&target->ship, target_cls, damage, impact_dir);
+
+    /* Send Explosion */
+    u8 expl[32];
+    int elen = bc_build_explosion(expl, sizeof(expl),
+                                   target->ship.object_id,
+                                   impact_dir.x, impact_dir.y, impact_dir.z,
+                                   damage, damage_radius);
+    if (elen > 0) send_to_all(expl, elen, true);
+
+    LOG_INFO("combat", "Torpedo hit: slot %d -> %s, %.1f dmg (hull=%.1f)",
+             shooter_slot, peer_name(target_slot),
+             damage, target->ship.hull_hp);
+
+    /* Check for kill */
+    if (!target->ship.alive) {
+        LOG_INFO("combat", "%s destroyed by torpedo from %s",
+                 peer_name(target_slot), peer_name(shooter_slot));
+
+        u8 dest[8];
+        int dlen = bc_build_destroy_obj(dest, sizeof(dest),
+                                         target->ship.object_id);
+        if (dlen > 0) send_to_all(dest, dlen, true);
+
+        u8 killer_game_slot = (u8)(shooter_slot > 0 ? shooter_slot - 1 : 0);
+        u8 victim_game_slot = (u8)(target_slot > 0 ? target_slot - 1 : 0);
+        shooter->score++;
+
+        u8 sc[16];
+        int slen = bc_build_score_change(sc, sizeof(sc),
+                                          killer_game_slot, victim_game_slot,
+                                          shooter->score);
+        if (slen > 0) send_to_all(sc, slen, true);
+
+        target->has_ship = false;
+        target->spawn_len = 0;
+
+        if (g_frag_limit > 0 && shooter->score >= g_frag_limit) {
+            u8 eg[4];
+            int eglen = bc_build_end_game(eg, sizeof(eg), killer_game_slot);
+            if (eglen > 0) send_to_all(eg, eglen, true);
+        }
+    }
+}
+
+/* Torpedo target position callback -- called from bc_torpedo_tick() */
+static bool torpedo_target_pos(i32 target_id, bc_vec3_t *out_pos,
+                                void *user_data)
+{
+    (void)user_data;
+    int slot = find_peer_by_object(target_id);
+    if (slot < 0) return false;
+    if (!g_peers.peers[slot].has_ship || !g_peers.peers[slot].ship.alive)
+        return false;
+    *out_pos = g_peers.peers[slot].ship.pos;
+    return true;
+}
+
+/* Anti-cheat: check fire rate for a weapon.
+ * Returns true if fire is allowed, false if rate-limited. */
+static bool check_fire_rate(bc_peer_t *peer, u32 *last_fire, f32 min_interval_s)
+{
+    u32 now = GetTickCount();
+    u32 min_interval_ms = (u32)(min_interval_s * 800.0f); /* 0.8x = 20% tolerance */
+
+    if (*last_fire > 0 && (now - *last_fire) < min_interval_ms) {
+        /* Violation */
+        if (now - peer->violation_window_start > 30000) {
+            peer->fire_violations = 0;
+            peer->violation_window_start = now;
+        }
+        peer->fire_violations++;
+        return false;
+    }
+    *last_fire = now;
+    return true;
+}
+
 static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 {
     if (msg->payload_len < 1) return;
@@ -608,8 +891,50 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     case BC_OP_ADD_REPAIR_LIST:
     case BC_OP_CLIENT_EVENT:
     case BC_OP_START_CLOAK:
+        if (g_registry_loaded && peer->has_ship) {
+            const bc_ship_class_t *cls =
+                bc_registry_get_ship(&g_registry, peer->class_index);
+            if (cls && !bc_cloak_start(&peer->ship, cls)) {
+                LOG_WARN("cheat", "slot=%d invalid cloak start (state=%d)",
+                         peer_slot, peer->ship.cloak_state);
+                break; /* Don't relay invalid cloak attempt */
+            }
+            LOG_DEBUG("game", "slot=%d starting cloak", peer_slot);
+        }
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+
     case BC_OP_STOP_CLOAK:
+        if (g_registry_loaded && peer->has_ship) {
+            bc_cloak_stop(&peer->ship);
+            LOG_DEBUG("game", "slot=%d stopping cloak", peer_slot);
+        }
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+
     case BC_OP_START_WARP:
+        if (g_registry_loaded && peer->has_ship) {
+            /* Verify warp drive subsystem is alive */
+            const bc_ship_class_t *cls =
+                bc_registry_get_ship(&g_registry, peer->class_index);
+            if (cls) {
+                bool warp_alive = false;
+                for (int si = 0; si < cls->subsystem_count; si++) {
+                    if (strcmp(cls->subsystems[si].type, "warp_drive") == 0) {
+                        warp_alive = (peer->ship.subsystem_hp[si] > 0.0f);
+                        break;
+                    }
+                }
+                if (!warp_alive) {
+                    LOG_WARN("cheat", "slot=%d warp with dead drive, dropped",
+                             peer_slot);
+                    break;
+                }
+            }
+        }
+        relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+
     case BC_OP_REPAIR_PRIORITY:
     case BC_OP_SET_PHASER_LEVEL:
     case BC_OP_TORP_TYPE_CHANGE:
@@ -618,52 +943,247 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     case BC_OP_TORPEDO_FIRE: {
         bc_torpedo_event_t ev;
-        if (bc_parse_torpedo_fire(payload, payload_len, &ev)) {
-            if (ev.has_target)
-                LOG_INFO("combat", "%s fired torpedo -> %s (subsys=%d)",
-                         object_owner_name(ev.shooter_id),
-                         object_owner_name(ev.target_id),
-                         ev.subsys_index);
-            else
-                LOG_INFO("combat", "%s fired torpedo (no lock)",
-                         object_owner_name(ev.shooter_id));
+        if (!bc_parse_torpedo_fire(payload, payload_len, &ev)) {
+            LOG_WARN("combat", "slot=%d malformed TorpedoFire", peer_slot);
+            break;
         }
+
+        if (ev.has_target)
+            LOG_INFO("combat", "%s fired torpedo -> %s (subsys=%d)",
+                     object_owner_name(ev.shooter_id),
+                     object_owner_name(ev.target_id),
+                     ev.subsys_index);
+        else
+            LOG_INFO("combat", "%s fired torpedo (no lock)",
+                     object_owner_name(ev.shooter_id));
+
+        if (g_registry_loaded && peer->has_ship) {
+            const bc_ship_class_t *cls =
+                bc_registry_get_ship(&g_registry, peer->class_index);
+
+            /* Anti-cheat: cannot fire while cloaked */
+            if (cls && !bc_cloak_can_fire(&peer->ship)) {
+                LOG_WARN("cheat", "slot=%d torpedo fire while cloaked, dropped",
+                         peer_slot);
+                break;
+            }
+
+            /* Anti-cheat: fire rate limiting (per tube) */
+            if (cls) {
+                int tube_idx = 0; /* use first tube as reference */
+                f32 min_interval = 2.0f; /* default torpedo reload */
+                for (int si = 0; si < cls->subsystem_count; si++) {
+                    if (strcmp(cls->subsystems[si].type, "torpedo_tube") == 0) {
+                        min_interval = cls->subsystems[si].reload_delay;
+                        break;
+                    }
+                }
+                if (tube_idx < BC_MAX_TORPEDO_TUBES &&
+                    !check_fire_rate(peer, &peer->last_torpedo_time[tube_idx],
+                                     min_interval)) {
+                    LOG_WARN("cheat", "slot=%d torpedo fire rate exceeded", peer_slot);
+                    if (peer->fire_violations >= 5) {
+                        LOG_WARN("cheat", "slot=%d booted: excessive rapid fire", peer_slot);
+                        u8 boot[4];
+                        int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
+                        if (blen > 0) queue_reliable(peer_slot, boot, blen);
+                        handle_peer_disconnect(peer_slot);
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+
+        /* Relay torpedo visual to all others */
         relay_to_others(peer_slot, payload, payload_len, true);
+
+        /* Spawn server-side torpedo tracker for damage computation */
+        if (g_registry_loaded && peer->has_ship) {
+            /* Look up projectile stats from registry */
+            const bc_projectile_def_t *proj =
+                bc_registry_get_projectile(&g_registry, peer->ship.torpedo_type);
+            if (proj) {
+                bc_vec3_t vel_dir = bc_vec3_normalize(
+                    (bc_vec3_t){ev.vel_x, ev.vel_y, ev.vel_z});
+                f32 dmg_radius = proj->damage * proj->damage_radius_factor;
+
+                bc_torpedo_spawn(&g_torpedoes,
+                                  ev.shooter_id, peer_slot,
+                                  ev.has_target ? ev.target_id : -1,
+                                  peer->ship.pos, vel_dir, proj->launch_speed,
+                                  proj->damage, dmg_radius,
+                                  proj->lifetime, proj->guidance_lifetime,
+                                  proj->max_angular_accel);
+            }
+        }
         break;
     }
 
     case BC_OP_BEAM_FIRE: {
         bc_beam_event_t ev;
-        if (bc_parse_beam_fire(payload, payload_len, &ev)) {
-            if (ev.has_target)
-                LOG_INFO("combat", "%s fired beam -> %s",
-                         object_owner_name(ev.shooter_id),
-                         object_owner_name(ev.target_id));
-            else
-                LOG_INFO("combat", "%s fired beam (no target)",
-                         object_owner_name(ev.shooter_id));
+        if (!bc_parse_beam_fire(payload, payload_len, &ev)) {
+            LOG_WARN("combat", "slot=%d malformed BeamFire", peer_slot);
+            break;
         }
+
+        if (ev.has_target)
+            LOG_INFO("combat", "%s fired beam -> %s",
+                     object_owner_name(ev.shooter_id),
+                     object_owner_name(ev.target_id));
+        else
+            LOG_INFO("combat", "%s fired beam (no target)",
+                     object_owner_name(ev.shooter_id));
+
+        if (g_registry_loaded && peer->has_ship) {
+            const bc_ship_class_t *cls =
+                bc_registry_get_ship(&g_registry, peer->class_index);
+
+            /* Anti-cheat: cannot fire while cloaked */
+            if (cls && !bc_cloak_can_fire(&peer->ship)) {
+                LOG_WARN("cheat", "slot=%d beam fire while cloaked, dropped",
+                         peer_slot);
+                break;
+            }
+
+            /* Anti-cheat: fire rate limiting */
+            if (cls) {
+                f32 min_interval = 0.5f; /* default phaser recharge ~0.5s */
+                for (int si = 0; si < cls->subsystem_count; si++) {
+                    const bc_subsystem_def_t *ss = &cls->subsystems[si];
+                    if (strcmp(ss->type, "phaser") == 0 ||
+                        strcmp(ss->type, "pulse_weapon") == 0) {
+                        if (ss->recharge_rate > 0.0f) {
+                            min_interval = ss->max_charge / ss->recharge_rate;
+                        }
+                        break;
+                    }
+                }
+                if (!check_fire_rate(peer, &peer->last_fire_time[0], min_interval)) {
+                    LOG_WARN("cheat", "slot=%d beam fire rate exceeded", peer_slot);
+                    if (peer->fire_violations >= 5) {
+                        LOG_WARN("cheat", "slot=%d booted: excessive rapid fire", peer_slot);
+                        u8 boot[4];
+                        int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
+                        if (blen > 0) queue_reliable(peer_slot, boot, blen);
+                        handle_peer_disconnect(peer_slot);
+                        return;
+                    }
+                    break;
+                }
+            }
+
+            /* Anti-cheat: range plausibility */
+            if (ev.has_target && cls) {
+                int target_slot = find_peer_by_object(ev.target_id);
+                if (target_slot >= 0) {
+                    f32 dist = bc_vec3_dist(peer->ship.pos,
+                                             g_peers.peers[target_slot].ship.pos);
+                    f32 max_range = 0.0f;
+                    for (int si = 0; si < cls->subsystem_count; si++) {
+                        if (strcmp(cls->subsystems[si].type, "phaser") == 0 ||
+                            strcmp(cls->subsystems[si].type, "pulse_weapon") == 0) {
+                            max_range = cls->subsystems[si].max_damage_distance;
+                            break;
+                        }
+                    }
+                    f32 target_speed = g_peers.peers[target_slot].ship.speed;
+                    if (max_range > 0.0f && dist > max_range + target_speed * 0.5f) {
+                        LOG_WARN("cheat", "slot=%d beam out of range (%.0f > %.0f)",
+                                 peer_slot, dist, max_range);
+                        /* Relay visual but skip damage */
+                        relay_to_others(peer_slot, payload, payload_len, true);
+                        break;
+                    }
+                }
+            }
+        }
+
+        /* Relay beam visual to all others */
         relay_to_others(peer_slot, payload, payload_len, true);
+
+        /* Server-side damage computation */
+        if (g_registry_loaded && peer->has_ship && ev.has_target) {
+            int target_slot = find_peer_by_object(ev.target_id);
+            if (target_slot >= 0) {
+                apply_beam_damage(peer_slot, target_slot);
+            }
+        }
         break;
     }
 
-    /* --- Explosion: relay + log damage --- */
+    /* --- Explosion: server-authoritative = drop client's, relay-only = pass through --- */
     case BC_OP_EXPLOSION: {
         bc_explosion_event_t ev;
         if (bc_parse_explosion(payload, payload_len, &ev)) {
-            LOG_INFO("combat", "Explosion on %s's ship: %.1f damage, radius %.1f",
+            LOG_INFO("combat", "Client explosion on %s's ship: %.1f damage, radius %.1f",
                      object_owner_name(ev.object_id), ev.damage, ev.radius);
         }
-        relay_to_others(peer_slot, payload, payload_len, true);
+        if (g_registry_loaded) {
+            /* Server is authoritative -- drop client-originated explosions */
+            LOG_DEBUG("cheat", "slot=%d client Explosion suppressed (server authority)",
+                      peer_slot);
+        } else {
+            relay_to_others(peer_slot, payload, payload_len, true);
+        }
         break;
     }
 
-    /* --- StateUpdate: relay to all others (unreliable -- high frequency) --- */
-    case BC_OP_STATE_UPDATE:
+    /* --- StateUpdate: track position + relay (strip server-authoritative flags) --- */
+    case BC_OP_STATE_UPDATE: {
+        if (g_registry_loaded && peer->has_ship) {
+            bc_state_update_t su;
+            if (bc_parse_state_update(payload, payload_len, &su)) {
+                /* Track position */
+                if (su.dirty & 0x01) {
+                    peer->ship.pos.x = su.pos_x;
+                    peer->ship.pos.y = su.pos_y;
+                    peer->ship.pos.z = su.pos_z;
+                }
+                if (su.dirty & 0x04) {
+                    peer->ship.fwd.x = su.fwd_x;
+                    peer->ship.fwd.y = su.fwd_y;
+                    peer->ship.fwd.z = su.fwd_z;
+                }
+                if (su.dirty & 0x08) {
+                    peer->ship.up.x = su.up_x;
+                    peer->ship.up.y = su.up_y;
+                    peer->ship.up.z = su.up_z;
+                }
+                if (su.dirty & 0x10) {
+                    peer->ship.speed = su.speed;
+                    /* Speed validation: clamp to max */
+                    const bc_ship_class_t *cls =
+                        bc_registry_get_ship(&g_registry, peer->class_index);
+                    if (cls && peer->ship.speed > cls->max_speed * 1.1f) {
+                        LOG_WARN("cheat", "slot=%d speed %.1f > max %.1f, clamped",
+                                 peer_slot, peer->ship.speed, cls->max_speed);
+                        peer->ship.speed = cls->max_speed;
+                    }
+                }
+
+                /* Strip server-authoritative flags (0x20 subsystem, 0x80 weapon) */
+                if (su.dirty & (0x20 | 0x80)) {
+                    /* Rebuild with stripped dirty flags.
+                     * For simplicity, only strip if ONLY 0x20/0x80 are set.
+                     * If mixed with movement flags, relay the original
+                     * (client shouldn't mix these, but be safe). */
+                    u8 client_flags = su.dirty & ~(u8)(0x20 | 0x80);
+                    if (client_flags == 0) {
+                        /* Entirely server-authoritative data, drop entirely */
+                        LOG_DEBUG("cheat", "slot=%d StateUpdate 0x%02X suppressed",
+                                  peer_slot, su.dirty);
+                        break;
+                    }
+                    /* Mixed flags -- relay as-is (rare edge case) */
+                }
+            }
+        }
         relay_to_others(peer_slot, payload, payload_len, false);
         break;
+    }
 
-    /* --- Object creation: relay + log --- */
+    /* --- Object creation: relay + cache + init server ship state --- */
     case BC_OP_OBJ_CREATE_TEAM:
     case BC_OP_OBJ_CREATE: {
         bc_object_create_header_t hdr;
@@ -679,18 +1199,65 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         } else {
             LOG_INFO("game", "%s spawned object", peer_name(peer_slot));
         }
+        /* Cache the spawn payload so we can forward it to late joiners */
+        if (payload_len <= (int)sizeof(peer->spawn_payload)) {
+            memcpy(peer->spawn_payload, payload, (size_t)payload_len);
+            peer->spawn_len = payload_len;
+        }
+
+        /* Initialize server-side ship state from the ship blob */
+        if (g_registry_loaded && opcode == BC_OP_OBJ_CREATE_TEAM &&
+            payload_len >= 4) {
+            /* Ship blob starts after [opcode:1][owner:1][team:1] */
+            const u8 *blob = payload + 3;
+            int blob_len = payload_len - 3;
+            bc_ship_blob_header_t bhdr;
+            if (bc_parse_ship_blob_header(blob, blob_len, &bhdr)) {
+                int cidx = bc_registry_find_ship_index(&g_registry,
+                                                        bhdr.species_id);
+                if (cidx >= 0) {
+                    const bc_ship_class_t *cls =
+                        bc_registry_get_ship(&g_registry, cidx);
+                    u8 team_id = hdr.has_team ? hdr.team_id : 0;
+                    bc_ship_init(&peer->ship, cls, cidx,
+                                  bhdr.object_id,
+                                  (u8)peer_slot, team_id);
+                    peer->ship.pos.x = bhdr.pos_x;
+                    peer->ship.pos.y = bhdr.pos_y;
+                    peer->ship.pos.z = bhdr.pos_z;
+                    peer->class_index = cidx;
+                    peer->has_ship = true;
+                    peer->subsys_rr_idx = 0;
+                    memset(peer->last_fire_time, 0, sizeof(peer->last_fire_time));
+                    memset(peer->last_torpedo_time, 0, sizeof(peer->last_torpedo_time));
+                    peer->fire_violations = 0;
+                    peer->violation_window_start = 0;
+                    LOG_INFO("game", "slot=%d ship initialized: %s (species=%d, hull=%.0f)",
+                             peer_slot, cls->name, bhdr.species_id, cls->hull_hp);
+                } else {
+                    LOG_WARN("game", "slot=%d unknown species_id %d, no ship state",
+                             peer_slot, bhdr.species_id);
+                }
+            }
+        }
+
         relay_to_others(peer_slot, payload, payload_len, true);
         break;
     }
 
-    /* --- Object destruction: relay + log --- */
+    /* --- Object destruction: server-authoritative = drop, relay-only = pass through --- */
     case BC_OP_DESTROY_OBJ: {
         bc_destroy_event_t ev;
         if (bc_parse_destroy_obj(payload, payload_len, &ev)) {
-            LOG_INFO("combat", "%s's ship destroyed",
+            LOG_INFO("combat", "Client DestroyObj: %s's ship",
                      object_owner_name(ev.object_id));
         }
-        relay_to_others(peer_slot, payload, payload_len, true);
+        if (g_registry_loaded) {
+            LOG_DEBUG("cheat", "slot=%d client DestroyObj suppressed (server authority)",
+                      peer_slot);
+        } else {
+            relay_to_others(peer_slot, payload, payload_len, true);
+        }
         break;
     }
 
@@ -719,14 +1286,90 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         LOG_DEBUG("game", "slot=%d host message len=%d", peer_slot, payload_len);
         break;
 
-    /* --- Collision effect (C->S, host processes damage authoritatively) ---
-     * In stock BC, the client detects a collision and sends this to the host.
-     * The host computes damage via FUN_006a2470. For Phase C relay, we relay
-     * to others so they see the effect. Phase E will process damage locally. */
-    case BC_OP_COLLISION_EFFECT:
+    /* --- Collision effect: server computes damage when authoritative --- */
+    case BC_OP_COLLISION_EFFECT: {
         LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
-        relay_to_others(peer_slot, payload, payload_len, true);
+        if (g_registry_loaded && g_collision_dmg) {
+            /* Parse: [0x15][obj1:i32][obj2:i32][impact_data...]
+             * Apply collision damage to both ships based on mass * relative speed. */
+            if (payload_len >= 9) {
+                bc_buffer_t cbuf;
+                bc_buf_init(&cbuf, (u8 *)payload, (size_t)payload_len);
+                u8 cop;
+                i32 obj1, obj2;
+                bc_buf_read_u8(&cbuf, &cop);
+                if (bc_buf_read_i32(&cbuf, &obj1) && bc_buf_read_i32(&cbuf, &obj2)) {
+                    int s1 = find_peer_by_object(obj1);
+                    int s2 = find_peer_by_object(obj2);
+                    if (s1 >= 0 && s2 >= 0) {
+                        bc_peer_t *p1 = &g_peers.peers[s1];
+                        bc_peer_t *p2 = &g_peers.peers[s2];
+                        const bc_ship_class_t *c1 =
+                            bc_registry_get_ship(&g_registry, p1->class_index);
+                        const bc_ship_class_t *c2 =
+                            bc_registry_get_ship(&g_registry, p2->class_index);
+                        if (c1 && c2 && p1->ship.alive && p2->ship.alive) {
+                            f32 rel_speed = fabsf(p1->ship.speed - p2->ship.speed);
+                            if (rel_speed < 1.0f) rel_speed = 1.0f;
+                            f32 dmg1 = c2->mass * rel_speed * 0.001f;
+                            f32 dmg2 = c1->mass * rel_speed * 0.001f;
+
+                            bc_vec3_t dir12 = bc_vec3_normalize(
+                                bc_vec3_sub(p2->ship.pos, p1->ship.pos));
+                            bc_vec3_t dir21 = bc_vec3_scale(dir12, -1.0f);
+
+                            bc_combat_apply_damage(&p1->ship, c1, dmg1, dir21);
+                            bc_combat_apply_damage(&p2->ship, c2, dmg2, dir12);
+
+                            /* Send explosions */
+                            u8 expl[32];
+                            int elen;
+                            elen = bc_build_explosion(expl, sizeof(expl),
+                                                       p1->ship.object_id,
+                                                       dir21.x, dir21.y, dir21.z,
+                                                       dmg1, 1.0f);
+                            if (elen > 0) send_to_all(expl, elen, true);
+                            elen = bc_build_explosion(expl, sizeof(expl),
+                                                       p2->ship.object_id,
+                                                       dir12.x, dir12.y, dir12.z,
+                                                       dmg2, 1.0f);
+                            if (elen > 0) send_to_all(expl, elen, true);
+
+                            LOG_INFO("combat", "Collision: %s (%.1f dmg) <-> %s (%.1f dmg)",
+                                     peer_name(s1), dmg1, peer_name(s2), dmg2);
+
+                            /* Check kills (collision can kill both!) */
+                            /* Note: no score awarded for collision kills */
+                            if (!p1->ship.alive) {
+                                u8 dest[8];
+                                int dlen = bc_build_destroy_obj(dest, sizeof(dest),
+                                                                 p1->ship.object_id);
+                                if (dlen > 0) send_to_all(dest, dlen, true);
+                                p1->has_ship = false;
+                                p1->spawn_len = 0;
+                                LOG_INFO("combat", "%s destroyed in collision",
+                                         peer_name(s1));
+                            }
+                            if (!p2->ship.alive) {
+                                u8 dest[8];
+                                int dlen = bc_build_destroy_obj(dest, sizeof(dest),
+                                                                 p2->ship.object_id);
+                                if (dlen > 0) send_to_all(dest, dlen, true);
+                                p2->has_ship = false;
+                                p2->spawn_len = 0;
+                                LOG_INFO("combat", "%s destroyed in collision",
+                                         peer_name(s2));
+                            }
+                        }
+                    }
+                }
+            }
+            /* Do NOT relay client's CollisionEffect -- server generated its own damage */
+        } else {
+            relay_to_others(peer_slot, payload, payload_len, true);
+        }
         break;
+    }
 
     /* --- Request object (C->S, server responds with object data) --- */
     case BC_OP_REQUEST_OBJ:
@@ -841,10 +1484,28 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
             return;
         }
 
+        /* ConnectACK from a connected client = graceful disconnect signal.
+         * The client sends type 0x05 when the user presses Escape / quits. */
+        if (msg->type == BC_TRANSPORT_CONNECT_ACK) {
+            LOG_INFO("net", "slot=%d graceful disconnect (ConnectACK)", slot);
+            handle_peer_disconnect(slot);
+            return;
+        }
+
+        /* Stale Connect retransmissions from a peer that's already connected.
+         * These leak through when the client hasn't received our Connect
+         * response yet.  Safe to ignore. */
+        if (msg->type == BC_TRANSPORT_CONNECT ||
+            msg->type == BC_TRANSPORT_CONNECT_DATA) {
+            continue;
+        }
+
         /* ACK incoming reliable messages.  Stock dedi ACKs every client
          * reliable immediately, batched with its next outgoing message.
-         * This also drives the client's retransmit logic. */
-        if (msg->type == BC_TRANSPORT_RELIABLE) {
+         * This also drives the client's retransmit logic.
+         * Only ACK messages with the reliable flag (0x80) -- type 0x32
+         * with flags=0x00 is unreliable data (no seq, no ACK needed). */
+        if (msg->type == BC_TRANSPORT_RELIABLE && (msg->flags & 0x80)) {
             bc_outbox_add_ack(&g_peers.peers[slot].outbox, msg->seq, 0x00);
         }
 
@@ -916,6 +1577,7 @@ static void usage(const char *prog)
         "  --no-collision     Disable collision damage\n"
         "  --friendly-fire    Enable friendly fire\n"
         "  --no-friendly-fire Disable friendly fire (default)\n"
+        "  --data <path>      Ship data registry JSON (default: data/vanilla-1.1.json)\n"
         "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
         "  --master <h:p>     Master server address (repeatable; replaces defaults)\n"
         "  --no-master        Disable all master server heartbeating\n"
@@ -1072,6 +1734,7 @@ int main(int argc, char **argv)
     const char *map = "Multiplayer.Episode.Mission1.Mission1";
     int max_players = BC_MAX_PLAYERS;
     const char *manifest_path = NULL;
+    const char *data_path = "data/vanilla-1.1.json";
     const char *user_masters[BC_MAX_MASTERS];
     int user_master_count = 0;
     bool no_master = false;
@@ -1099,6 +1762,8 @@ int main(int argc, char **argv)
             g_time_limit = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--frag-limit") == 0 && i + 1 < argc) {
             g_frag_limit = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) {
+            data_path = argv[++i];
         } else if (strcmp(argv[i], "--manifest") == 0 && i + 1 < argc) {
             manifest_path = argv[++i];
         } else if (strcmp(argv[i], "--collision") == 0) {
@@ -1198,6 +1863,20 @@ int main(int argc, char **argv)
         g_no_checksum = true;
     }
 
+    /* Load ship data registry for server-authoritative damage */
+    memset(&g_registry, 0, sizeof(g_registry));
+    bc_torpedo_mgr_init(&g_torpedoes);
+    if (data_path) {
+        if (bc_registry_load(&g_registry, data_path)) {
+            g_registry_loaded = true;
+            LOG_INFO("init", "Ship registry loaded: %d ships, %d projectiles from %s",
+                     g_registry.ship_count, g_registry.projectile_count, data_path);
+        } else {
+            LOG_WARN("init", "Failed to load ship registry: %s", data_path);
+            LOG_WARN("init", "  Running in relay-only mode (no damage authority)");
+        }
+    }
+
     /* Initialize */
     if (!bc_net_init()) {
         LOG_ERROR("init", "Failed to initialize networking");
@@ -1280,6 +1959,12 @@ int main(int argc, char **argv)
         printf("Checksum validation: on (manifest loaded)\n");
     } else {
         printf("Checksum validation: off (no manifest, permissive mode)\n");
+    }
+    if (g_registry_loaded) {
+        printf("Damage authority: server (%d ships, %d projectiles)\n",
+               g_registry.ship_count, g_registry.projectile_count);
+    } else {
+        printf("Damage authority: client (relay-only, no registry)\n");
     }
     if (log_file_path)
         printf("Log file: %s\n", log_file_path);
@@ -1380,6 +2065,68 @@ int main(int argc, char **argv)
 
                 /* Master server heartbeat */
                 bc_master_tick(&g_masters, &g_socket, now);
+            }
+
+            /* === Simulation tick (every 100ms when registry loaded) === */
+            if (g_registry_loaded) {
+                f32 dt = (f32)(now - last_tick) / 1000.0f;
+
+                for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+                    bc_peer_t *p = &g_peers.peers[i];
+                    if (!p->has_ship || !p->ship.alive) continue;
+
+                    const bc_ship_class_t *cls =
+                        bc_registry_get_ship(&g_registry, p->class_index);
+                    if (!cls) continue;
+
+                    /* Shield recharge */
+                    bc_combat_shield_tick(&p->ship, cls, dt);
+
+                    /* Phaser charge + torpedo cooldown */
+                    bc_combat_charge_tick(&p->ship, cls, 1.0f, dt);
+                    bc_combat_torpedo_tick(&p->ship, cls, dt);
+
+                    /* Cloak state machine */
+                    bc_cloak_tick(&p->ship, dt);
+
+                    /* Repair */
+                    bc_repair_tick(&p->ship, cls, dt);
+                    bc_repair_auto_queue(&p->ship, cls);
+                }
+
+                /* Torpedo tracker tick */
+                if (g_torpedoes.count > 0) {
+                    bc_torpedo_tick(&g_torpedoes, dt, 5.0f,
+                                    torpedo_target_pos,
+                                    torpedo_hit_callback, NULL);
+                }
+            }
+
+            /* Health broadcast: every 5 ticks (~500ms), send 0x20 StateUpdate */
+            if (g_registry_loaded && (tick_counter % 5 == 0)) {
+                for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+                    bc_peer_t *p = &g_peers.peers[i];
+                    if (!p->has_ship || !p->ship.alive) continue;
+
+                    const bc_ship_class_t *cls =
+                        bc_registry_get_ship(&g_registry, p->class_index);
+                    if (!cls) continue;
+
+                    u8 hbuf[128];
+                    int batch = 14;
+                    int hlen = bc_ship_build_health_update(
+                        &p->ship, cls, g_game_time,
+                        p->subsys_rr_idx, batch, hbuf, sizeof(hbuf));
+                    if (hlen > 0) {
+                        for (int j = 1; j < BC_MAX_PLAYERS; j++) {
+                            if (g_peers.peers[j].state >= PEER_LOBBY)
+                                queue_unreliable(j, hbuf, hlen);
+                        }
+                    }
+                    int count = cls->subsystem_count;
+                    if (count > 0)
+                        p->subsys_rr_idx = (u8)(((int)p->subsys_rr_idx + batch) % count);
+                }
             }
 
             /* Every 10 ticks (~1 second): send keepalive to all active peers.

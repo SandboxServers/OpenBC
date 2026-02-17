@@ -128,6 +128,31 @@ int bc_build_chat(u8 *buf, int buf_size,
     return (int)b.pos;
 }
 
+int bc_build_score_change(u8 *buf, int buf_size,
+                           u8 killer_slot, u8 victim_slot, i32 new_score)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_MSG_SCORE_CHANGE)) return -1;
+    if (!bc_buf_write_u8(&b, killer_slot)) return -1;
+    if (!bc_buf_write_u8(&b, victim_slot)) return -1;
+    if (!bc_buf_write_i32(&b, new_score)) return -1;
+
+    return (int)b.pos;
+}
+
+int bc_build_end_game(u8 *buf, int buf_size, u8 winner_slot)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_MSG_END_GAME)) return -1;
+    if (!bc_buf_write_u8(&b, winner_slot)) return -1;
+
+    return (int)b.pos;
+}
+
 int bc_build_state_update(u8 *buf, int buf_size,
                            i32 object_id, f32 game_time, u8 dirty_flags,
                            const u8 *field_data, int field_data_len)
@@ -142,6 +167,25 @@ int bc_build_state_update(u8 *buf, int buf_size,
     if (field_data_len > 0) {
         if (!bc_buf_write_bytes(&b, field_data, (size_t)field_data_len))
             return -1;
+    }
+
+    return (int)b.pos;
+}
+
+int bc_build_score(u8 *buf, int buf_size,
+                    const i32 *scores, int player_count)
+{
+    /* Wire format (from Mission1.py ReceiveScoreMessage):
+     *   [0x37][count:u8][{slot:u8, score:i32}...] */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_MSG_SCORE)) return -1;
+    if (!bc_buf_write_u8(&b, (u8)player_count)) return -1;
+
+    for (int i = 0; i < player_count; i++) {
+        if (!bc_buf_write_u8(&b, (u8)i)) return -1;        /* game_slot */
+        if (!bc_buf_write_i32(&b, scores[i])) return -1;   /* score */
     }
 
     return (int)b.pos;

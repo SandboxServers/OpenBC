@@ -63,6 +63,22 @@ int bc_build_destroy_obj(u8 *buf, int buf_size, i32 object_id);
 int bc_build_chat(u8 *buf, int buf_size,
                    u8 sender_slot, bool team, const char *message);
 
+/* Score: [0x37][count:u8][{slot:u8, score:i32}...]
+ * Sent to a newly joining player so they see everyone's current scores.
+ * scores array is indexed by game_slot (0 = first joiner, etc.).
+ * player_count is the number of entries (max 6). */
+int bc_build_score(u8 *buf, int buf_size,
+                    const i32 *scores, int player_count);
+
+/* ScoreChange: [0x36][killer_slot:u8][victim_slot:u8][new_score:i32]
+ * 7 bytes total. Sent when a kill occurs. */
+int bc_build_score_change(u8 *buf, int buf_size,
+                           u8 killer_slot, u8 victim_slot, i32 new_score);
+
+/* EndGame: [0x38][winner_slot:u8]
+ * 2 bytes total. Sent when frag/time limit reached. */
+int bc_build_end_game(u8 *buf, int buf_size, u8 winner_slot);
+
 /* --- Tier 2: Generic builders --- */
 
 /* StateUpdate: [0x1C][obj:i32][time:f32][dirty:u8][field_data...] */

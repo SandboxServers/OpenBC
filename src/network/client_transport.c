@@ -89,17 +89,20 @@ int bc_client_build_reliable(u8 *out, int out_size,
 int bc_client_build_unreliable(u8 *out, int out_size,
                                 u8 slot, const u8 *payload, int payload_len)
 {
-    /* Wire: [dir=0x02+slot][count=1][type=0x00][totalLen][payload] */
-    int total_msg_len = 2 + payload_len;
+    /* Wire: [dir=0x02+slot][count=1][0x32][totalLen][0x00][payload]
+     * Real BC clients send unreliable data as type 0x32 with flags=0x00
+     * (no seq bytes), not as bare type 0x00 keepalive. */
+    int total_msg_len = 3 + payload_len;  /* type + totalLen + flags + payload */
     int pkt_len = 2 + total_msg_len;
 
     if (pkt_len > out_size || total_msg_len > 255) return -1;
 
     out[0] = BC_DIR_CLIENT + slot;
     out[1] = 1;
-    out[2] = 0x00; /* unreliable type */
+    out[2] = BC_TRANSPORT_RELIABLE;  /* 0x32 */
     out[3] = (u8)total_msg_len;
-    memcpy(out + 4, payload, (size_t)payload_len);
+    out[4] = 0x00;  /* flags = unreliable */
+    memcpy(out + 5, payload, (size_t)payload_len);
 
     return pkt_len;
 }
