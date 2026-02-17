@@ -29,7 +29,11 @@ int bc_peers_add(bc_peer_mgr_t *mgr, const bc_addr_t *addr)
         if (mgr->peers[i].state == PEER_EMPTY) {
             memset(&mgr->peers[i], 0, sizeof(bc_peer_t));
             mgr->peers[i].state = PEER_CONNECTING;
-            mgr->peers[i].addr = *addr;
+            /* Use memcpy instead of struct assignment: with -O2, mingw gcc
+             * can optimize away `peers[i].addr = *addr` after memset,
+             * leaving the address zeroed.  memcpy is a function call barrier
+             * that the optimizer cannot eliminate. */
+            memcpy(&mgr->peers[i].addr, addr, sizeof(bc_addr_t));
             mgr->peers[i].object_id = -1;
             bc_outbox_init(&mgr->peers[i].outbox);
             mgr->count++;

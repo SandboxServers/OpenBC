@@ -89,11 +89,22 @@ Key path (when this+0x10e != 0, i.e. IS_HOST):
 ConnectAck is used when the server shuts down, sending a notification to all peers.
 Format from trace: `[0x05][0x0A][0xC0][0x00][0x00][slot][ip:4]`
 
-## ConnectData (0x04) -- Peer Mesh Info
+## ConnectData (0x04) -- Rejection/Notification (NOT Peer Mesh)
 
-After accepting a new client, the server sends ConnectData messages to introduce
-existing peers. This builds the peer-to-peer mesh. Constructed via FUN_006bc5b0.
-Each contains: [peerID:1][peerIP:4][peerData:variable]
+**CORRECTED**: ConnectData is NOT used for peer mesh info. It carries:
+[code:1][peerAddr:1] with reason codes:
+- Code 1: peer timeout/disconnect (broadcast to all peers)
+- Code 2: transport rejection (full/password)
+- Code 3: game-level rejection (all 16 player slots full, from 10_netfile_checksums.c:444)
+- Code 5: transport rejection (duplicate connection)
+
+Wire format: [04][07 C0][seq:2][code:1][peerAddr:1] = 7 bytes total.
+Uses 2-byte flags_len framing (same as Connect/ConnectAck).
+Factory: FUN_006badb0, Constructor: FUN_006bac70 (vtable 0089596c, 0x44 bytes)
+
+The "peer mesh" data (existing peers' IPs and names) is carried by
+**Keepalive (0x00)** messages: [slot:1][IP:4][name:UTF-16LE+null].
+See [connectdata-analysis.md](connectdata-analysis.md) for full details.
 
 ## OpenBC Impact
 

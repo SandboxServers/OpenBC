@@ -170,6 +170,7 @@ See the [verified protocol reference](docs/phase1-verified-protocol.md) for the 
 - [Engine Architecture](docs/phase1-engine-architecture.md) -- Original BC engine internals (RE reference)
 - [RE Gap Analysis](docs/phase1-re-gaps.md) -- Reverse engineering status (all critical items solved)
 - [Data Registry](docs/phase1-api-surface.md) -- Ship, map, rules, and manifest data schemas
+- [Server Authority](docs/server-authority.md) -- Feasibility analysis: what authority the server can take from clients
 - [Test Suite](tests/README.md) -- 11 test suites, test frameworks, adding new tests
 - [Tools](tools/README.md) -- CLI tools, data scraper, diagnostic utilities
 

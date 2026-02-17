@@ -596,12 +596,18 @@ TEST(full_join_flow_multi_client)
         ASSERT(len == 10);
         tc_send_raw(cl, pkt, len);
 
-        /* Step 3: Receive Connect response (server echoes Connect with slot) */
+        /* Step 3: Receive ConnectAck + ChecksumReq round 0 (batched) */
         ASSERT(tc_recv_raw(cl, 2000) > 0);
         bc_packet_t parsed;
         ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
         ASSERT(parsed.msg_count >= 1);
         ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_CONNECT);
+
+        /* Extract ChecksumReq round 0 from batched packet */
+        bc_transport_msg_t *round0_msg = tc_find_reliable_payload(cl, &parsed);
+        ASSERT(round0_msg != NULL);
+        ASSERT_EQ(round0_msg->payload[0], BC_OP_CHECKSUM_REQ);
+        ASSERT_EQ(round0_msg->payload[1], 0);
 
         /* Step 4: Send keepalive with name */
         len = bc_client_build_keepalive_name(pkt, sizeof(pkt), (u8)c,
@@ -609,25 +615,29 @@ TEST(full_join_flow_multi_client)
         ASSERT(len > 0);
         tc_send_raw(cl, pkt, len);
 
-        /* Step 5: 4 checksum rounds */
+        /* Step 5: 4 checksum rounds (round 0 from batch, 1-3 via recv) */
         for (int round = 0; round < 4; round++) {
-            ASSERT(tc_recv_raw(cl, 2000) > 0);
-            ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
+            bc_transport_msg_t *rmsg;
 
-            /* Find reliable message with checksum request */
-            bc_transport_msg_t *rmsg = NULL;
-            for (int i = 0; i < parsed.msg_count; i++) {
-                if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE) {
-                    tc_send_ack(cl, parsed.msgs[i].seq);
-                    if (parsed.msgs[i].payload_len > 0)
-                        rmsg = &parsed.msgs[i];
+            if (round == 0) {
+                rmsg = round0_msg;
+            } else {
+                rmsg = NULL;
+                u32 round_start = GetTickCount();
+                while ((int)(GetTickCount() - round_start) < 2000) {
+                    if (tc_recv_raw(cl, 200) <= 0) continue;
+                    bc_packet_t rp;
+                    if (!bc_transport_parse(cl->recv_buf, cl->recv_len, &rp))
+                        continue;
+                    rmsg = tc_find_reliable_payload(cl, &rp);
+                    if (rmsg) break;
                 }
+                ASSERT(rmsg != NULL);
             }
-            ASSERT(rmsg != NULL);
+
             ASSERT_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
             ASSERT_EQ(rmsg->payload[1], (u8)round);
 
-            /* Parse request, scan directory, build response */
             bc_checksum_request_t req;
             ASSERT(bc_client_parse_checksum_request(rmsg->payload,
                                                       rmsg->payload_len, &req));
@@ -650,16 +660,16 @@ TEST(full_join_flow_multi_client)
         }
 
         /* Step 6: Final round (0xFF) */
-        ASSERT(tc_recv_raw(cl, 2000) > 0);
-        ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
         {
             bc_transport_msg_t *rmsg = NULL;
-            for (int i = 0; i < parsed.msg_count; i++) {
-                if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE) {
-                    tc_send_ack(cl, parsed.msgs[i].seq);
-                    if (parsed.msgs[i].payload_len > 0)
-                        rmsg = &parsed.msgs[i];
-                }
+            u32 ff_start = GetTickCount();
+            while ((int)(GetTickCount() - ff_start) < 2000) {
+                if (tc_recv_raw(cl, 200) <= 0) continue;
+                bc_packet_t rp;
+                if (!bc_transport_parse(cl->recv_buf, cl->recv_len, &rp))
+                    continue;
+                rmsg = tc_find_reliable_payload(cl, &rp);
+                if (rmsg) break;
             }
             ASSERT(rmsg != NULL);
             ASSERT_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
@@ -676,44 +686,65 @@ TEST(full_join_flow_multi_client)
             tc_send_raw(cl, out, out_len);
         }
 
-        /* Step 7: Receive Settings, GameInit, NewPlayerInGame, MissionInit */
-        bool got_settings = false, got_gameinit = false;
-        bool got_npig = false, got_mission = false;
-        u32 start = GetTickCount();
+        /* Step 7: Receive Settings + GameInit, send 0x2A, receive MissionInit */
+        {
+            bool got_settings = false, got_gameinit = false;
+            u32 start = GetTickCount();
 
-        while ((int)(GetTickCount() - start) < 2000) {
-            if (tc_recv_raw(cl, 200) <= 0) {
-                if (got_settings && got_npig) break;
-                continue;
-            }
-            if (!bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed))
-                continue;
+            while ((int)(GetTickCount() - start) < 2000) {
+                if (tc_recv_raw(cl, 200) <= 0) {
+                    if (got_settings && got_gameinit) break;
+                    continue;
+                }
+                if (!bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed))
+                    continue;
 
-            for (int i = 0; i < parsed.msg_count; i++) {
-                bc_transport_msg_t *msg = &parsed.msgs[i];
-                if (msg->type == BC_TRANSPORT_RELIABLE) {
-                    tc_send_ack(cl, msg->seq);
-                    if (msg->payload_len > 0) {
-                        u8 op = msg->payload[0];
-                        if (op == BC_OP_SETTINGS) got_settings = true;
-                        if (op == BC_OP_GAME_INIT) got_gameinit = true;
-                        if (op == BC_OP_NEW_PLAYER_IN_GAME) {
-                            got_npig = true;
-                            /* Verify wire format: [0x2A][0x20] */
-                            ASSERT(msg->payload_len == 2);
-                            ASSERT_EQ(msg->payload[1], 0x20);
+                for (int i = 0; i < parsed.msg_count; i++) {
+                    bc_transport_msg_t *msg = &parsed.msgs[i];
+                    if (msg->type == BC_TRANSPORT_RELIABLE) {
+                        tc_send_ack(cl, msg->seq);
+                        if (msg->payload_len > 0) {
+                            u8 op = msg->payload[0];
+                            if (op == BC_OP_SETTINGS) got_settings = true;
+                            if (op == BC_OP_GAME_INIT) got_gameinit = true;
                         }
-                        if (op == BC_MSG_MISSION_INIT) got_mission = true;
                     }
                 }
+                if (got_settings && got_gameinit) break;
             }
-            if (got_settings && got_npig) break;
-        }
 
-        ASSERT(got_settings);
-        ASSERT(got_gameinit);
-        ASSERT(got_npig);
-        ASSERT(got_mission);
+            ASSERT(got_settings);
+            ASSERT(got_gameinit);
+
+            /* Client sends NewPlayerInGame */
+            u8 npig[2] = { BC_OP_NEW_PLAYER_IN_GAME, 0x20 };
+            u8 npig_out[64];
+            int npig_len = bc_client_build_reliable(npig_out, sizeof(npig_out),
+                                                      (u8)c, npig, 2, cl->seq_out++);
+            ASSERT(npig_len > 0);
+            tc_send_raw(cl, npig_out, npig_len);
+
+            /* Receive MissionInit response */
+            bool got_mission = false;
+            u32 mi_start = GetTickCount();
+            while ((int)(GetTickCount() - mi_start) < 2000) {
+                if (tc_recv_raw(cl, 200) <= 0) continue;
+                if (!bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed))
+                    continue;
+                for (int i = 0; i < parsed.msg_count; i++) {
+                    bc_transport_msg_t *msg = &parsed.msgs[i];
+                    if (msg->type == BC_TRANSPORT_RELIABLE) {
+                        tc_send_ack(cl, msg->seq);
+                        if (msg->payload_len > 0 &&
+                            msg->payload[0] == BC_MSG_MISSION_INIT)
+                            got_mission = true;
+                    }
+                }
+                if (got_mission) break;
+            }
+
+            ASSERT(got_mission);
+        }
 
         cl->connected = true;
     }

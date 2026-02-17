@@ -103,13 +103,14 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     }
 }
 
-/* Queue an ACK into a peer's outbox (piggybacked with next flush). */
+/* Queue an ACK into a peer's outbox (piggybacked with next flush).
+ * Stock dedi uses flags=0x00 for most ACKs (verified from traces). */
 static void queue_ack(int peer_slot, u16 seq)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
-    if (!bc_outbox_add_ack(&peer->outbox, seq, 0x80)) {
+    if (!bc_outbox_add_ack(&peer->outbox, seq, 0x00)) {
         bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
-        bc_outbox_add_ack(&peer->outbox, seq, 0x80);
+        bc_outbox_add_ack(&peer->outbox, seq, 0x00);
     }
 }
 
@@ -170,15 +171,6 @@ static void relay_to_others(int sender_slot, const u8 *payload, int payload_len,
     }
 }
 
-/* Send a reliable message to all connected peers (including the target). */
-static void send_to_all(const u8 *payload, int payload_len)
-{
-    for (int i = 1; i < BC_MAX_PLAYERS; i++) {  /* skip slot 0 = dedi */
-        if (g_peers.peers[i].state < PEER_LOBBY) continue;
-        queue_reliable(i, payload, payload_len);
-    }
-}
-
 static void send_checksum_request(int peer_slot, int round)
 {
     u8 payload[256];
@@ -187,6 +179,11 @@ static void send_checksum_request(int peer_slot, int round)
         LOG_DEBUG("handshake", "slot=%d sending checksum request round %d",
                   peer_slot, round);
         queue_reliable(peer_slot, payload, payload_len);
+        /* Flush immediately -- stock dedi sends ACK + next ChecksumReq in
+         * one packet within 1ms of receiving the response.  Waiting for the
+         * 100ms tick would add unnecessary latency during handshake. */
+        bc_peer_t *peer = &g_peers.peers[peer_slot];
+        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
     }
 }
 
@@ -194,24 +191,32 @@ static void send_settings_and_gameinit(int peer_slot)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
     u8 payload[512];
+    int len;
 
-    /* Settings (opcode 0x00) -- reliable */
-    int len = bc_settings_build(payload, sizeof(payload),
-                                g_game_time, g_collision_dmg, g_friendly_fire,
-                                (u8)peer_slot, g_map_name);
+    /* Opcode 0x28 -- sent before Settings (observed in all stock dedi traces).
+     * Purpose unclear (possibly "checksum exchange complete" signal).
+     * Wire format: 1 byte, just the opcode, no payload. */
+    payload[0] = BC_OP_UNKNOWN_28;
+    queue_reliable(peer_slot, payload, 1);
+    LOG_DEBUG("handshake", "slot=%d sending opcode 0x28", peer_slot);
+
+    /* Settings (opcode 0x00) -- reliable.
+     * Player slot in Settings is the game-level slot (0-based), not the
+     * network peer index. Stock dedi sends slot=0 for first joiner.
+     * peer_slot 1 → game_slot 0, peer_slot 2 → game_slot 1, etc. */
+    u8 game_slot = (u8)(peer_slot > 0 ? peer_slot - 1 : 0);
+    len = bc_settings_build(payload, sizeof(payload),
+                            g_game_time, g_collision_dmg, g_friendly_fire,
+                            game_slot, g_map_name);
     if (len > 0) {
-        LOG_DEBUG("handshake", "slot=%d sending Settings (slot=%d, map=%s)",
-                  peer_slot, peer_slot, g_map_name);
+        LOG_DEBUG("handshake", "slot=%d sending Settings (game_slot=%d, map=%s)",
+                  peer_slot, game_slot, g_map_name);
         queue_reliable(peer_slot, payload, len);
     }
 
-    /* UICollisionSetting (opcode 0x16) -- reliable */
-    len = bc_ui_collision_build(payload, sizeof(payload), g_collision_dmg);
-    if (len > 0) {
-        LOG_DEBUG("handshake", "slot=%d sending UICollisionSetting (collision=%d)",
-                  peer_slot, g_collision_dmg);
-        queue_reliable(peer_slot, payload, len);
-    }
+    /* UICollisionSetting (0x16) is NOT sent during handshake -- collision
+     * is already in the Settings bit flags.  Stock dedi never sends 0x16
+     * during initial connection (verified from traces). */
 
     /* GameInit (opcode 0x01) -- reliable */
     len = bc_gameinit_build(payload, sizeof(payload));
@@ -223,25 +228,13 @@ static void send_settings_and_gameinit(int peer_slot)
     peer->state = PEER_LOBBY;
     LOG_INFO("handshake", "slot=%d reached LOBBY state", peer_slot);
 
-    /* Notify all peers (including the new player) about the new player.
-     * Opcode 0x2A triggers client-side InitNetwork + object replication.
-     * Wire format: [0x2A][0x20] — trailing space byte observed in traces. */
-    u8 npig[2] = { BC_OP_NEW_PLAYER_IN_GAME, 0x20 };
-    send_to_all(npig, 2);
-    LOG_DEBUG("handshake", "slot=%d sent NewPlayerInGame to all", peer_slot);
+    /* Flush immediately so the client gets 0x28+Settings+GameInit without
+     * waiting for the next 100ms tick. */
+    bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
 
-    /* MissionInit (opcode 0x35) -- reliable, sent to joining player only.
-     * In the original game, the host's Python InitNetwork() sends this.
-     * We are the host, so we send it ourselves. Tells the client which
-     * star system to load and what the match rules are. */
-    len = bc_mission_init_build(payload, sizeof(payload),
-                                g_system_index, g_info.maxplayers,
-                                g_time_limit, g_frag_limit);
-    if (len > 0) {
-        LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
-                  peer_slot, g_system_index);
-        queue_reliable(peer_slot, payload, len);
-    }
+    /* Do NOT send NewPlayerInGame (0x2A) here -- that is a CLIENT-to-SERVER
+     * message.  The client sends 0x2A after receiving Settings + GameInit.
+     * When we receive it, we respond with MissionInit (see handle_game_message). */
 }
 
 /* Notify all other peers that a player has left, then remove them. */
@@ -275,6 +268,7 @@ static void handle_connect(const bc_addr_t *from, int len)
 {
     char addr_str[32];
     bc_addr_to_string(from, addr_str, sizeof(addr_str));
+    LOG_DEBUG("net", "handle_connect: from=%s", addr_str);
 
     int slot = bc_peers_find(&g_peers, from);
     if (slot >= 0) {
@@ -298,33 +292,56 @@ static void handle_connect(const bc_addr_t *from, int len)
     LOG_INFO("net", "Player connected from %s -> slot %d (%d/%d)",
              addr_str, slot, g_peers.count - 1, g_info.maxplayers);
 
-    /* Send Connect response (type 0x03) with assigned slot.
-     * Real BC responds to Connect with another Connect, NOT ConnectAck.
-     * Format: [dir=0x01][count=1][0x03][0x06][0xC0][0x00][0x00][slot]
-     * The 2-byte flags/len = 0xC006 = reliable+priority, totalLen=6.
-     * Seq=0x0000. Payload = 1 byte peer slot number.
+    /* Send Connect response + first ChecksumReq batched in one packet.
+     * Stock dedi always batches these (msgs=2).  This reduces round-trip
+     * latency and matches trace behavior exactly.
      *
-     * The wire slot becomes the client's direction byte.  Slot 0 is the
-     * dedicated server itself, so joining players start at slot 1.
-     * Wire value = slot + 1, so first joiner gets 0x02 (BC_DIR_CLIENT). */
-    {
-        u8 resp[8];
-        resp[0] = BC_DIR_SERVER;            /* 0x01 */
-        resp[1] = 1;                        /* msg_count=1 */
-        resp[2] = BC_TRANSPORT_CONNECT;     /* 0x03 */
-        resp[3] = 0x06;                     /* flags_len lo = totalLen 6 */
-        resp[4] = 0xC0;                     /* flags_len hi = reliable + priority */
-        resp[5] = 0x00;                     /* seq lo */
-        resp[6] = 0x00;                     /* seq hi */
-        resp[7] = (u8)(slot + 1);           /* wire slot = array index + 1 */
-        alby_cipher_encrypt(resp, sizeof(resp));
-        bc_socket_send(&g_socket, from, resp, sizeof(resp));
-    }
-
-    /* Begin checksum exchange */
+     * Connect response (type 0x03):
+     *   [0x03][0x06][0xC0][0x00][0x00][slot]
+     *   flags/len = 0xC006 = reliable+priority, totalLen=6.
+     *   Payload = 1 byte peer slot number (wire_slot = array index + 1).
+     *
+     * ChecksumReq round 0: wrapped in Reliable (0x32). */
     g_peers.peers[slot].state = PEER_CHECKSUMMING;
     g_peers.peers[slot].checksum_round = 0;
-    send_checksum_request(slot, 0);
+    {
+        u8 pkt[BC_MAX_PACKET_SIZE];
+        int pos = 0;
+
+        /* Packet header */
+        pkt[pos++] = BC_DIR_SERVER;        /* direction */
+        pkt[pos++] = 2;                    /* msg_count = 2 */
+
+        /* Message 0: Connect response */
+        pkt[pos++] = BC_TRANSPORT_CONNECT; /* 0x03 */
+        pkt[pos++] = 0x06;                /* totalLen = 6 */
+        pkt[pos++] = 0xC0;                /* flags = reliable + priority */
+        pkt[pos++] = 0x00;                /* seq hi */
+        pkt[pos++] = 0x00;                /* seq lo */
+        pkt[pos++] = (u8)(slot + 1);      /* wire slot */
+
+        /* Message 1: Reliable-wrapped ChecksumReq round 0 */
+        u8 cs_payload[256];
+        int cs_len = bc_checksum_request_build(cs_payload, sizeof(cs_payload), 0);
+        if (cs_len > 0) {
+            u16 seq = g_peers.peers[slot].reliable_seq_out++;
+            bc_reliable_add(&g_peers.peers[slot].reliable_out,
+                            cs_payload, cs_len, seq, GetTickCount());
+            int msg_total = 5 + cs_len;
+            pkt[pos++] = BC_TRANSPORT_RELIABLE;
+            pkt[pos++] = (u8)msg_total;
+            pkt[pos++] = 0x80;                    /* reliable flags */
+            pkt[pos++] = (u8)(seq & 0xFF);         /* counter → seqHi */
+            pkt[pos++] = 0;                        /* seqLo always 0 */
+            memcpy(pkt + pos, cs_payload, (size_t)cs_len);
+            pos += cs_len;
+            LOG_DEBUG("handshake", "slot=%d sending checksum request round 0",
+                      slot);
+        }
+
+        alby_cipher_encrypt(pkt, (size_t)pos);
+        bc_socket_send(&g_socket, from, pkt, pos);
+    }
 
     (void)len;
 }
@@ -333,7 +350,6 @@ static void handle_checksum_response(int peer_slot,
                                      const bc_transport_msg_t *msg)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
-
     /* Handle 0xFF final round response */
     if (peer->state == PEER_CHECKSUMMING_FINAL) {
         LOG_DEBUG("handshake", "slot=%d checksum round 0xFF accepted (len=%d)",
@@ -397,10 +413,11 @@ static void handle_checksum_response(int peer_slot,
          * [0x20][0xFF] after rounds 0-3 complete. */
         LOG_DEBUG("handshake", "slot=%d rounds 0-3 passed, sending final round 0xFF",
                   peer_slot);
-        u8 payload[16];
+        u8 payload[256];
         int plen = bc_checksum_request_final_build(payload, sizeof(payload));
         if (plen > 0) {
             queue_reliable(peer_slot, payload, plen);
+            bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
         }
         peer->state = PEER_CHECKSUMMING_FINAL;
     }
@@ -459,6 +476,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     u8 opcode = payload[0];
     const char *name = bc_opcode_name(opcode);
+
+    LOG_DEBUG("game", "slot=%d dispatch opcode=0x%02X (%s) len=%d state=%d",
+              peer_slot, opcode, name ? name : "?", payload_len, peer->state);
 
     /* Dispatch checksum responses to the handshake handler */
     if (opcode == BC_OP_CHECKSUM_RESP) {
@@ -596,6 +616,27 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
     }
 
+    /* --- NewPlayerInGame (C->S, triggers MissionInit) --- */
+    case BC_OP_NEW_PLAYER_IN_GAME: {
+        LOG_INFO("handshake", "slot=%d sent NewPlayerInGame", peer_slot);
+        /* Relay to all other peers so they know about the new player */
+        relay_to_others(peer_slot, payload, payload_len, true);
+        /* Respond with MissionInit (0x35) -- tells client which star system
+         * to load and what the match rules are. */
+        u8 mi[32];
+        int mi_len = bc_mission_init_build(mi, sizeof(mi),
+                                            g_system_index, g_info.maxplayers,
+                                            g_time_limit, g_frag_limit);
+        if (mi_len > 0) {
+            LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
+                      peer_slot, g_system_index);
+            queue_reliable(peer_slot, mi, mi_len);
+            bc_peer_t *p = &g_peers.peers[peer_slot];
+            bc_outbox_flush(&p->outbox, &g_socket, &p->addr);
+        }
+        break;
+    }
+
     /* --- Host message (C->S only, not relayed) --- */
     case BC_OP_HOST_MSG:
         LOG_DEBUG("game", "slot=%d host message len=%d", peer_slot, payload_len);
@@ -715,6 +756,13 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
             return;
         }
 
+        /* ACK incoming reliable messages.  Stock dedi ACKs every client
+         * reliable immediately, batched with its next outgoing message.
+         * This also drives the client's retransmit logic. */
+        if (msg->type == BC_TRANSPORT_RELIABLE) {
+            bc_outbox_add_ack(&g_peers.peers[slot].outbox, msg->seq, 0x00);
+        }
+
         /* Keepalive with name: during handshake, client sends a keepalive
          * (type 0x00) with UTF-16LE player name embedded.
          * Format: [0x00][totalLen][flags:1][?:2][slot?:1][ip:4][name_utf16le...]
@@ -735,6 +783,14 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
                 peer->name[j] = '\0';
                 if (j > 0) {
                     LOG_INFO("net", "slot=%d player name: %s", slot, peer->name);
+                }
+                /* Cache the raw keepalive payload so we can echo it back.
+                 * Stock dedi mirrors the client's identity data in its
+                 * keepalive responses (22 bytes, same format). */
+                if (msg->payload_len <= (int)sizeof(peer->keepalive_data)) {
+                    memcpy(peer->keepalive_data, msg->payload,
+                           (size_t)msg->payload_len);
+                    peer->keepalive_len = msg->payload_len;
                 }
                 continue;  /* Name keepalive handled, skip game processing */
             }
@@ -985,17 +1041,6 @@ int main(int argc, char **argv)
             if (bc_gamespy_is_query(recv_buf, received)) {
                 handle_gamespy(&g_socket, &from, recv_buf, received);
             } else {
-                char pkt_addr[32];
-                bc_addr_to_string(&from, pkt_addr, sizeof(pkt_addr));
-                {
-                    char hex[128];
-                    int hpos = 0;
-                    for (int j = 0; j < received && hpos < 120; j++)
-                        hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
-                                          "%02X ", recv_buf[j]);
-                    LOG_DEBUG("net", "Game packet from %s: %d bytes raw=[%s]",
-                              pkt_addr, received, hex);
-                }
                 handle_packet(&from, recv_buf, received);
             }
         }
@@ -1063,12 +1108,20 @@ int main(int argc, char **argv)
                 bc_master_tick(&g_masters, &g_socket, now);
             }
 
-            /* Every 10 ticks (~1 second): send keepalive to all active peers */
+            /* Every 10 ticks (~1 second): send keepalive to all active peers.
+             * Stock dedi echoes the client's identity data (22 bytes) back
+             * instead of sending a minimal [0x00][0x02] keepalive. */
             if (tick_counter % 10 == 0) {
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *peer = &g_peers.peers[i];
                     if (peer->state < PEER_LOBBY) continue;
-                    bc_outbox_add_keepalive(&peer->outbox);
+                    if (peer->keepalive_len > 0) {
+                        bc_outbox_add_unreliable(&peer->outbox,
+                                                  peer->keepalive_data,
+                                                  peer->keepalive_len);
+                    } else {
+                        bc_outbox_add_keepalive(&peer->outbox);
+                    }
                 }
             }
 

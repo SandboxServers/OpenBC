@@ -27,7 +27,7 @@ int bc_checksum_request_build(u8 *buf, int buf_size, int round);
 
 /* Build the final checksum request (round 0xFF).
  * This is the 5th round observed in traces, sent after rounds 0-3 pass.
- * Format: [0x20][0xFF] -- minimal request, client responds with [0x21][0xFF][...].
+ * Stock dedi sends a full request for Scripts/Multiplayer, *.pyc (recursive).
  * Returns bytes written, or -1 on error. */
 int bc_checksum_request_final_build(u8 *buf, int buf_size);
 

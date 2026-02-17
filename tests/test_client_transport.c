@@ -105,7 +105,7 @@ TEST(parse_checksum_request_round2_recursive)
     bc_checksum_request_t req;
     ASSERT(bc_client_parse_checksum_request(req_buf, req_len, &req));
     ASSERT_EQ(req.round, 2);
-    ASSERT(strcmp(req.directory, "scripts/ships/") == 0);
+    ASSERT(strcmp(req.directory, "scripts/ships") == 0);
     ASSERT(strcmp(req.filter, "*.pyc") == 0);
     ASSERT(req.recursive);
 }

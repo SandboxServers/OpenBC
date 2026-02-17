@@ -90,14 +90,19 @@ bool bc_buf_write_bytes(bc_buffer_t *buf, const u8 *src, size_t len)
 /*
  * WriteBit -- pack booleans into a shared byte.
  *
- * Original TGBufferStream packs up to 5 bits per byte:
+ * Original TGBufferStream (FUN_006cf770) packs up to 5 bits per byte:
  *   Byte layout: [count:3][bits:5]
- *   count (bits 7-5): number of booleans packed (stored as count-1)
+ *   count (bits 7-5): number of booleans packed (actual count, 1-5)
  *   bits  (bits 4-0): boolean values, one per bit position
  *
  * First WriteBit in a group: write a placeholder byte, record bookmark.
  * Subsequent WriteBit calls: update the byte at the bookmark position.
  * After 5 bits or the next non-bit write: the pack is finalized.
+ *
+ * The count field stores the actual count (not count-1). This is verified
+ * against decompiled code: `bVar3 = (bVar3 >> 5) + 1` increments the
+ * count each call, then stores `bVar3 * 0x20` in the upper bits.
+ * ReadBit (FUN_006cf580) uses `1 << count_field` as termination threshold.
  */
 bool bc_buf_write_bit(bc_buffer_t *buf, bool val)
 {
@@ -107,8 +112,8 @@ bool bc_buf_write_bit(bc_buffer_t *buf, bool val)
         buf->bit_bookmark = buf->pos;
         buf->data[buf->pos++] = 0;
         buf->bit_count = 1;
-        /* Store: count=0 (meaning 1 bit), value in bit 0 */
-        buf->data[buf->bit_bookmark] = (0 << 5) | (val ? 1 : 0);
+        /* Store: count=1, value in bit 0 */
+        buf->data[buf->bit_bookmark] = (1 << 5) | (val ? 1 : 0);
     } else if (buf->bit_count < 5) {
         /* Add to existing bit-pack group */
         u8 byte = buf->data[buf->bit_bookmark];
@@ -116,7 +121,7 @@ bool bc_buf_write_bit(bc_buffer_t *buf, bool val)
             byte |= (1 << buf->bit_count);
         }
         buf->bit_count++;
-        byte = (byte & 0x1F) | (((buf->bit_count - 1) & 0x7) << 5);
+        byte = (byte & 0x1F) | ((buf->bit_count & 0x7) << 5);
         buf->data[buf->bit_bookmark] = byte;
     } else {
         /* Current group is full (5 bits), start a new one */
@@ -187,7 +192,7 @@ bool bc_buf_read_bit(bc_buffer_t *buf, bool *out)
         if (buf->pos + 1 > buf->capacity) return false;
         u8 byte = buf->data[buf->pos++];
         buf->bit_bookmark = buf->pos - 1;
-        u8 count = ((byte >> 5) & 0x7) + 1;  /* stored as count-1 */
+        u8 count = (byte >> 5) & 0x7;  /* actual count (1-5) */
         buf->bit_count = count;
         /* Read bit 0 */
         *out = (byte & 1) != 0;
@@ -195,7 +200,7 @@ bool bc_buf_read_bit(bc_buffer_t *buf, bool *out)
     } else {
         /* Read next bit from current group */
         u8 byte = buf->data[buf->bit_bookmark];
-        u8 total = ((byte >> 5) & 0x7) + 1;
+        u8 total = (byte >> 5) & 0x7;
         u8 bit_idx = total - buf->bit_count;
         *out = ((byte >> bit_idx) & 1) != 0;
         buf->bit_count--;

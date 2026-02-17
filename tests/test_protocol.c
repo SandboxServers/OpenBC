@@ -230,11 +230,32 @@ TEST(buffer_bit_packing_single)
 
     ASSERT(bc_buf_write_bit(&buf, true));
 
+    /* Verify wire format: count=1, bit0=1 → 0x21 */
+    ASSERT_EQ(mem[0], 0x21);
+
     bc_buf_reset(&buf);
 
     bool v;
     ASSERT(bc_buf_read_bit(&buf, &v));
     ASSERT(v == true);
+}
+
+TEST(buffer_bit_packing_single_false)
+{
+    u8 mem[16];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    ASSERT(bc_buf_write_bit(&buf, false));
+
+    /* Verify wire format: count=1, bit0=0 → 0x20 */
+    ASSERT_EQ(mem[0], 0x20);
+
+    bc_buf_reset(&buf);
+
+    bool v;
+    ASSERT(bc_buf_read_bit(&buf, &v));
+    ASSERT(v == false);
 }
 
 TEST(buffer_bit_packing_two_bits)
@@ -245,6 +266,9 @@ TEST(buffer_bit_packing_two_bits)
 
     ASSERT(bc_buf_write_bit(&buf, true));
     ASSERT(bc_buf_write_bit(&buf, false));
+
+    /* Verify wire format: count=2, bit0=1, bit1=0 → 0x41 */
+    ASSERT_EQ(mem[0], 0x41);
 
     bc_buf_reset(&buf);
 
@@ -269,6 +293,11 @@ TEST(buffer_settings_packet_bits)
     bc_buf_write_bit(&buf, false);     /* friendly_fire */
     bc_buf_write_u8(&buf, 3);          /* player_slot */
 
+    /* Verify bit byte wire format: count=2, bit0=1, bit1=0 → 0x41
+     * (only 2 bits written before the u8, the 3rd bit (checksumFlag)
+     * comes later after the map name -- that starts a new group). */
+    ASSERT_EQ(mem[5], 0x41);
+
     bc_buf_reset(&buf);
 
     u8 opcode;
@@ -287,6 +316,32 @@ TEST(buffer_settings_packet_bits)
     ASSERT(collision == true);
     ASSERT(friendly == false);
     ASSERT_EQ(slot, 3);
+}
+
+TEST(buffer_settings_three_bits_wire_format)
+{
+    /* Verify that the full Settings bit byte matches stock dedi traces.
+     * Stock dedi trace shows 0x61 = (3<<5) | 0x01 for:
+     * collision=1, friendlyFire=0, checksumCorrection=0 */
+    u8 mem[32];
+    bc_buffer_t buf;
+    bc_buf_init(&buf, mem, sizeof(mem));
+
+    bc_buf_write_bit(&buf, true);   /* collision_damage */
+    bc_buf_write_bit(&buf, false);  /* friendly_fire */
+    bc_buf_write_bit(&buf, false);  /* checksum_correction */
+
+    ASSERT_EQ(mem[0], 0x61);  /* count=3, bits=0b00001 */
+
+    bc_buf_reset(&buf);
+
+    bool v1, v2, v3;
+    ASSERT(bc_buf_read_bit(&buf, &v1));
+    ASSERT(bc_buf_read_bit(&buf, &v2));
+    ASSERT(bc_buf_read_bit(&buf, &v3));
+    ASSERT(v1 == true);
+    ASSERT(v2 == false);
+    ASSERT(v3 == false);
 }
 
 TEST(buffer_alloc_free)
@@ -538,13 +593,13 @@ TEST(checksum_request_round2_recursive)
     ASSERT_EQ(opcode, BC_OP_CHECKSUM_REQ);
     ASSERT_EQ(idx, 2);
 
-    /* Directory: "scripts/ships/" */
+    /* Directory: "scripts/ships" (no trailing slash per trace) */
     u16 dir_len;
     ASSERT(bc_buf_read_u16(&b, &dir_len));
-    ASSERT_EQ_INT(dir_len, 14);
+    ASSERT_EQ_INT(dir_len, 13);
     u8 dir[64];
     ASSERT(bc_buf_read_bytes(&b, dir, dir_len));
-    ASSERT(memcmp(dir, "scripts/ships/", 14) == 0);
+    ASSERT(memcmp(dir, "scripts/ships", 13) == 0);
 
     /* Filter: "*.pyc" */
     u16 filt_len;
@@ -1157,8 +1212,8 @@ TEST(outbox_multi_message)
     u8 reliable[] = { 0x00, 0x01 };
     ASSERT(bc_outbox_add_reliable(&outbox, reliable, 2, 5));
 
-    /* Add ACK */
-    ASSERT(bc_outbox_add_ack(&outbox, 0x0300, 0x80));
+    /* Add ACK (stock dedi uses flags=0x00 for standard ACKs) */
+    ASSERT(bc_outbox_add_ack(&outbox, 0x0300, 0x00));
 
     u8 pkt[BC_MAX_PACKET_SIZE];
     int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
@@ -1183,7 +1238,7 @@ TEST(outbox_multi_message)
     /* Message 2: ACK for wire seq 0x0300 → counter=3 */
     ASSERT_EQ(parsed.msgs[2].type, BC_TRANSPORT_ACK);
     ASSERT_EQ_INT(parsed.msgs[2].seq, 3);
-    ASSERT_EQ(parsed.msgs[2].flags, 0x80);
+    ASSERT_EQ(parsed.msgs[2].flags, 0x00);
 }
 
 TEST(outbox_overflow)
@@ -1318,11 +1373,41 @@ TEST(direction_byte_client_encoding)
 
 TEST(checksum_round_0xff_build)
 {
-    u8 buf[16];
+    u8 buf[64];
     int len = bc_checksum_request_final_build(buf, sizeof(buf));
-    ASSERT_EQ_INT(len, 2);
-    ASSERT_EQ(buf[0], BC_OP_CHECKSUM_REQ);
-    ASSERT_EQ(buf[1], 0xFF);
+    ASSERT(len > 2);  /* Full request, not minimal */
+
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)len);
+
+    u8 opcode;
+    ASSERT(bc_buf_read_u8(&b, &opcode));
+    ASSERT_EQ(opcode, BC_OP_CHECKSUM_REQ);
+
+    u8 idx;
+    ASSERT(bc_buf_read_u8(&b, &idx));
+    ASSERT_EQ(idx, 0xFF);
+
+    /* Directory: "Scripts/Multiplayer" (capital S) */
+    u16 dir_len;
+    ASSERT(bc_buf_read_u16(&b, &dir_len));
+    ASSERT_EQ_INT(dir_len, 19);
+    u8 dir[64];
+    ASSERT(bc_buf_read_bytes(&b, dir, dir_len));
+    ASSERT(memcmp(dir, "Scripts/Multiplayer", 19) == 0);
+
+    /* Filter: "*.pyc" */
+    u16 filt_len;
+    ASSERT(bc_buf_read_u16(&b, &filt_len));
+    ASSERT_EQ_INT(filt_len, 5);
+    u8 filt[64];
+    ASSERT(bc_buf_read_bytes(&b, filt, filt_len));
+    ASSERT(memcmp(filt, "*.pyc", 5) == 0);
+
+    /* Recursive: true */
+    bool recursive;
+    ASSERT(bc_buf_read_bit(&b, &recursive));
+    ASSERT(recursive == true);
 }
 
 /* === Run all tests === */
@@ -1345,8 +1430,10 @@ TEST_MAIN_BEGIN()
     RUN(buffer_overflow_protection);
     RUN(buffer_remaining);
     RUN(buffer_bit_packing_single);
+    RUN(buffer_bit_packing_single_false);
     RUN(buffer_bit_packing_two_bits);
     RUN(buffer_settings_packet_bits);
+    RUN(buffer_settings_three_bits_wire_format);
     RUN(buffer_alloc_free);
 
     /* CompressedFloat16 */

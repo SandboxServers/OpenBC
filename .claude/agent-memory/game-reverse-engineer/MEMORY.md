@@ -11,6 +11,7 @@
 - [data-structures.md](data-structures.md) - Recovered data structure layouts
 - [gameplay-relay-analysis.md](gameplay-relay-analysis.md) - Full gameplay relay analysis for playable dedicated server
 - [gamespy-server-discovery.md](gamespy-server-discovery.md) - Complete GameSpy LAN + Internet server discovery analysis
+- [connectdata-analysis.md](connectdata-analysis.md) - ConnectData (0x04) is rejection/notification, NOT peer mesh
 
 ## Key Patterns Discovered
 - Ghidra labels (LAB_xxx) are handler callback addresses registered via FUN_006da130/FUN_006db380
@@ -49,8 +50,62 @@
 - FUN_006b6640 is the server-side Connect handler, FUN_006b7540 allocates peer slot
 - FUN_006be730 constructs Connect message objects (vtable PTR_LAB_008959ec)
 - FUN_006bf2e0 constructs ConnectAck message objects (vtable PTR_LAB_00895a0c)
-- FUN_006bac70 constructs rejection messages (vtable PTR_LAB_0089596c), [0x10]=reason code
-- See [connect-handshake-analysis.md](connect-handshake-analysis.md) for full details
+- FUN_006bac70 constructs ConnectData messages (vtable PTR_LAB_0089596c, 0x44 bytes), [0x10]=reason code
+- ConnectData (0x04) is for REJECTION/NOTIFICATION only, NOT peer mesh info
+- ConnectData codes: 1=peer timeout, 2=transport reject, 3=game-full reject, 5=duplicate reject
+- Code 3 comes from 10_netfile_checksums.c:444 (after checksum pass, no player slot available)
+- Peer mesh info is carried by Keepalive (0x00) messages: [slot:1][IP:4][name:UTF-16LE+null]
+- FUN_006bc5b0 (vtable 0089598c) is Keepalive constructor, NOT ConnectData
+- See [connect-handshake-analysis.md](connect-handshake-analysis.md) and [connectdata-analysis.md](connectdata-analysis.md)
+
+## Message Factory Table (0x009962d4, indexed by type*4)
+- 0x00: FUN_006bc6a0 (Keepalive) -- vtable 0x0089598C, size 0x40
+- 0x01: FUN_006bd1f0 (ACK) -- vtable 0x008959AC
+- 0x02: FUN_006bdd10 (unknown type 2)
+- 0x03: FUN_006be860 (Connect) -- vtable 0x008959EC, size 0x40
+- 0x04: FUN_006badb0 (ConnectData) -- vtable 0x0089596C, size 0x44
+- 0x05: FUN_006bf410 (ConnectAck) -- vtable 0x00895A0C
+- 0x32: FUN_006b83f0 (Reliable) -- vtable 0x008958D0
+
+## Wire Format Audit (2026-02-16) -- see docs/wire-format-audit.md
+- **CRITICAL BUG**: TGBufferStream bit-packing count field is off-by-one
+  - Real game stores count directly (1,2,3); OpenBC stores count-1 (0,1,2)
+  - Decompiled WriteBit at FUN_006cf770: `bVar3 = (bVar3 >> 5) + 1` then stores
+  - Reader FUN_006cf580 uses `1 << (byte >> 5)` as threshold -- matches the writer
+  - Fix: bc_buf_write_bit must store bit_count, NOT bit_count-1; reader must NOT add 1
+  - Affects ALL messages with WriteBit: Settings, ChecksumReq, UICollision, StateUpdate
+- **NewPlayerInGame (0x2A) is CLIENT-to-SERVER**, server should NOT send it
+  - Client sends 0x2A after receiving GameInit; server responds with MissionInit
+- **Opcode 0x28**: stock dedi sends [0x28] (1 byte reliable) BEFORE Settings+GameInit
+- **Checksum round 0xFF**: must be a full checksum request with dir="Scripts/Multiplayer" (capital S)
+  - NOT the minimal [0x20][0xFF] that OpenBC currently sends
+- **Server keepalive**: stock dedi echoes client identity data (22 bytes), not minimal [0x00][0x02]
+- **UICollisionSetting (0x16)**: NOT sent during handshake in stock dedi
+- **ACK flags**: stock uses 0x00/0x01/0x02, not 0x80
+- **Settings slot byte**: stock sends slot=0 for first joiner, may differ from peer index
+
+## TGBufferStream Function IDs (VERIFIED)
+- FUN_006cf730 = WriteU8 (does NOT reset bit accumulator)
+- FUN_006cf770 = WriteBit (bookmark-based, count incremented each call)
+- FUN_006cf7f0 = WriteU16
+- FUN_006cf8b0 = WriteFloat
+- FUN_006cf2b0 = WriteBytes
+- FUN_006cf580 = ReadBit
+- FUN_006cf540 = ReadU8
+- FUN_006cf600 = ReadU16
+- FUN_006cf6b0 = ReadFloat
+- FUN_006cf230 = ReadBytes
+- FUN_006cefe0 = TGBufferStream constructor
+- FUN_006cf180 = TGBufferStream::SetBuffer
+
+## Key Globals
+- DAT_008e5f59 = collision damage flag (confirmed by g_pCollisionButton reference)
+- DAT_0097faa2 = friendly fire flag (used in damage handler to check team affiliation)
+- DAT_0097fa84 = player slot index
+- DAT_0097fa88 = IsClient flag
+- DAT_0097fa89 = IsHost flag
+- DAT_0097fa8a = IsMultiplayer flag
+- DAT_009a09d0+0x90 = game time (float)
 
 ## Lessons
 - FUN_006b0030 in 11_tgnetwork.c is actually Bink video code, NOT TGNetwork - file organization is by address range not by topic
@@ -61,4 +116,9 @@
 - FUN_006b4de0 is SendToGroup(groupName, msg) -- finds group by name, sends to all members
 - FUN_006b4ec0 is SendToGroupMembers(groupPtr, msg) -- sends to all members of group object
 - FUN_0047dab0 is ShipObject constructor (creates network ship wrapper from deserialized data)
-- Connect/ConnectAck factory funcs parse 2-byte flags/len, NOT 1-byte len like the simple packet tracer
+- Connect/ConnectAck/ConnectData/Keepalive ALL use 2-byte flags_len framing, NOT 1-byte len
+- The packet_trace_and_decode.inc.c decoder treats them as [type:1][len:1] which is WRONG but happens to produce correct message boundaries because totalLen matches
+- Checksum rounds: stock dedi sends 5 rounds (0, 1, 2, 3, 255), NOT 4
+- Round 255 = final Scripts/Multiplayer check (recursive *.pyc)
+- Non-bit TGBufferStream writes (WriteU8, WriteFloat, etc.) do NOT reset the bit accumulator
+- All WriteBit calls across an entire message share the same byte via the bookmark mechanism

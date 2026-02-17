@@ -177,9 +177,26 @@ static int tc_build_real_checksum(u8 *buf, int buf_size, u8 round,
         scan->files, scan->file_count);
 }
 
+/* Internal: find a reliable message with game payload in a parsed packet.
+ * Auto-ACKs all reliable messages encountered. */
+static bc_transport_msg_t *tc_find_reliable_payload(bc_test_client_t *c,
+                                                      bc_packet_t *parsed)
+{
+    bc_transport_msg_t *found = NULL;
+    for (int i = 0; i < parsed->msg_count; i++) {
+        if (parsed->msgs[i].type == BC_TRANSPORT_RELIABLE) {
+            tc_send_ack(c, parsed->msgs[i].seq);
+            if (!found && parsed->msgs[i].payload_len > 0)
+                found = &parsed->msgs[i];
+        }
+    }
+    return found;
+}
+
 /* Full handshake with wire-accurate checksums computed from a game directory.
- * Connect -> ConnectAck -> keepalive name -> 4+1 checksum rounds ->
- * receive Settings/GameInit/NewPlayerInGame. */
+ * Connect -> ConnectAck (batched with ChecksumReq round 0) -> keepalive name
+ * -> 4 more checksum rounds -> receive Settings/GameInit -> send 0x2A ->
+ * receive MissionInit. */
 static bool test_client_connect(bc_test_client_t *c, u16 port,
                                  const char *name, u8 slot,
                                  const char *game_dir)
@@ -203,9 +220,23 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
     if (len <= 0) return false;
     tc_send_raw(c, pkt, len);
 
-    /* 2. Wait for ConnectAck */
+    /* 2. Wait for ConnectAck + ChecksumReq round 0 (batched in one packet) */
     if (tc_recv_raw(c, 2000) <= 0) {
         fprintf(stderr, "  CLIENT %s: no ConnectAck\n", name);
+        return false;
+    }
+
+    /* Parse the batched Connect+ChecksumReq packet */
+    bc_packet_t first_pkt;
+    if (!bc_transport_parse(c->recv_buf, c->recv_len, &first_pkt)) {
+        fprintf(stderr, "  CLIENT %s: failed to parse ConnectAck packet\n", name);
+        return false;
+    }
+
+    /* ACK any reliables and find the ChecksumReq (round 0) */
+    bc_transport_msg_t *round0_msg = tc_find_reliable_payload(c, &first_pkt);
+    if (!round0_msg) {
+        fprintf(stderr, "  CLIENT %s: no checksum request in ConnectAck packet\n", name);
         return false;
     }
 
@@ -214,38 +245,43 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
                                           htonl(0x7F000001), name);
     if (len > 0) tc_send_raw(c, pkt, len);
 
-    /* 4. Handle checksum rounds with real hashes */
+    /* 4. Handle checksum rounds with real hashes.
+     * Round 0 is already parsed from the batched packet above.
+     * Rounds 1-3 and the final round arrive in separate packets. */
     for (int round = 0; round < 5; round++) {
-        if (tc_recv_raw(c, 2000) <= 0) {
-            fprintf(stderr, "  CLIENT %s: no checksum request round %d\n",
-                    name, round);
-            return false;
-        }
+        bc_transport_msg_t *msg;
 
-        bc_packet_t parsed;
-        if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
-            return false;
+        if (round == 0) {
+            /* Round 0 was in the batched ConnectAck packet */
+            msg = round0_msg;
+        } else {
+            /* Receive a new packet for rounds 1-4.
+             * May need multiple recv calls since server can send ACK-only
+             * packets (keepalives, retransmit ACKs) between rounds. */
+            msg = NULL;
+            u32 round_start = GetTickCount();
+            while ((int)(GetTickCount() - round_start) < 2000) {
+                int got = tc_recv_raw(c, 200);
+                if (got <= 0) continue;
 
-        for (int i = 0; i < parsed.msg_count; i++) {
-            if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE)
-                tc_send_ack(c, parsed.msgs[i].seq);
+                bc_packet_t parsed;
+                if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
+                    continue;
+
+                msg = tc_find_reliable_payload(c, &parsed);
+                if (msg) break;
+            }
+            if (!msg) {
+                fprintf(stderr, "  CLIENT %s: no checksum request round %d\n",
+                        name, round);
+                return false;
+            }
         }
 
         u8 resp[4096];
         int resp_len;
 
         if (round < 4) {
-            /* Parse checksum request to get directory/filter */
-            bc_transport_msg_t *msg = NULL;
-            for (int i = 0; i < parsed.msg_count; i++) {
-                if (parsed.msgs[i].type == BC_TRANSPORT_RELIABLE &&
-                    parsed.msgs[i].payload_len > 0) {
-                    msg = &parsed.msgs[i];
-                    break;
-                }
-            }
-            if (!msg) return false;
-
             bc_checksum_request_t req;
             if (!bc_client_parse_checksum_request(msg->payload, msg->payload_len, &req)) {
                 fprintf(stderr, "  CLIENT %s: failed to parse checksum request round %d\n",
@@ -253,7 +289,6 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
                 return false;
             }
 
-            /* Scan directory and compute real hashes */
             bc_client_dir_scan_t scan;
             if (!bc_client_scan_directory(game_dir, req.directory,
                                            req.filter, req.recursive, &scan)) {
@@ -265,8 +300,7 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
             resp_len = tc_build_real_checksum(resp, sizeof(resp),
                                                (u8)round, &scan);
         } else {
-            /* Final round: send real hash (use 0 for now as the server
-             * doesn't validate the final round hash strictly) */
+            /* Final round: send empty response */
             resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0, 0);
         }
         if (resp_len <= 0) return false;
@@ -277,14 +311,15 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
         if (out_len > 0) tc_send_raw(c, out, out_len);
     }
 
-    /* 5. Drain Settings/GameInit/NewPlayerInGame/MissionInit */
+    /* 5. Drain 0x28 + Settings + GameInit, then send NewPlayerInGame,
+     *    then receive MissionInit. */
     u32 drain_start = GetTickCount();
     bool got_settings = false;
-    bool got_npig = false;
+    bool got_gameinit = false;
 
-    while ((int)(GetTickCount() - drain_start) < 2000) {
+    while ((int)(GetTickCount() - drain_start) < 3000) {
         if (tc_recv_raw(c, 200) <= 0) {
-            if (got_settings && got_npig) break;
+            if (got_settings && got_gameinit) break;
             continue;
         }
 
@@ -299,16 +334,49 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
                 if (msg->payload_len > 0) {
                     u8 op = msg->payload[0];
                     if (op == BC_OP_SETTINGS) got_settings = true;
-                    if (op == BC_OP_NEW_PLAYER_IN_GAME) got_npig = true;
+                    if (op == BC_OP_GAME_INIT) got_gameinit = true;
                 }
             }
         }
-        if (got_settings && got_npig) break;
+        if (got_settings && got_gameinit) break;
     }
 
-    if (!got_settings || !got_npig) {
-        fprintf(stderr, "  CLIENT %s: handshake incomplete (settings=%d npig=%d)\n",
-                name, got_settings, got_npig);
+    if (!got_settings || !got_gameinit) {
+        fprintf(stderr, "  CLIENT %s: handshake incomplete (settings=%d gameinit=%d)\n",
+                name, got_settings, got_gameinit);
+        return false;
+    }
+
+    /* 6. Send NewPlayerInGame (client -> server) */
+    u8 npig[2] = { BC_OP_NEW_PLAYER_IN_GAME, 0x20 };
+    u8 npig_pkt[64];
+    int npig_len = bc_client_build_reliable(npig_pkt, sizeof(npig_pkt), slot,
+                                              npig, 2, c->seq_out++);
+    if (npig_len > 0) tc_send_raw(c, npig_pkt, npig_len);
+
+    /* 7. Wait for MissionInit (0x35) response */
+    bool got_mission = false;
+    u32 mi_start = GetTickCount();
+    while ((int)(GetTickCount() - mi_start) < 2000) {
+        if (tc_recv_raw(c, 200) <= 0) continue;
+
+        bc_packet_t parsed;
+        if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
+            continue;
+
+        for (int i = 0; i < parsed.msg_count; i++) {
+            bc_transport_msg_t *msg = &parsed.msgs[i];
+            if (msg->type == BC_TRANSPORT_RELIABLE) {
+                tc_send_ack(c, msg->seq);
+                if (msg->payload_len > 0 && msg->payload[0] == BC_MSG_MISSION_INIT)
+                    got_mission = true;
+            }
+        }
+        if (got_mission) break;
+    }
+
+    if (!got_mission) {
+        fprintf(stderr, "  CLIENT %s: no MissionInit after NewPlayerInGame\n", name);
         return false;
     }
 

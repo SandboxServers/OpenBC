@@ -3,16 +3,20 @@
 #include <string.h>
 #include <stdio.h>
 
-/* Checksum round definitions (from RE of FUN_006a39b0) */
+/* Checksum round definitions (from RE of FUN_006a39b0).
+ * Rounds 2-3 have NO trailing slash on the directory name -- verified
+ * against stock dedi packet traces (dir bytes are "scripts/ships" not
+ * "scripts/ships/").  The base "scripts/" in rounds 0-1 does keep its
+ * trailing slash (also verified in traces). */
 static const struct {
     const char *directory;
     const char *filter;
     bool        recursive;
 } checksum_rounds[BC_CHECKSUM_ROUNDS] = {
-    { "scripts/",         "App.pyc",      false },
-    { "scripts/",         "Autoexec.pyc", false },
-    { "scripts/ships/",   "*.pyc",        true  },
-    { "scripts/mainmenu/","*.pyc",        false },
+    { "scripts/",        "App.pyc",      false },
+    { "scripts/",        "Autoexec.pyc", false },
+    { "scripts/ships",   "*.pyc",        true  },
+    { "scripts/mainmenu","*.pyc",        false },
 };
 
 int bc_checksum_request_build(u8 *buf, int buf_size, int round)
@@ -44,15 +48,27 @@ int bc_checksum_request_build(u8 *buf, int buf_size, int round)
 
 int bc_checksum_request_final_build(u8 *buf, int buf_size)
 {
-    /* 5th checksum round (0xFF): observed in decompiled code (FUN_006a35b0).
-     * The real server sends [0x20][0xFF] possibly followed by version strings.
-     * We send the minimal form; the client responds with [0x21][0xFF][...].
-     * TODO: RE needed -- determine if additional data (strings) is required
-     * for vanilla client compatibility. */
-    if (buf_size < 2) return -1;
-    buf[0] = BC_OP_CHECKSUM_REQ;
-    buf[1] = 0xFF;
-    return 2;
+    /* 5th checksum round (0xFF): stock dedi sends a full checksum request
+     * for Scripts/Multiplayer, filter *.pyc, recursive=true.  Verified
+     * from trace: 20 FF 13 00 "Scripts/Multiplayer" 05 00 "*.pyc" 21.
+     * Note capital "S" in "Scripts" (differs from rounds 0-3). */
+    const char *dir = "Scripts/Multiplayer";
+    const char *filter = "*.pyc";
+    u16 dir_len = (u16)strlen(dir);
+    u16 filter_len = (u16)strlen(filter);
+
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_REQ)) return -1;
+    if (!bc_buf_write_u8(&b, 0xFF)) return -1;
+    if (!bc_buf_write_u16(&b, dir_len)) return -1;
+    if (!bc_buf_write_bytes(&b, (const u8 *)dir, dir_len)) return -1;
+    if (!bc_buf_write_u16(&b, filter_len)) return -1;
+    if (!bc_buf_write_bytes(&b, (const u8 *)filter, filter_len)) return -1;
+    if (!bc_buf_write_bit(&b, true)) return -1;  /* recursive */
+
+    return (int)b.pos;
 }
 
 int bc_settings_build(u8 *buf, int buf_size,
