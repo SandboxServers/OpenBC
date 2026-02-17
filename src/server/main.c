@@ -85,8 +85,8 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
                 response, sizeof(response), challenge);
             if (resp_len > 0) {
                 bc_socket_send(sock, from, response, resp_len);
-                LOG_INFO("gamespy", "Sent validate to %s (challenge: %s)",
-                         addr_str, challenge);
+                LOG_DEBUG("gamespy", "Sent validate to %s (challenge: %s)",
+                          addr_str, challenge);
             }
         }
         return;

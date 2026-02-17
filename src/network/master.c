@@ -97,7 +97,7 @@ bool bc_master_add(bc_master_list_t *ml, const char *host_port, u16 game_port)
     memset(entry, 0, sizeof(*entry));
     snprintf(entry->hostname, sizeof(entry->hostname), "%s", host_port);
 
-    LOG_INFO("master", "Resolving %s...", host_port);
+    LOG_DEBUG("master", "Resolving %s...", host_port);
 
     if (!resolve_address(host_port, &entry->addr)) {
         /* DNS failed -- don't add to active list */
@@ -132,8 +132,8 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
 {
     if (ml->count == 0) return;
 
-    LOG_INFO("master", "Probing %d master server%s...",
-             ml->count, ml->count == 1 ? "" : "s");
+    LOG_DEBUG("master", "Probing %d master server%s...",
+              ml->count, ml->count == 1 ? "" : "s");
 
     /* Send initial heartbeat to all enabled entries */
     for (int i = 0; i < ml->count; i++) {
@@ -199,7 +199,7 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
                         if (!ml->entries[master_idx].verified) {
                             ml->entries[master_idx].verified = true;
                             registered++;
-                            LOG_INFO("master", "Master %s: registered",
+                            LOG_INFO("master", "Registered with %s",
                                      ml->entries[master_idx].hostname);
                         }
                     }
@@ -218,7 +218,7 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
                 if (!ml->entries[master_idx].verified) {
                     ml->entries[master_idx].verified = true;
                     registered++;
-                    LOG_INFO("master", "Master %s: registered",
+                    LOG_INFO("master", "Registered with %s",
                              ml->entries[master_idx].hostname);
                 }
             }
@@ -234,8 +234,8 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
     for (int i = 0; i < ml->count; i++) {
         if (!ml->entries[i].enabled) continue;
         if (!ml->entries[i].verified) {
-            LOG_WARN("master", "Master %s: no response (will continue heartbeating)",
-                     ml->entries[i].hostname);
+            LOG_DEBUG("master", "%s: no response (will retry)",
+                      ml->entries[i].hostname);
         }
     }
 
