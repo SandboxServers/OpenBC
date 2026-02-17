@@ -31,6 +31,7 @@ typedef struct {
     u16               reliable_seq_out; /* Next outgoing reliable sequence number */
     u16               reliable_seq_in;  /* Next expected incoming reliable sequence */
     i32               object_id;       /* Player's ship object ID (-1 if none) */
+    u32               connect_time;    /* GetTickCount() when peer connected */
     char                name[32];        /* Player name */
     u8                  keepalive_data[64]; /* Cached client keepalive payload for echo */
     int                 keepalive_len;     /* Length of cached keepalive (0 = none) */

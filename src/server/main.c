@@ -19,6 +19,31 @@
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
 
+/* --- Session statistics --- */
+
+typedef struct {
+    char name[32];
+    u32  connect_time;      /* GetTickCount() when connected */
+    u32  disconnect_time;   /* GetTickCount() when left (0 = still connected) */
+} player_record_t;
+
+typedef struct {
+    u32  start_time;
+    u32  total_connections;
+    u32  peak_players;
+    u32  boots_full;
+    u32  boots_checksum;
+    u32  disconnects;
+    u32  timeouts;
+    u32  gamespy_queries;
+    u32  reliable_retransmits;
+    u32  opcodes_recv[256];
+    player_record_t players[32];
+    int  player_count;
+} bc_session_stats_t;
+
+static bc_session_stats_t g_stats;
+
 /* --- Server state --- */
 
 static volatile bool g_running = true;
@@ -104,6 +129,7 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     int resp_len = bc_gamespy_build_response(response, sizeof(response),
                                              &g_info, data, len);
     if (resp_len > 0) {
+        g_stats.gamespy_queries++;
         int sent = bc_socket_send(sock, from, response, resp_len);
         const char *master = bc_master_mark_verified(&g_masters, from);
         if (master)
@@ -263,6 +289,17 @@ static void handle_peer_disconnect(int slot)
 {
     if (g_peers.peers[slot].state == PEER_EMPTY) return;
 
+    g_stats.disconnects++;
+
+    /* Update player record with disconnect time */
+    for (int i = 0; i < g_stats.player_count; i++) {
+        if (g_stats.players[i].disconnect_time == 0 &&
+            g_stats.players[i].connect_time == g_peers.peers[slot].connect_time) {
+            g_stats.players[i].disconnect_time = GetTickCount();
+            break;
+        }
+    }
+
     char addr_str[32];
     bc_addr_to_string(&g_peers.peers[slot].addr, addr_str, sizeof(addr_str));
 
@@ -300,6 +337,7 @@ static void handle_connect(const bc_addr_t *from, int len)
     slot = bc_peers_add(&g_peers, from);
     if (slot < 0) {
         LOG_WARN("net", "Server full, sending BootPlayer to %s", addr_str);
+        g_stats.boots_full++;
         u8 boot_payload[4];
         int boot_len = bc_bootplayer_build(boot_payload, sizeof(boot_payload),
                                             BC_BOOT_SERVER_FULL);
@@ -310,8 +348,22 @@ static void handle_connect(const bc_addr_t *from, int len)
     }
 
     g_peers.peers[slot].last_recv_time = GetTickCount();
+    g_peers.peers[slot].connect_time = GetTickCount();
     LOG_INFO("net", "Player connected from %s -> slot %d (%d/%d)",
              addr_str, slot, g_peers.count - 1, g_info.maxplayers);
+
+    /* Session stats: connection */
+    g_stats.total_connections++;
+    {
+        u32 active = g_peers.count > 1 ? (u32)(g_peers.count - 1) : 0;
+        if (active > g_stats.peak_players) g_stats.peak_players = active;
+    }
+    if (g_stats.player_count < 32) {
+        player_record_t *rec = &g_stats.players[g_stats.player_count++];
+        memset(rec, 0, sizeof(*rec));
+        snprintf(rec->name, sizeof(rec->name), "slot %d", slot);
+        rec->connect_time = GetTickCount();
+    }
 
     /* Send Connect response + first ChecksumReq batched in one packet.
      * Stock dedi always batches these (msgs=2).  This reduces round-trip
@@ -403,6 +455,7 @@ static void handle_checksum_response(int peer_slot,
         if (!bc_checksum_response_parse(&resp, msg->payload, msg->payload_len)) {
             LOG_WARN("handshake", "slot=%d round %d parse error (len=%d)",
                      peer_slot, round, msg->payload_len);
+            g_stats.boots_checksum++;
             u8 boot[4];
             int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
             if (blen > 0) queue_reliable(peer_slot, boot, blen);
@@ -418,6 +471,7 @@ static void handle_checksum_response(int peer_slot,
                      "(dir=0x%08X, %d files)",
                      peer_slot, round, bc_checksum_result_name(result),
                      resp.dir_hash, resp.file_count);
+            g_stats.boots_checksum++;
             u8 boot[4];
             int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
             if (blen > 0) queue_reliable(peer_slot, boot, blen);
@@ -498,6 +552,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     u8 opcode = payload[0];
     const char *name = bc_opcode_name(opcode);
+
+    g_stats.opcodes_recv[opcode]++;
 
     LOG_DEBUG("game", "slot=%d dispatch opcode=0x%02X (%s) len=%d state=%d",
               peer_slot, opcode, name ? name : "?", payload_len, peer->state);
@@ -812,6 +868,15 @@ static void handle_packet(const bc_addr_t *from, u8 *data, int len)
                 peer->name[j] = '\0';
                 if (j > 0) {
                     LOG_INFO("net", "slot=%d player name: %s", slot, peer->name);
+                    /* Update player record with real name */
+                    for (int r = 0; r < g_stats.player_count; r++) {
+                        if (g_stats.players[r].connect_time == peer->connect_time) {
+                            snprintf(g_stats.players[r].name,
+                                     sizeof(g_stats.players[r].name),
+                                     "%s", peer->name);
+                            break;
+                        }
+                    }
                 }
                 /* Cache the raw keepalive payload so we can echo it back.
                  * Stock dedi mirrors the client's identity data in its
@@ -874,6 +939,129 @@ static bc_log_level_t parse_log_level(const char *str)
     if (strcmp(str, "trace") == 0) return LOG_TRACE;
     fprintf(stderr, "Unknown log level: %s (using info)\n", str);
     return LOG_INFO;
+}
+
+/* Format a millisecond duration as "Xh Ym Zs" into buf. */
+static void format_duration(u32 ms, char *buf, int bufsize)
+{
+    u32 secs = ms / 1000;
+    u32 h = secs / 3600;
+    u32 m = (secs % 3600) / 60;
+    u32 s = secs % 60;
+    if (h > 0)
+        snprintf(buf, (size_t)bufsize, "%uh %um %us", h, m, s);
+    else if (m > 0)
+        snprintf(buf, (size_t)bufsize, "%um %us", m, s);
+    else
+        snprintf(buf, (size_t)bufsize, "%us", s);
+}
+
+/* Format a ms offset from session start as "H:MM:SS" into buf. */
+static void format_time_offset(u32 offset_ms, char *buf, int bufsize)
+{
+    u32 secs = offset_ms / 1000;
+    u32 h = secs / 3600;
+    u32 m = (secs % 3600) / 60;
+    u32 s = secs % 60;
+    snprintf(buf, (size_t)bufsize, "%u:%02u:%02u", h, m, s);
+}
+
+static void log_session_summary(void)
+{
+    u32 now = GetTickCount();
+    u32 elapsed = now - g_stats.start_time;
+    char dur[32];
+    format_duration(elapsed, dur, sizeof(dur));
+
+    LOG_INFO("summary", "=== Session Summary ===");
+    LOG_INFO("summary", "  Duration: %s", dur);
+    LOG_INFO("summary", "  Connections: %u total, %u peak concurrent",
+             g_stats.total_connections, g_stats.peak_players);
+    LOG_INFO("summary", "  Disconnects: %u (%u timeout)",
+             g_stats.disconnects, g_stats.timeouts);
+    LOG_INFO("summary", "  Boots: %u (server full), %u (checksum fail)",
+             g_stats.boots_full, g_stats.boots_checksum);
+
+    /* Player history */
+    if (g_stats.player_count > 0) {
+        LOG_INFO("summary", "");
+        LOG_INFO("summary", "  Players:");
+        for (int i = 0; i < g_stats.player_count; i++) {
+            player_record_t *p = &g_stats.players[i];
+            char t_join[16], t_leave[16];
+            format_time_offset(p->connect_time - g_stats.start_time,
+                               t_join, sizeof(t_join));
+            if (p->disconnect_time != 0)
+                format_time_offset(p->disconnect_time - g_stats.start_time,
+                                   t_leave, sizeof(t_leave));
+            else
+                snprintf(t_leave, sizeof(t_leave), "(active)");
+            LOG_INFO("summary", "    %-20s %s - %s", p->name, t_join, t_leave);
+        }
+    }
+
+    /* Opcode table -- collect non-zero entries and sort by count desc */
+    typedef struct { int opcode; u32 count; } opcode_entry_t;
+    opcode_entry_t entries[256];
+    int entry_count = 0;
+    for (int i = 0; i < 256; i++) {
+        if (g_stats.opcodes_recv[i] > 0) {
+            entries[entry_count].opcode = i;
+            entries[entry_count].count = g_stats.opcodes_recv[i];
+            entry_count++;
+        }
+    }
+    /* Insertion sort descending by count */
+    for (int i = 1; i < entry_count; i++) {
+        opcode_entry_t tmp = entries[i];
+        int j = i - 1;
+        while (j >= 0 && entries[j].count < tmp.count) {
+            entries[j + 1] = entries[j];
+            j--;
+        }
+        entries[j + 1] = tmp;
+    }
+    if (entry_count > 0) {
+        LOG_INFO("summary", "");
+        LOG_INFO("summary", "  Opcodes received (client -> server):");
+        for (int i = 0; i < entry_count; i++) {
+            const char *oname = bc_opcode_name(entries[i].opcode);
+            if (oname)
+                LOG_INFO("summary", "    %-20s %u", oname, entries[i].count);
+            else
+                LOG_INFO("summary", "    0x%02X                 %u",
+                         entries[i].opcode, entries[i].count);
+        }
+    }
+
+    /* Network stats */
+    if (g_stats.gamespy_queries > 0 || g_stats.reliable_retransmits > 0) {
+        LOG_INFO("summary", "");
+        LOG_INFO("summary", "  Network:");
+        if (g_stats.gamespy_queries > 0)
+            LOG_INFO("summary", "    GameSpy queries: %u",
+                     g_stats.gamespy_queries);
+        if (g_stats.reliable_retransmits > 0)
+            LOG_INFO("summary", "    Reliable retransmits: %u",
+                     g_stats.reliable_retransmits);
+    }
+
+    /* Master server status */
+    if (g_masters.count > 0) {
+        int verified = 0;
+        for (int i = 0; i < g_masters.count; i++)
+            if (g_masters.entries[i].verified) verified++;
+        LOG_INFO("summary", "");
+        LOG_INFO("summary", "  Master servers: %d/%d registered",
+                 verified, g_masters.count);
+        for (int i = 0; i < g_masters.count; i++) {
+            if (g_masters.entries[i].verified)
+                LOG_INFO("summary", "    + %s",
+                         g_masters.entries[i].hostname);
+        }
+    }
+
+    LOG_INFO("summary", "========================");
 }
 
 int main(int argc, char **argv)
@@ -962,6 +1150,10 @@ int main(int argc, char **argv)
 
     /* Initialize logging (before anything that uses LOG_*) */
     bc_log_init(log_level, log_file_path);
+
+    /* Initialize session stats */
+    memset(&g_stats, 0, sizeof(g_stats));
+    g_stats.start_time = GetTickCount();
 
     /* Load manifest.
      * If --manifest was given, use that path.  Otherwise, scan manifests/
@@ -1161,6 +1353,7 @@ int main(int argc, char **argv)
                     int idx;
                     while ((idx = bc_reliable_check_retransmit(
                                 &peer->reliable_out, now)) >= 0) {
+                        g_stats.reliable_retransmits++;
                         bc_reliable_entry_t *e = &peer->reliable_out.entries[idx];
                         u8 pkt[BC_MAX_PACKET_SIZE];
                         int len = bc_transport_build_reliable(
@@ -1179,6 +1372,7 @@ int main(int argc, char **argv)
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     if (g_peers.peers[i].state == PEER_EMPTY) continue;
                     if (now - g_peers.peers[i].last_recv_time > 30000) {
+                        g_stats.timeouts++;
                         LOG_INFO("net", "Peer slot %d timed out (no packets)", i);
                         handle_peer_disconnect(i);
                     }
@@ -1219,6 +1413,9 @@ int main(int argc, char **argv)
     }
 
     LOG_INFO("shutdown", "Shutting down...");
+
+    /* Log session summary before tearing down */
+    log_session_summary();
 
     /* Flush all pending outbox data before sending shutdown (skip slot 0 = dedi) */
     for (int i = 1; i < BC_MAX_PLAYERS; i++) {
