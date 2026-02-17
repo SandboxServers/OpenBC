@@ -283,9 +283,11 @@ bool bc_fragment_receive(bc_fragment_buf_t *frag,
     if (payload_len < 1) return false;
 
     if (!frag->active) {
-        /* First fragment: payload[0] = total_frags, rest = data */
+        /* First fragment: [frag_idx:u8][total_frags:u8][data...] */
+        if (payload_len < 2) return false;
+
         frag->active = true;
-        frag->frags_expected = payload[0];
+        frag->frags_expected = payload[1];  /* total_frags at byte 1 */
         frag->frags_received = 1;
         frag->buf_len = 0;
 
@@ -297,14 +299,14 @@ bool bc_fragment_receive(bc_fragment_buf_t *frag,
             return false;
         }
 
-        int data_len = payload_len - 1;
+        int data_len = payload_len - 2;     /* skip frag_idx + total_frags */
         if (data_len > BC_FRAGMENT_BUF_SIZE) {
             LOG_ERROR("fragment", "first fragment too large (%d)", data_len);
             bc_fragment_reset(frag);
             return false;
         }
 
-        memcpy(frag->buf, payload + 1, (size_t)data_len);
+        memcpy(frag->buf, payload + 2, (size_t)data_len);
         frag->buf_len = data_len;
     } else {
         /* Continuation fragment: payload[0] = frag_idx, rest = data */

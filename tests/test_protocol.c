@@ -1034,9 +1034,9 @@ TEST(fragment_three_part_reassembly)
     bc_fragment_buf_t frag;
     bc_fragment_reset(&frag);
 
-    /* Fragment 0: [total_frags=3][data: 0xAA 0xBB] */
-    u8 f0[] = { 3, 0xAA, 0xBB };
-    ASSERT(!bc_fragment_receive(&frag, f0, 3));
+    /* Fragment 0: [frag_idx=0][total_frags=3][data: 0xAA 0xBB] */
+    u8 f0[] = { 0, 3, 0xAA, 0xBB };
+    ASSERT(!bc_fragment_receive(&frag, f0, 4));
     ASSERT(frag.active);
     ASSERT_EQ_INT(frag.frags_expected, 3);
     ASSERT_EQ_INT(frag.frags_received, 1);
@@ -1062,11 +1062,12 @@ TEST(fragment_two_part_reassembly)
     bc_fragment_buf_t frag;
     bc_fragment_reset(&frag);
 
-    /* Fragment 0: [total_frags=2][data: 0x21 0x02 ...] -- simulating checksum resp */
+    /* Fragment 0: [frag_idx=0][total_frags=2][data: 0x21 0x02 ...] -- simulating checksum resp */
     u8 f0[256];
-    f0[0] = 2;  /* total frags */
-    f0[1] = 0x21;  /* opcode (checksum response) */
-    for (int i = 2; i < 200; i++) f0[i] = (u8)(i & 0xFF);
+    f0[0] = 0;     /* frag_idx */
+    f0[1] = 2;     /* total frags */
+    f0[2] = 0x21;  /* opcode (checksum response) */
+    for (int i = 3; i < 200; i++) f0[i] = (u8)(i & 0xFF);
     ASSERT(!bc_fragment_receive(&frag, f0, 200));
 
     /* Fragment 1: [frag_idx=1][more data] */
@@ -1074,7 +1075,7 @@ TEST(fragment_two_part_reassembly)
     f1[0] = 1;
     for (int i = 1; i < 80; i++) f1[i] = (u8)((i + 100) & 0xFF);
     ASSERT(bc_fragment_receive(&frag, f1, 80));
-    ASSERT_EQ_INT(frag.buf_len, 199 + 79);  /* 278 total */
+    ASSERT_EQ_INT(frag.buf_len, 198 + 79);  /* 277 total */
 }
 
 TEST(fragment_reset)

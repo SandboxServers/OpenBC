@@ -144,7 +144,7 @@
 
 /* === Reliable Data Flags (transport 0x32) === */
 #define BC_RELIABLE_FLAG_GUARANTEED  0x01  /* Must be acknowledged */
-#define BC_RELIABLE_FLAG_FRAGMENT    0x02  /* Part of a multi-fragment message */
+#define BC_RELIABLE_FLAG_FRAGMENT    0x20  /* Part of a multi-fragment message */
 
 /* === Connection Constants === */
 #define BC_DEFAULT_PORT            0x5655  /* 22101 decimal */

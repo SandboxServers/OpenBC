@@ -103,17 +103,6 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     }
 }
 
-/* Queue an ACK into a peer's outbox (piggybacked with next flush).
- * Stock dedi uses flags=0x00 for most ACKs (verified from traces). */
-static void queue_ack(int peer_slot, u16 seq)
-{
-    bc_peer_t *peer = &g_peers.peers[peer_slot];
-    if (!bc_outbox_add_ack(&peer->outbox, seq, 0x00)) {
-        bc_outbox_flush(&peer->outbox, &g_socket, &peer->addr);
-        bc_outbox_add_ack(&peer->outbox, seq, 0x00);
-    }
-}
-
 /* Queue a reliable message into a peer's outbox + track for retransmit. */
 static void queue_reliable(int peer_slot, const u8 *payload, int payload_len)
 {
@@ -447,11 +436,6 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     if (msg->payload_len < 1) return;
 
     bc_peer_t *peer = &g_peers.peers[peer_slot];
-
-    /* ACK reliable messages (piggybacked in outbox with next flush) */
-    if (msg->type == BC_TRANSPORT_RELIABLE) {
-        queue_ack(peer_slot, msg->seq);
-    }
 
     /* Handle fragmented messages: accumulate until complete */
     const u8 *payload = msg->payload;
