@@ -13,15 +13,21 @@ Observed behavior of the Bridge Commander 1.1 multiplayer network protocol, docu
 
 ### AlbyRules Stream Cipher
 
-All game traffic is encrypted with a XOR stream cipher using the key `"AlbyRules!"` (10 bytes). GameSpy traffic (first byte `\` after decryption) is sent in plaintext and is NOT encrypted.
+All game traffic is encrypted with a PRNG-based stream cipher using the key `"AlbyRules!"` (10 bytes). GameSpy traffic (first byte `\`) is sent in plaintext and is NOT encrypted.
 
 ```
 Key: "AlbyRules!" = { 0x41, 0x6C, 0x62, 0x79, 0x52, 0x75, 0x6C, 0x65, 0x73, 0x21 }
-
-Encrypt/Decrypt (symmetric, XOR is its own inverse):
-  for i in 0..packet_len:
-      packet[i] ^= key[i % 10]
 ```
+
+**WARNING**: The cipher is NOT a simple repeating XOR. It is a complex PRNG with cross-multiplication (multiplier `0x4E35`, addend `0x015A`), per-byte key scheduling (5 rounds per byte), and plaintext feedback into the key string. Each byte's output depends on all preceding plaintext bytes.
+
+Key properties:
+- Byte 0 (direction flag) is transmitted **unencrypted**
+- Per-packet reset (no session state)
+- Encrypt and decrypt are **not symmetric** (plaintext feedback timing differs)
+- Sign extension on input bytes (MOVSX behavior)
+
+See **[transport-cipher.md](transport-cipher.md)** for the complete algorithm specification.
 
 ### Raw UDP Packet Format
 
@@ -98,6 +104,12 @@ Subsequent frags:    [frag_idx:u8][continuation_data...]
 
 Fragment indices are 0-based. `total_frags` appears only in the first fragment. The receiver must reassemble all fragments before parsing the inner game message.
 
+**Reliable data flags for fragments**:
+- `0xA1` = reliable + fragmented + more fragments follow (`0x80 | 0x20 | 0x01`)
+- `0xA0` = reliable + fragmented + last fragment (`0x80 | 0x20`)
+
+The flag byte `0x01` indicates "more fragments follow" (not "first fragment"). The receiver detects the first fragment by checking whether reassembly is already in progress.
+
 ### Hex Dump: Packet #1 -- Connect (Client -> Server)
 
 ```
@@ -126,6 +138,31 @@ Header: dir=0x01 (server), msg_count=3
 
 Note how the server bundles the ConnectAck and first ChecksumReq into a single UDP packet with 3 transport messages.
 
+### Connect Response Wire Format
+
+The server's ConnectAck (type 0x05) carries the client's assigned slot and IP:
+
+```
+Wire: [0x05][0x0A][0xC0][status][0x00][slot][ip:4]
+  totalLen = 0x0A (10 bytes)
+  flags = 0xC0
+  status = 0x02 (accept connection)
+  slot = 1-based player index
+  ip = client IP in network byte order
+```
+
+For connection rejection or server shutdown, the same type 0x05 is sent with `status = 0x00`.
+
+### ConnectAck in Multi-Message Packets
+
+The ConnectAck is typically bundled with other messages. A separate ConnectAck also appears as type 0x02 (internal transport control) in the same packet:
+
+```
+[0x02][0x03][0x06][0xC0][0x00][0x00][slot]
+  type = 0x02 (Transport), totalLen = 3
+  Connect: [0x06][0xC0][0x00][0x00][slot]
+```
+
 ---
 
 ## 2. Reliable Delivery
@@ -152,9 +189,16 @@ Client and server maintain independent sequence counters.
 
 StateUpdate (opcode 0x1C) is the only game message observed using unreliable delivery (flags=0x00 in the 0x32 wrapper). All other game commands use reliable delivery (flags=0x80).
 
+### Reliable Retry
+
+Reliable messages that go unacknowledged are retransmitted:
+- **Retransmit interval**: 2000ms (2 seconds)
+- **Maximum retries**: 8 attempts
+- **Timeout**: After 8 failed retries (~16 seconds), the peer is considered dead and disconnected
+
 ### Observed Timeouts
 
-From the trace, clients that stop sending packets are disconnected after approximately 45 seconds. Reliable messages that go unacknowledged are retried; after sustained failure, the peer is disconnected.
+From the trace, clients that stop sending packets are disconnected after approximately 45 seconds (keepalive timeout). Reliable messages that go unacknowledged are retried per the schedule above; after sustained failure, the peer is disconnected.
 
 ---
 
@@ -446,12 +490,16 @@ Field             Type       Size   Notes
 -----             ----       ----   -----
 opcode            u8         1      0x35
 playerLimit       u8         1      Max players (observed: 8)
-systemSpecies     u8         1      Star system species ID
+systemIndex       u8         1      Star system index
 timeLimit         u8         1      Time limit (0xFF = no limit)
+[if timeLimit != 0xFF:]
+  endTime         i32 LE     4      Absolute game clock time when match ends
 fragLimit         u8         1      Frag limit (0xFF = no limit)
 ```
 
-**Verified from packet #20**: `35 08 01 FF FF` -- playerLimit=8, species=1, timeLimit=255 (none), fragLimit=255 (none).
+**Conditional field**: The `endTime` field is only present when `timeLimit != 0xFF`. When time limit is disabled (0xFF), the field is omitted entirely, and `fragLimit` immediately follows `timeLimit`.
+
+**Verified from packet #20**: `35 08 01 FF FF` -- playerLimit=8, systemIndex=1, timeLimit=255 (none, no endTime field), fragLimit=255 (none).
 
 ### 6.4 TorpedoFire (Opcode 0x19)
 
@@ -555,6 +603,74 @@ Client -> Server, 31 bytes total (25-byte payload):
   25 bytes of collision parameters (object IDs, position, force)
 ```
 
+### 6.8 Score Message (Opcode 0x37)
+
+Full score synchronization sent to each player at join time (and periodically during gameplay).
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+opcode            u8         1      0x37
+count             u8         1      Number of score entries
+[repeated count times:]
+  slot            u8         1      Player slot index
+  score           i32 LE     4      Current score (signed, can be negative)
+```
+
+Observed in second-player join (packet #311): 16 bytes of zero scores for all 16 possible player slots.
+
+### 6.9 DeletePlayerAnim (Opcode 0x18)
+
+Triggers a "Player X has left" floating notification on the client.
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+opcode            u8         1      0x18
+nameLen           u16 LE     2      Player name string length
+name              bytes      N      Player name (ASCII, not null-terminated)
+```
+
+### 6.10 BootPlayer (Opcode 0x04)
+
+Kicks a player from the game. Sent by the host to the target player.
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+opcode            u8         1      0x04
+reason            u8         1      Reason code (see below)
+```
+
+Reason codes:
+| Code | Meaning |
+|------|---------|
+| 0 | Generic kick |
+| 1 | Version mismatch |
+| 2 | Server full |
+| 3 | Banned |
+| 4 | Checksum validation failed |
+
+**Note**: On the wire, BootPlayer uses the game-layer opcode 0x04. The transport-layer type 0x05 (ConnectAck) with status=0x00 serves as a separate shutdown notification mechanism (see Section 1).
+
+### 6.11 Keepalive Wire Format
+
+The server echoes the client's identity data as a keepalive message (transport type 0x00). The client's keepalive payload contains:
+
+```
+Field             Type       Size   Notes
+-----             ----       ----   -----
+padding           u8         1      0x00
+totalLen          u8         1      Total keepalive body length
+flags             u8         1      0x80
+padding           u8[2]      2      0x00 0x00
+slot              u8         1      Player slot (1-based)
+ip                u8[4]      4      Client IP in network byte order
+name              u16le[]    var    Player name in UTF-16LE
+```
+
+The server caches the client's keepalive payload and echoes it back approximately once per second. Timeout: ~30 seconds without any packets triggers disconnect.
+
 ---
 
 ## 7. Compressed Data Types
@@ -589,6 +705,8 @@ Format: [sign:1][scale:3][mantissa:12]
         Bits 14-12 = scale exponent (0-7)
         Bits 11-0 = mantissa (0-4095)
 ```
+
+**Precision note**: The encode path divides the mantissa by 4096.0f while the decode path divides by 4095.0f. This intentional asymmetry means a round-trip encode→decode is not perfectly lossless, but the error is less than 0.025%.
 
 Observed decoded values:
 - Speed 5.130, 7.618, 7.598 (movement speeds)
@@ -801,7 +919,7 @@ Verified from the battle trace:
 Application:  Game opcodes (0x00-0x2A) + Python messages (0x2C-0x41)
 Transport:    Reliable (0x32 flags=0x80) / Unreliable (0x32 flags=0x00)
 Framing:      [direction:1][msg_count:1][transport_messages...]
-Encryption:   AlbyRules XOR cipher (10-byte key)
+Encryption:   AlbyRules PRNG cipher (see transport-cipher.md)
 Network:      UDP (single shared socket for game + GameSpy)
 ```
 
@@ -809,7 +927,7 @@ Network:      UDP (single shared socket for game + GameSpy)
 
 | Property | Value |
 |----------|-------|
-| Cipher key | `"AlbyRules!"` (10 bytes, XOR) |
+| Cipher key | `"AlbyRules!"` (10 bytes, PRNG stream cipher) |
 | Default port | 22101 (UDP) |
 | Max players | 16 (observed limit 8 in config) |
 | Checksum rounds | 5 (indices 0, 1, 2, 3, 0xFF) |
@@ -841,3 +959,15 @@ Network:      UDP (single shared socket for game + GameSpy)
 | TorpTypeChange (0x1B) | 13 | |
 | StartCloak (0x0E) | 4 | |
 | HostMsg (0x13) | 4 | |
+
+---
+
+## Related Documents
+
+- **[transport-cipher.md](transport-cipher.md)** -- Complete AlbyRules cipher algorithm (key schedule, PRNG, plaintext feedback)
+- **[gamespy-protocol.md](gamespy-protocol.md)** -- GameSpy LAN discovery, master server registration, challenge-response crypto
+- **[join-flow.md](join-flow.md)** -- Connection lifecycle state machine (connect through gameplay)
+- **[combat-system.md](combat-system.md)** -- Damage pipeline, shields, cloaking, tractor beams, repair system
+- **[ship-subsystems.md](ship-subsystems.md)** -- Fixed subsystem index table, HP values, StateUpdate serialization
+- **[checksum-handshake-protocol.md](checksum-handshake-protocol.md)** -- Checksum exchange details and hash algorithms
+- **[disconnect-flow.md](disconnect-flow.md)** -- Player disconnect detection and cleanup

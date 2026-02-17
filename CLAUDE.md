@@ -123,11 +123,23 @@ docs/              # Design documents and protocol reference
 - **[Engine Architecture](docs/phase1-engine-architecture.md)** -- Protocol architecture that OpenBC must replicate (behavioral reference)
 - **[Data Registry](docs/phase1-api-surface.md)** -- Ship, map, rules, and manifest data schemas
 
+## Protocol & System Documentation
+
+- **[Transport Cipher](docs/transport-cipher.md)** -- AlbyRules PRNG cipher: key schedule, cross-multiplication, plaintext feedback
+- **[GameSpy Protocol](docs/gamespy-protocol.md)** -- LAN discovery, master server heartbeat, challenge-response crypto (gsmsalg)
+- **[Join Flow](docs/join-flow.md)** -- Connection lifecycle: connect → checksums → lobby → gameplay
+- **[Combat System](docs/combat-system.md)** -- Damage pipeline, shields, cloaking, tractor beams, repair system
+- **[Ship Subsystems](docs/ship-subsystems.md)** -- Fixed subsystem index table, HP values, StateUpdate serialization
+- **[Checksum Handshake](docs/checksum-handshake-protocol.md)** -- Hash algorithms, 5-round checksum exchange
+- **[Disconnect Flow](docs/disconnect-flow.md)** -- Player disconnect detection and cleanup
+- **[Server Authority](docs/server-authority.md)** -- Authority model (who computes what)
+- **[Wire Format Audit](docs/wire-format-audit.md)** -- Audit of wire format implementation vs spec
+
 ## Verified Protocol Facts
 
 All critical protocol knowledge is documented in the clean room docs. Key verified facts:
 
-- **Wire protocol**: AlbyRules XOR cipher ("AlbyRules!" 10-byte key), raw UDP, three-tier send queues (unreliable/reliable/priority)
+- **Wire protocol**: AlbyRules PRNG cipher ("AlbyRules!" 10-byte key), raw UDP, three-tier send queues (unreliable/reliable/priority)
 - **Hash algorithms**: StringHash (4-lane Pearson) for filenames, FileHash (rotate-XOR) for file contents
 - **Game opcodes**: 28 active opcodes (see `phase1-verified-protocol.md` Section 5)
 - **Script messages**: MAX_MESSAGE_TYPES = 0x2B; CHAT=0x2C, TEAM_CHAT=0x2D, MISSION_INIT=0x35, SCORE_CHANGE=0x36, SCORE=0x37, END_GAME=0x38, RESTART=0x39

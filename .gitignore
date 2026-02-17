@@ -32,5 +32,5 @@ _deps/
 
 # MCP config (user-specific)
 .mcp.json
-server_test.log
+server_*.log
 battle_trace.bin
