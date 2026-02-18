@@ -47,6 +47,17 @@ typedef struct {
     i32  object_id;
 } bc_destroy_event_t;
 
+/* CollisionEffect (0x15) -- client reports collision to host.
+ * Wire: [0x15][class_id:i32][code:i32][source_obj:i32][target_obj:i32]
+ *       [contact_count:u8][contacts:4*N][force:f32]
+ * source_obj = 0 for environment collisions (asteroids). */
+typedef struct {
+    i32  source_object_id;  /* Other object (0 = environment) */
+    i32  target_object_id;  /* Ship reporting the collision */
+    u8   contact_count;
+    f32  collision_force;   /* Impact force magnitude */
+} bc_collision_event_t;
+
 typedef struct {
     u8   type_tag;
     u8   owner_slot;
@@ -91,6 +102,12 @@ bool bc_parse_destroy_obj(const u8 *payload, int len, bc_destroy_event_t *out);
 bool bc_parse_object_create_header(const u8 *payload, int len,
                                    bc_object_create_header_t *out);
 bool bc_parse_chat_message(const u8 *payload, int len, bc_chat_event_t *out);
+
+/* Parse CollisionEffect (0x15).
+ * Extracts source/target object IDs, contact count, and collision force.
+ * Skips contact point data (not needed for hull-only damage). */
+bool bc_parse_collision_effect(const u8 *payload, int len,
+                                bc_collision_event_t *out);
 
 /* Parse ship blob header from ObjCreateTeam payload.
  * blob points to the serialized data AFTER [opcode][owner][team].

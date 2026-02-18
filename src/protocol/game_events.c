@@ -178,6 +178,50 @@ bool bc_parse_object_create_header(const u8 *payload, int len,
 }
 
 /*
+ * CollisionEffect (opcode 0x15)
+ *
+ * Wire format (from docs/collision-effect-wire-format.md):
+ *   [0x15][class_id:i32][code:i32][source_obj:i32][target_obj:i32]
+ *   [contact_count:u8][contacts:4*N][force:f32]
+ *
+ * Minimum: 1+4+4+4+4+1+4 = 22 bytes (0 contacts)
+ */
+bool bc_parse_collision_effect(const u8 *payload, int len,
+                                bc_collision_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (len < 22) return false;
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    i32 class_id, code;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != 0x15) return false;
+
+    /* Skip constant header fields (event class + code) */
+    if (!bc_buf_read_i32(&buf, &class_id)) return false;
+    if (!bc_buf_read_i32(&buf, &code)) return false;
+
+    if (!bc_buf_read_i32(&buf, &out->source_object_id)) return false;
+    if (!bc_buf_read_i32(&buf, &out->target_object_id)) return false;
+
+    if (!bc_buf_read_u8(&buf, &out->contact_count)) return false;
+
+    /* Skip contact_count * 4 bytes of contact point data */
+    u8 skip;
+    for (int i = 0; i < (int)out->contact_count * 4; i++) {
+        if (!bc_buf_read_u8(&buf, &skip)) return false;
+    }
+
+    /* Last 4 bytes: collision force */
+    if (!bc_buf_read_f32(&buf, &out->collision_force)) return false;
+
+    return true;
+}
+
+/*
  * Ship blob header (inside ObjCreateTeam)
  *
  * Wire format (from packet captures of real BC 1.1 client):

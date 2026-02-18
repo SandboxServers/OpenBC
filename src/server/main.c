@@ -1265,14 +1265,70 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         LOG_DEBUG("game", "slot=%d host message len=%d", peer_slot, payload_len);
         break;
 
-    /* --- Collision effect: relay to others, server tracks damage for
-     * player-vs-player collisions when authoritative.
-     * Clients apply their own collision damage locally; the CollisionEffect
-     * message is a report that must be relayed for other clients to see. */
+    /* --- Collision effect: parse and apply damage server-side.
+     * Wire format from docs/collision-effect-wire-format.md.
+     * source_obj=0 for environment collisions, otherwise other ship's ID.
+     * The host applies damage; relay to others for visual effects. */
     case BC_OP_COLLISION_EFFECT: {
         LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
-        /* Always relay -- clients need this for local collision processing */
         relay_to_others(peer_slot, payload, payload_len, true);
+
+        if (g_registry_loaded && g_collision_dmg) {
+            bc_collision_event_t cev;
+            if (bc_parse_collision_effect(payload, payload_len, &cev)) {
+                int target_slot = find_peer_by_object(cev.target_object_id);
+                if (target_slot >= 0) {
+                    bc_peer_t *target = &g_peers.peers[target_slot];
+                    const bc_ship_class_t *tcls =
+                        bc_registry_get_ship(&g_registry, target->class_index);
+
+                    if (tcls && target->ship.alive) {
+                        /* Apply collision force as hull damage.
+                         * Minimal implementation: no per-subsystem distribution. */
+                        f32 dmg = cev.collision_force;
+
+                        /* Determine impact direction for shield facing */
+                        bc_vec3_t impact_dir = {0.0f, 0.0f, 1.0f};
+                        if (cev.source_object_id != 0) {
+                            int src_slot = find_peer_by_object(cev.source_object_id);
+                            if (src_slot >= 0) {
+                                impact_dir = bc_vec3_normalize(bc_vec3_sub(
+                                    g_peers.peers[src_slot].ship.pos,
+                                    target->ship.pos));
+                            }
+                        }
+
+                        bc_combat_apply_damage(&target->ship, tcls, dmg, impact_dir);
+
+                        /* Send explosion at target */
+                        u8 expl[32];
+                        int elen = bc_build_explosion(expl, sizeof(expl),
+                                                       target->ship.object_id,
+                                                       impact_dir.x, impact_dir.y,
+                                                       impact_dir.z, dmg, 1.0f);
+                        if (elen > 0) send_to_all(expl, elen, true);
+
+                        LOG_INFO("combat", "Collision: %s took %.1f damage (source=%s)",
+                                 peer_name(target_slot), dmg,
+                                 cev.source_object_id == 0 ? "environment" :
+                                 object_owner_name(cev.source_object_id));
+
+                        if (!target->ship.alive) {
+                            u8 dest[8];
+                            int dlen = bc_build_destroy_obj(dest, sizeof(dest),
+                                                             target->ship.object_id);
+                            if (dlen > 0) send_to_all(dest, dlen, true);
+                            target->has_ship = false;
+                            target->spawn_len = 0;
+                            LOG_INFO("combat", "%s destroyed in collision",
+                                     peer_name(target_slot));
+                        }
+                    }
+                }
+            } else {
+                LOG_WARN("game", "slot=%d failed to parse CollisionEffect", peer_slot);
+            }
+        }
         break;
     }
 
