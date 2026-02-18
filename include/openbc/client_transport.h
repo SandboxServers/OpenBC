@@ -64,8 +64,7 @@ typedef struct {
 } bc_checksum_request_t;
 
 /* Parse a checksum request payload (opcode 0x20) from the server.
- * Returns true on success, fills req. Returns false for round 0xFF
- * (which has no directory/filter fields). */
+ * Returns true on success, fills req. Works for all rounds (0-3, 0xFF). */
 bool bc_client_parse_checksum_request(const u8 *payload, int payload_len,
                                        bc_checksum_request_t *req);
 
@@ -86,11 +85,12 @@ int bc_client_build_checksum_resp_recursive(
     const bc_client_file_hash_t *files, int file_count,
     const bc_client_subdir_hash_t *subdirs, int subdir_count);
 
-/* Build a wire-accurate checksum response for the final round (0xFF).
- * Wire: [0x21][0xFF][dir_hash:u32][file_count:u32]
- * Returns payload length, or -1 on error. */
+/* Build an empty checksum response for the final round (0xFF).
+ * Wire: [0x21][0xFF][ref_hash:u32][dir_hash:u32][file_count:u16=0][subdir_count:u16=0]
+ * Used when Scripts/Multiplayer is empty or absent.
+ * Returns payload length (14), or -1 on error. */
 int bc_client_build_checksum_final(u8 *buf, int buf_size,
-                                    u32 dir_hash, u32 file_count);
+                                    u32 ref_hash, u32 dir_hash);
 
 /* --- Directory scanning for checksum computation --- */
 

@@ -141,8 +141,7 @@ bool bc_client_parse_checksum_request(const u8 *payload, int payload_len,
     if (!bc_buf_read_u8(&b, &round)) return false;
     req->round = round;
 
-    /* Round 0xFF has no directory/filter fields */
-    if (round == 0xFF) return false;
+    /* Round 0xFF uses the same request format as rounds 0-3 */
 
     /* Read directory path */
     u16 dir_len;
@@ -224,15 +223,21 @@ int bc_client_build_checksum_resp_recursive(
 }
 
 int bc_client_build_checksum_final(u8 *buf, int buf_size,
-                                    u32 dir_hash, u32 file_count)
+                                    u32 ref_hash, u32 dir_hash)
 {
+    /* Build an empty recursive response for round 0xFF (Scripts/Multiplayer).
+     * Wire: [0x21][0xFF][ref_hash:u32][dir_hash:u32][file_count:u16=0][subdir_count:u16=0]
+     * This is the standard checksum response format with zero files and
+     * zero subdirectories, used when Scripts/Multiplayer is empty or absent. */
     bc_buffer_t b;
     bc_buf_init(&b, buf, (size_t)buf_size);
 
     if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP)) return -1;
     if (!bc_buf_write_u8(&b, 0xFF)) return -1;
+    if (!bc_buf_write_u32(&b, ref_hash)) return -1;
     if (!bc_buf_write_u32(&b, dir_hash)) return -1;
-    if (!bc_buf_write_u32(&b, file_count)) return -1;
+    if (!bc_buf_write_u16(&b, 0)) return -1;  /* file_count = 0 */
+    if (!bc_buf_write_u16(&b, 0)) return -1;  /* subdir_count = 0 */
 
     return (int)b.pos;
 }

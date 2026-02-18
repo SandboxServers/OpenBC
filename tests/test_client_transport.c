@@ -177,15 +177,16 @@ TEST(checksum_final_roundtrip)
 {
     u8 buf[32];
     int len = bc_client_build_checksum_final(buf, sizeof(buf),
-                                              0xFACEFACE, 42);
-    ASSERT(len == 10);
+                                              0x7E0CE243, 0xFACEFACE);
+    ASSERT(len == 14);
 
     bc_checksum_resp_t resp;
     ASSERT(bc_checksum_response_parse(&resp, buf, len));
     ASSERT_EQ(resp.round_index, 0xFF);
-    ASSERT(resp.empty);
+    ASSERT_EQ(resp.ref_hash, 0x7E0CE243);
     ASSERT_EQ(resp.dir_hash, 0xFACEFACE);
-    ASSERT_EQ(resp.file_count, 42);
+    ASSERT_EQ(resp.file_count, 0);
+    ASSERT_EQ(resp.subdir_count, 0);
 }
 
 /* === Directory scanning === */
