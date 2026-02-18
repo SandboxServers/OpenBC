@@ -61,7 +61,14 @@ void bc_peers_remove(bc_peer_mgr_t *mgr, int slot)
     if (slot < 0 || slot >= BC_MAX_PLAYERS) return;
     if (mgr->peers[slot].state == PEER_EMPTY) return;
 
-    mgr->peers[slot].state = PEER_EMPTY;
+    /* Zero the entire struct to prevent stale data (last_recv_time, reliable
+     * queue, etc.) from triggering spurious timeouts if the slot is reused.
+     * Use volatile to prevent the -O2 dead-store elimination bug. */
+    volatile u8 *dst = (volatile u8 *)&mgr->peers[slot];
+    for (size_t b = 0; b < sizeof(bc_peer_t); b++)
+        dst[b] = 0;
+    mgr->peers[slot].object_id = -1;
+    mgr->peers[slot].class_index = -1;
     mgr->count--;
 }
 

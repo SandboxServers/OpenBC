@@ -2005,6 +2005,19 @@ int main(int argc, char **argv)
     }
     printf("Press Ctrl+C to stop.\n\n");
 
+    /* Diagnostic: check for ghost peers created during startup/probe.
+     * Only slot 0 (dedi) should be non-empty at this point. */
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+        if (g_peers.peers[i].state != PEER_EMPTY) {
+            LOG_WARN("init", "Ghost peer at slot %d: state=%d, addr=%08X:%u, "
+                     "last_recv=%u",
+                     i, g_peers.peers[i].state,
+                     g_peers.peers[i].addr.ip, g_peers.peers[i].addr.port,
+                     g_peers.peers[i].last_recv_time);
+            bc_peers_remove(&g_peers, i);
+        }
+    }
+
     /* Main loop -- 100ms tick (~10 Hz, matches real BC server) */
     u8 recv_buf[2048];
     u32 last_tick = GetTickCount();
