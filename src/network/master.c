@@ -161,11 +161,12 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
 
         while ((received = bc_socket_recv(sock, &from,
                                            recv_buf, sizeof(recv_buf))) > 0) {
-            /* Find which master this response is from */
+            /* Find which master this response is from (IP only -- master
+             * may respond from a different port than where we sent heartbeat) */
             int master_idx = -1;
             for (int i = 0; i < ml->count; i++) {
                 if (!ml->entries[i].enabled) continue;
-                if (bc_addr_equal(&ml->entries[i].addr, &from)) {
+                if (ml->entries[i].addr.ip == from.ip) {
                     master_idx = i;
                     break;
                 }
@@ -243,11 +244,14 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
     LOG_DEBUG("master", "Master probe complete: %d/%d registered", registered, ml->count);
 }
 
+/* Match masters by IP only -- the heartbeat listener (port 27900) and the
+ * status query sender on a master server can use different source ports. */
+
 bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from)
 {
     for (int i = 0; i < ml->count; i++) {
         if (!ml->entries[i].enabled) continue;
-        if (bc_addr_equal(&ml->entries[i].addr, from))
+        if (ml->entries[i].addr.ip == from->ip)
             return true;
     }
     return false;
@@ -257,7 +261,7 @@ const char *bc_master_mark_verified(bc_master_list_t *ml, const bc_addr_t *from)
 {
     for (int i = 0; i < ml->count; i++) {
         if (!ml->entries[i].enabled) continue;
-        if (bc_addr_equal(&ml->entries[i].addr, from)) {
+        if (ml->entries[i].addr.ip == from->ip) {
             if (!ml->entries[i].verified) {
                 ml->entries[i].verified = true;
                 return ml->entries[i].hostname;
@@ -272,7 +276,7 @@ const char *bc_master_record_status_check(bc_master_list_t *ml, const bc_addr_t 
 {
     for (int i = 0; i < ml->count; i++) {
         if (!ml->entries[i].enabled) continue;
-        if (bc_addr_equal(&ml->entries[i].addr, from)) {
+        if (ml->entries[i].addr.ip == from->ip) {
             ml->entries[i].status_checks++;
             /* Also mark verified if not already (status check = master knows us) */
             if (!ml->entries[i].verified)
