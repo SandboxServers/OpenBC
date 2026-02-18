@@ -16,14 +16,14 @@ Offset  Size  Type    Field
 0       1     u8      opcode = 0x29
 1       4     i32     object_id         (source object)
 +0      var   cv4     impact_position   (CompressedVector4)
-+0      2     u16     damage            (CompressedFloat16)
 +0      2     u16     radius            (CompressedFloat16)
++0      2     u16     damage            (CompressedFloat16)
 ```
 
 - **object_id**: The object that caused the explosion (e.g., the dying ship)
 - **impact_position**: 3D position of the explosion center, compressed as CV4
-- **damage**: Explosion damage value, CF16 encoded
 - **radius**: Explosion damage radius, CF16 encoded
+- **damage**: Explosion damage value, CF16 encoded
 
 ### Direction
 
