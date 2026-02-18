@@ -83,6 +83,16 @@ $(BUILD)/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+# --- Copy data files into build directory ---
+$(BUILD)/data: data
+	@mkdir -p $(BUILD)/data
+	cp -u data/* $(BUILD)/data/ 2>/dev/null || true
+
+all: $(BUILD)/data
+
 # --- Clean ---
+# Removes build artifacts but preserves server log files (*.log) and data/
 clean:
-	rm -rf $(BUILD)
+	@find $(BUILD) -path '$(BUILD)/data' -prune -o -type f ! -name '*.log' -exec rm -f {} + 2>/dev/null; \
+	find $(BUILD) -path '$(BUILD)/data' -prune -o -type d -empty -exec rmdir {} + 2>/dev/null; \
+	true
