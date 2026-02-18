@@ -54,6 +54,7 @@ static bc_session_stats_t g_stats;
 /* --- Server state --- */
 
 static volatile bool g_running = true;
+static HANDLE g_shutdown_done;  /* Signaled after main thread completes cleanup */
 
 static bc_socket_t    g_socket;       /* Game port (default 22101) */
 static bc_socket_t    g_query_socket; /* LAN query port (6500) */
@@ -113,10 +114,17 @@ static BOOL WINAPI console_handler(DWORD type)
     switch (type) {
     case CTRL_C_EVENT:
     case CTRL_BREAK_EVENT:
+        /* Console stays open -- main thread will run cleanup normally */
+        g_running = false;
+        return TRUE;
     case CTRL_CLOSE_EVENT:
     case CTRL_LOGOFF_EVENT:
     case CTRL_SHUTDOWN_EVENT:
+        /* Console is closing -- Windows will force-kill us after handler returns.
+         * Signal main thread to stop, then wait for it to finish cleanup so
+         * sockets are closed and the process exits cleanly. */
         g_running = false;
+        WaitForSingleObject(g_shutdown_done, 5000);
         return TRUE;
     default:
         return FALSE;
@@ -1946,6 +1954,9 @@ int main(int argc, char **argv)
             bc_master_probe(&g_masters, &g_socket, &g_info);
     }
 
+    /* Create shutdown synchronization event (manual reset, initially unsignaled) */
+    g_shutdown_done = CreateEvent(NULL, TRUE, FALSE, NULL);
+
     /* Register CTRL+C handler */
     SetConsoleCtrlHandler(console_handler, TRUE);
 
@@ -2218,5 +2229,9 @@ int main(int argc, char **argv)
 
     LOG_INFO("shutdown", "Server stopped.");
     bc_log_shutdown();
+
+    /* Signal console handler that cleanup is done (unblocks CTRL_CLOSE_EVENT) */
+    SetEvent(g_shutdown_done);
+    CloseHandle(g_shutdown_done);
     return 0;
 }
