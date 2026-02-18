@@ -34,3 +34,5 @@ _deps/
 .mcp.json
 server_*.log
 battle_trace.bin
+
+mods/*
