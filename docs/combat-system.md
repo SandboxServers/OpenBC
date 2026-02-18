@@ -2,7 +2,7 @@
 
 This document describes the combat mechanics implemented in Bridge Commander multiplayer: damage processing, shields, weapons, cloaking, tractor beams, and the repair system.
 
-**Clean room statement**: This document describes combat mechanics as implemented in `src/game/combat.c` and observable in-game behavior. No binary addresses, memory offsets, or decompiled code are referenced.
+**Clean room statement**: This document describes combat mechanics as observable in-game behavior and readable game scripts. No binary addresses, memory offsets, or decompiled code are referenced.
 
 ---
 
@@ -13,7 +13,7 @@ All damage flows through a common pipeline with three entry points:
 ```
 Collision Impact ──┐
                    │
-Weapon Hit ────────┼──→ Apply Damage ──→ Shield Absorption ──→ Hull Damage ──→ Subsystem Damage
+Weapon Hit ────────┼──→ Apply Damage ──→ Shield Check ──→ Hull Damage ──→ Subsystem Damage
                    │
 Explosion (0x29) ──┘
 ```
@@ -32,6 +32,29 @@ Both conditions are always true for properly initialized ships. They protect aga
 - **Weapon damage**: Each client computes weapon hits independently (receiver-local hit detection)
 - **Subsystem health**: Server-authoritative. Sent in StateUpdate flag 0x20
 
+### Collision Damage Formula
+
+Per-contact damage from a collision:
+```
+raw = (collision_energy / ship_mass) / contact_count
+scaled = raw * collision_scale + collision_offset
+damage = min(scaled, 0.5)    // hard cap at 0.5 per contact
+radius = 6000.0              // fixed
+```
+
+### Weapon Damage Scaling
+
+When a weapon hit passes through the damage pipeline:
+- Damage is doubled (×2.0)
+- Hit radius is halved (×0.5)
+- Only phaser (type 0) and torpedo (type 1) hits are processed
+
+### Resistance Scaling
+
+Each ship has two multipliers that scale incoming damage:
+- **Damage radius multiplier** (1.0 = normal, 0.0 = immune)
+- **Damage falloff multiplier** (1.0 = normal)
+
 ---
 
 ## 2. Shield System
@@ -46,33 +69,67 @@ Ships have 6 shield facings, each with independent hit points:
 | 1 | Rear | -Y direction |
 | 2 | Top | +Z direction |
 | 3 | Bottom | -Z direction |
-| 4 | Left | +X direction |
-| 5 | Right | -X direction |
+| 4 | Left (Port) | -X direction |
+| 5 | Right (Starboard) | +X direction |
 
 ### Facing Determination
 
-The shield facing that absorbs damage is determined by projecting the impact direction vector onto the ship's local coordinate frame:
+The shield facing that absorbs damage is determined by a **maximum component test** on the impact direction vector in the ship's local coordinate frame:
 
-1. Compute ship-local axes: `forward = +Y`, `up = +Z`, `right = cross(forward, up) = +X`
-2. Project impact direction onto each axis via dot product
-3. Find the dominant axis (largest absolute component)
-4. Select facing based on sign of the dominant component
+1. Rearrange the impact normal components to {Y, Z, X} (forward, up, right)
+2. Find the largest absolute component across all 6 signed directions (+Y, +Z, +X, -Y, -Z, -X)
+3. The dominant direction determines the shield facing
+
+For directed weapon hits, a more precise test is used: the weapon ray is intersected against the ship's **shield ellipsoid** (axis-aligned to the ship), and the outward normal at the intersection point is passed through the same facing determination.
 
 ### Shield Absorption
 
-When damage is applied:
-1. Determine which shield facing the impact hits
-2. If the shield has HP remaining:
-   - If damage <= shield HP: shield absorbs all damage, **no hull damage**
-   - If damage > shield HP: shield drops to 0, overflow passes to hull
-3. If shield HP is already 0: all damage goes directly to hull
+Shield absorption works differently for area-effect vs directed damage:
+
+#### Area-Effect Damage (explosions, environmental)
+
+Damage is distributed equally across all 6 facings:
+```
+per_facing_damage = total_damage / 6
+For each facing:
+    absorbed = min(per_facing_damage, current_shield_hp[facing])
+    current_shield_hp[facing] -= absorbed
+    total_absorbed += absorbed
+overflow_to_hull = total_damage - total_absorbed
+```
+
+This is NOT all-or-nothing. Each facing independently absorbs its share. A ship with 5 full shield facings and 1 depleted facing takes 1/6 of the total damage to hull.
+
+#### Directed Damage (weapons, collisions)
+
+A geometry intersection test determines which shield facing is hit. The specific facing absorbs damage up to its current HP; overflow passes to hull.
 
 ### Shield Recharge
 
-- Shields recharge continuously when the ship is fully **DECLOAKED**
-- Recharge rate is per-facing, defined in ship class data (HP per second)
-- Recharge is capped at the facing's maximum HP
-- **Recharge stops entirely while cloaked** (any cloak state other than DECLOAKED)
+Shield recharge is driven by the ship's power system, NOT by simple time-based rate:
+
+```
+hp_gain = (charge_per_second[facing] * power_budget) / (total_power / 6)
+```
+
+- `charge_per_second` is defined per-facing in ship class data
+- `power_budget` is an energy allocation from the ship's power subsystem
+- The `1/6` factor distributes power equally across facings
+- Overflow power from a fully-charged facing is redistributed to others
+- Recharge runs through the engine's periodic event system, not a direct per-tick call
+
+**Recharge stops while cloaked** (shield subsystem is disabled during cloak).
+
+### Example: Sovereign Shield HP (from hardpoint scripts)
+
+| Facing | Max HP | Charge Rate (HP/sec) |
+|--------|--------|---------------------|
+| Front | 11,000 | 12.0 |
+| Rear | 5,500 | 12.0 |
+| Top | 11,000 | 12.0 |
+| Bottom | 11,000 | 12.0 |
+| Left | 5,500 | 12.0 |
+| Right | 5,500 | 12.0 |
 
 ---
 
@@ -84,21 +141,11 @@ Overflow damage from shields is applied directly to hull HP:
 - `hull_hp -= overflow_damage`
 - If `hull_hp <= 0`: ship is destroyed (see Section 7)
 
-### Subsystem Damage
+### Subsystem Damage Distribution
 
-After hull damage is applied, 50% of the overflow damage is applied to the nearest subsystem:
+After shield absorption, remaining damage is tested against subsystems using **axis-aligned bounding box (AABB) overlap tests**. Each subsystem has a defined position and radius in ship-local coordinates. The damage volume (built from the hit position and damage radius) is tested against each subsystem's bounding box.
 
-```
-subsystem_damage = overflow * 0.5
-```
-
-**Nearest subsystem** is determined by:
-1. Transform impact direction to ship-local coordinates
-2. For each subsystem with a defined radius > 0:
-   - Compute Euclidean distance from impact point to subsystem position
-   - If distance <= subsystem radius: candidate
-3. Select the candidate with the smallest distance
-4. If no subsystem is in range: no subsystem damage
+Subsystems whose bounding box overlaps the damage volume take damage. This is a spatial overlap test, not a distance calculation.
 
 ### Subsystem Disabled Threshold
 
@@ -117,52 +164,66 @@ Where `disabled_pct` is defined per subsystem type in ship class data (typically
 
 **Firing gates** (all must be true):
 - Ship is alive
-- Ship is fully DECLOAKED (cloak_state == DECLOAKED)
-- Bank index is valid (within the ship's phaser bank count)
+- Ship is not cloaked (cloak disables weapon subsystems)
 - Subsystem is alive (HP > 0)
 - Subsystem is not disabled (HP >= disabled threshold)
 - Charge >= minimum firing charge
-
-**On fire**:
-- Charge resets to 0.0
-- Builds a BeamFire (0x1A) packet with shooter ID, direction, and optional target
+- Weapon can-fire flag is set
 
 **Charge recharge**:
-- Rate: `recharge_rate * power_level * dt` (power_level is 0.0-1.0)
+```
+charge += recharge_rate * power_level * dt * power_multiplier
+```
+- `power_level` is 0.0-1.0 (power allocation to weapons)
+- `power_multiplier` comes from the weapon system's power budget
+- Non-owner ships (in multiplayer) recharge at a reduced rate
 - Capped at `max_charge`
-- Only recharges when DECLOAKED and subsystem is alive
+- Only recharges when not cloaked and subsystem is alive
+
+**Phaser intensity modes**: Phasers have three intensity settings (LOW, MED, HIGH) that affect both discharge rate during firing and damage output per tick. Higher intensity drains charge faster but deals more damage.
+
+**On fire**:
+- Charge begins discharging at the intensity-dependent rate
+- When charge reaches 0, firing stops automatically
+- Builds a BeamFire (0x1A) packet with shooter ID, direction, and optional target
 
 ### Torpedo Tubes
 
 **Firing gates**:
 - Ship is alive
-- Ship is fully DECLOAKED
-- Not currently switching torpedo types
-- Tube index is valid
+- Ship is not cloaked
 - Tube subsystem is alive (HP > 0)
-- Cooldown is 0 (tube is ready)
+- Subsystem is not disabled
+- At least one torpedo loaded (num_ready > 0)
+- Ammo available for current type
+- Minimum fire interval elapsed (prevents rapid double-fire)
 
 **On fire**:
-- Cooldown set to subsystem's `reload_delay`
+- Torpedo count decremented
+- Cooldown timer starts for the fired slot
 - Builds a TorpedoFire (0x19) packet
 
 **Cooldown**:
-- Each tube has an independent cooldown timer
-- Decrements by `dt` each tick
-- Ready to fire when cooldown reaches 0
+- Each tube maintains an array of timer slots (one per max_ready)
+- Timers track time since fire; tube reloads when timer expires (reload_delay reached)
+- Each tube reloads independently
 
 ### Torpedo Type Switching
 
 When the player switches torpedo type:
-- All tubes enter a reload delay equal to the **maximum** `reload_delay` across all tubes
-- Cannot fire any torpedoes during the switch transition
-- Switch completes when the timer reaches 0
+- All tubes are **unloaded** (ready count set to 0)
+- All cooldown timers are **cleared**
+- In multiplayer: tubes are NOT immediately reloaded — they must go through normal reload cycle
+- Effective lockout = longest reload_delay across all tubes (since all restart simultaneously)
+- In single-player: tubes are immediately reloaded with the new type (no lockout)
 
 ---
 
 ## 5. Cloaking Device
 
 ### State Machine
+
+The cloaking device has 4 operational states:
 
 ```
 DECLOAKED ──(start cloak)──→ CLOAKING ──(timer)──→ CLOAKED
@@ -172,78 +233,113 @@ DECLOAKED ──(start cloak)──→ CLOAKING ──(timer)──→ CLOAKED
     └───────(timer)──── DECLOAKING ←───────────────────┘
 ```
 
-| State | Value | Description |
-|-------|-------|-------------|
-| DECLOAKED | 0 | Fully visible, shields and weapons operational |
-| CLOAKING | 1 | Transitioning to cloaked (shields down, weapons disabled) |
-| CLOAKED | 2 | Fully cloaked (invisible, shields down, weapons disabled) |
-| DECLOAKING | 3 | Transitioning to visible (shields still down, weapons disabled) |
+| State | Description |
+|-------|-------------|
+| DECLOAKED | Fully visible, shields and weapons operational |
+| CLOAKING | Transitioning to cloaked (shields disabling, weapons disabled) |
+| CLOAKED | Fully cloaked (invisible, shields down, weapons disabled) |
+| DECLOAKING | Transitioning to visible (shields still down, weapons disabled) |
 
 ### Transition Time
 
-All transitions take **3.0 seconds**.
+Transitions use a configurable timer (settable via `SetCloakTime()`). The timer counts up during CLOAKING and down during DECLOAKING. Both directions use the same duration.
 
 ### Cloaking Effects
 
 **On cloak start** (DECLOAKED → CLOAKING):
-- All shield facings immediately drop to 0 HP
-- Weapons cannot fire (fire gates check cloak_state == DECLOAKED)
-- Shield recharge stops
+- Shield subsystem is **functionally disabled** (stops absorbing and recharging)
+- Shield HP is **preserved** (not dropped to zero)
+- Shield visuals fade out over a configurable delay (ShieldDelay, default ~1 second)
+- Weapon subsystems are disabled via the power subsystem mechanism
+- Visual transparency begins ramping
 
 **While CLOAKED**:
 - Ship is invisible to other players
 - No shield recharge
 - Cannot fire weapons
+- If power drops below threshold, ship auto-decloaks (energy failure)
 
 **On decloak** (CLOAKED/CLOAKING → DECLOAKING):
-- 3-second vulnerability window (visible but shields/weapons still offline)
-- Shields begin recharging from 0 only after reaching DECLOAKED state
+- Visual transparency ramps back
+- After reaching DECLOAKED state, shield re-enable is delayed by ShieldDelay
+- Shields begin recharging from their preserved HP only after re-enabling
+- If shield HP was 0 during cloak, it is reset to 1.0 HP on decloak
 
 ### Cloaking Prerequisites
 
-- Ship must have a cloaking device subsystem (`type = "cloak"`)
-- Ship class must have `can_cloak = true`
+- Ship must have a cloaking device subsystem
 - Cloaking device subsystem must be alive (HP > 0)
 - Ship must be in DECLOAKED state (can't re-cloak during transition)
+- Sufficient power available (recursive energy check)
 
 ### Wire Protocol
 
-- **StartCloak (0x0E)**: Client → Server → All (reliable)
-- **StopCloak (0x0F)**: Client → Server → All (reliable)
-- **StateUpdate flag 0x40**: Cloak state as bit-packed boolean (0x20=OFF, 0x21=ON)
+- **StartCloak (0x0E)**: Client → Server → All (reliable, event-forwarded)
+- **StopCloak (0x0F)**: Client → Server → All (reliable, event-forwarded)
+- **StateUpdate flag 0x40**: Cloak state as boolean (on/off). Client runs its own local state machine with visual effects.
 
 ---
 
 ## 6. Tractor Beams
 
-### Engagement
+### Modes
 
-**Prerequisites**:
-- Ship is alive and DECLOAKED
-- Ship class has tractor capability (`has_tractor = true`)
-- No existing tractor lock (one lock at a time per ship)
+Tractor beams support 6 modes:
+
+| Mode | Name | Behavior |
+|------|------|----------|
+| 0 | HOLD | Zero target velocity |
+| 1 | TOW | Move target toward source (default) |
+| 2 | PULL | Pull target closer |
+| 3 | PUSH | Push target away |
+| 4 | DOCK_STAGE_1 | Docking approach phase |
+| 5 | DOCK_STAGE_2 | Final docking alignment |
+
+### Engagement Prerequisites
+
+- Ship is alive and not cloaked
+- Ship class has tractor capability
 - Tractor beam subsystem is alive (HP > 0)
 
-### Effects (per tick)
+### Tractor Force
 
-**Speed drag**:
+Per-projector force each tick:
 ```
-drag = max_damage * dt * 0.1
-target.speed = max(0, target.speed - drag)
-```
-
-**Tractor damage** (low continuous damage):
-```
-damage = max_damage * dt * 0.02    (2% of max_damage per second)
+distance_ratio = min(1.0, max_damage_distance / beam_distance)
+force = max_damage * system_condition_pct * projector_condition_pct * distance_ratio * dt
 ```
 
-Damage is applied via the standard damage pipeline (shield absorption → hull → subsystem).
+Key characteristics:
+- **Distance falloff**: Linear beyond max_damage_distance
+- **Health scaling**: Both tractor system and individual projector health affect force output
+- A damaged tractor system produces less force
+
+### Speed Drag
+
+Tractor beams reduce the target's speed **multiplicatively**:
+```
+tractor_ratio = force_used / total_max_damage
+effective_speed *= (1.0 - tractor_ratio)
+```
+
+- At full tractor output, target speed drops to zero
+- At half output, speed is halved
+- The same ratio is applied to acceleration, angular velocity, and angular acceleration
+- The impulse engine subsystem reads the tractor ratio each tick
+
+### Tractor Beams Do NOT Apply Direct Damage
+
+The tractor beam modes only manipulate target velocity and angular velocity. No damage is applied to the target ship through the tractor beam itself.
+
+### Friendly Fire Protection
+
+The game tracks cumulative tractor time against friendly ships, with a warning threshold and a maximum before forced release.
 
 ### Auto-Release
 
-The tractor beam automatically releases when:
-- Target exceeds `max_damage_distance` from the tractor ship
-- Tractor subsystem is destroyed (HP = 0)
+The tractor beam releases when:
+- Beam intersection test fails (target out of range or line-of-sight lost)
+- Tractor subsystem is disabled or destroyed
 - Either ship is destroyed
 
 ---
@@ -252,10 +348,10 @@ The tractor beam automatically releases when:
 
 A ship is destroyed when `hull_hp <= 0`:
 
-1. `alive` flag set to false
+1. Ship marked as dead
 2. Server sends **DestroyObject (0x14)** to all clients: `[0x14][object_id:i32]`
 3. Server sends **Explosion (0x29)** to all clients: `[0x29][object_id:i32][impact:cv4][damage:cf16][radius:cf16]`
-4. All tractor locks on this ship auto-release
+4. All tractor locks on this ship release
 
 ### Respawn
 
@@ -269,35 +365,34 @@ There is no dedicated respawn mechanism. To respawn a ship:
 
 ### Queue
 
-Each ship maintains a repair queue of up to 8 subsystem indices, ordered by priority (index 0 = highest priority).
+Each ship maintains a repair queue as a **dynamically-sized linked list** (no fixed maximum). Subsystems are added at the tail and repaired from the head.
 
 ### Repair Rate
 
 ```
-heal_per_second = max_repair_points * num_repair_teams
-heal_per_tick = heal_per_second * dt
+raw_repair = max_repair_points * repair_system_health_pct * dt
+per_subsystem = raw_repair / min(queue_count, num_repair_teams)
+condition_gain = per_subsystem / subsystem_repair_complexity
 ```
 
-Only the **top-priority subsystem** (queue index 0) is repaired each tick.
+Key characteristics:
+- **Multiple subsystems repaired simultaneously** (up to `num_repair_teams`)
+- Repair amount is divided equally among active repairs
+- The repair subsystem's own health scales output (damaged repair bay = slower)
+- `repair_complexity` per subsystem acts as a final divisor (higher = slower)
 
-### Auto-Queue
+### Queue Rules
 
-Subsystems below their disabled threshold are automatically added to the repair queue:
-```
-if subsystem_hp < max_condition * (1.0 - disabled_pct):
-    add to queue (if not already queued)
-```
+- **Destroyed subsystems (0 HP) are skipped** — they remain in queue but receive no repair and generate a "cannot be completed" notification
+- **Destroyed subsystems are NOT added** — only subsystems with HP > 0 can be queued
+- **Duplicates rejected** — queue is checked before adding
+- **Auto-remove on full repair** — removed when HP reaches max_condition
+- **Repair only runs on host/standalone** — gated on host or non-multiplayer
 
-### Auto-Remove
+### Wire Protocol
 
-When a subsystem is fully repaired (HP reaches `max_condition`), it is automatically removed from the queue.
-
-### Constraints
-
-- Maximum 8 subsystems in queue simultaneously
-- Duplicate entries are rejected
-- Queue can be manually reordered by the player (RepairListPriority, opcode 0x11)
-- Subsystems at 0 HP are NOT automatically queued (only those between 0 and the disabled threshold)
+- **AddToRepairList (0x0B)**: Host → All (adds subsystem to queue)
+- **RepairListPriority (0x11)**: Client → Host (reorder queue)
 
 ---
 
