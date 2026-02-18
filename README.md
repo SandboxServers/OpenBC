@@ -23,7 +23,7 @@ Zero copyrighted content is shipped. The game client will require a legitimate B
 | B. Protocol Library | Wire cipher, codec, compressed types | Complete |
 | C. Lobby Server | UDP transport, handshake, checksum, chat, GameSpy | Complete |
 | D. Relay Server | Game events, combat relay, object lifecycle | Complete |
-| E. Simulation Server | Ship data registry, movement, combat simulation | In Progress |
+| E. Simulation Server | Ship data registry, movement, combat simulation | Complete |
 | **2. Game Client** | Rendering, audio, UI, input | Planning |
 
 What works today:
@@ -31,13 +31,17 @@ What works today:
 - Stock BC 1.1 clients connect and play multiplayer matches
 - Full handshake: GameSpy discovery, 4-round checksum validation, settings delivery
 - Ship creation, weapons fire, damage, repairs, cloaking, warp -- all relayed
+- Server-authoritative damage: collision, weapon, and explosion pipelines
 - Chat (global and team), lobby and in-game
 - GameSpy LAN browser and internet master server registration
 - Reliable delivery with retransmit and sequencing
 - Ship data registry: 16 ships, 15 projectile types loaded from JSON
 - Server-side movement and combat simulation (cloaking, tractor beams, repair)
 - Dynamic AI battles with seeded RNG
-- 11 test suites, 223 tests, 1,155 assertions (including networked battle integration)
+- Manifest auto-detection, session summary at shutdown, graceful shutdown handling
+- 11 test suites, 226 tests, 1,184 assertions (including networked battle integration)
+
+**Important caveat:** "Complete" means the server-side logic is implemented and tested against our own test harness. It does not mean every feature has been validated end-to-end with a stock BC client. The wire protocol for connection, checksums, lobby, chat, relay, and basic gameplay is proven against real clients. Server-authoritative features like damage simulation generate correct wire-format packets, but whether the stock client accepts and renders all of them is still being verified.
 
 ## Quick Start
 
@@ -141,18 +145,18 @@ docs/          Design documents and protocol reference
 
 **Client (planned):** The Phase 2 game client will use a modern rendering engine, ECS architecture, and cross-platform audio/input. Technology choices are under evaluation.
 
-## Reverse Engineering
+## Protocol Analysis
 
-All critical protocol reverse engineering is complete, verified against the stock dedicated server with 30,000+ captured packets:
+All critical protocol analysis is complete, verified against the stock dedicated server with 30,000+ captured packets:
 
-- Wire protocol fully reversed: AlbyRules XOR cipher, TGBufferStream codec, three-tier reliability
-- 28 game opcodes identified and documented from the dispatch jump table
+- Wire protocol fully documented: AlbyRules stream cipher, TGBufferStream codec, three-tier reliability
+- 28 game opcodes identified and documented
 - Hash algorithms reimplemented: StringHash (4-lane Pearson) and FileHash (rotate-XOR)
 - Full handshake sequence traced and reimplemented (GameSpy peek, checksum exchange, settings delivery)
-- Damage pipeline traced: collision, weapon, and explosion paths through subsystem distribution
-- All findings from Ghidra decompilation and packet analysis; no original source code was used
+- Damage pipeline documented: collision, weapon, and explosion paths through subsystem distribution
+- All findings from packet captures, behavioral observation, and readable game scripts; no original source code was used
 
-See the [verified protocol reference](docs/phase1-verified-protocol.md) for the complete wire format specification. The [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) repository contains the RE workspace and a functional DDraw proxy server used for protocol verification.
+See the [verified protocol reference](docs/phase1-verified-protocol.md) for the complete wire format specification. The [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) repository contains a functional DDraw proxy server used for protocol verification and packet capture.
 
 ## Game Data and Mods
 
@@ -164,13 +168,28 @@ See the [verified protocol reference](docs/phase1-verified-protocol.md) for the 
 
 ## Documentation
 
+**Design & Architecture:**
 - [Server Architecture RFC](docs/phase1-implementation-plan.md) -- Standalone server design: network, checksum, game state, physics, data registry, mod system
 - [Requirements](docs/phase1-requirements.md) -- Functional and non-functional requirements
-- [Verified Protocol](docs/phase1-verified-protocol.md) -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery, compressed types
-- [Engine Architecture](docs/phase1-engine-architecture.md) -- Original BC engine internals (RE reference)
-- [RE Gap Analysis](docs/phase1-re-gaps.md) -- Reverse engineering status (all critical items solved)
+- [Engine Architecture](docs/phase1-engine-architecture.md) -- Original BC engine architecture (behavioral reference)
 - [Data Registry](docs/phase1-api-surface.md) -- Ship, map, rules, and manifest data schemas
-- [Server Authority](docs/server-authority.md) -- Feasibility analysis: what authority the server can take from clients
+- [Server Authority](docs/server-authority.md) -- Authority model: what the server computes vs. relays
+
+**Protocol & Wire Format:**
+- [Verified Protocol](docs/phase1-verified-protocol.md) -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery, compressed types
+- [Transport Cipher](docs/transport-cipher.md) -- AlbyRules PRNG cipher: key schedule, cross-multiplication, plaintext feedback
+- [GameSpy Protocol](docs/gamespy-protocol.md) -- LAN discovery, master server heartbeat, challenge-response
+- [Join Flow](docs/join-flow.md) -- Connection lifecycle: connect, checksums, lobby, gameplay
+- [Checksum Handshake](docs/checksum-handshake-protocol.md) -- Hash algorithms, 5-round checksum exchange
+- [Disconnect Flow](docs/disconnect-flow.md) -- Player disconnect detection and cleanup
+- [Wire Format Audit](docs/wire-format-audit.md) -- Audit of wire format implementation vs spec
+- Wire format specs: [ObjCreate](docs/objcreate-wire-format.md), [StateUpdate](docs/stateupdate-wire-format.md), [CollisionEffect](docs/collision-effect-wire-format.md)
+
+**Game Systems:**
+- [Combat System](docs/combat-system.md) -- Damage pipeline, shields, cloaking, tractor beams, repair
+- [Ship Subsystems](docs/ship-subsystems.md) -- Fixed subsystem index table, HP values, StateUpdate serialization
+
+**Testing & Tools:**
 - [Test Suite](tests/README.md) -- 11 test suites, test frameworks, adding new tests
 - [Tools](tools/README.md) -- CLI tools, data scraper, diagnostic utilities
 
@@ -179,7 +198,7 @@ See the [verified protocol reference](docs/phase1-verified-protocol.md) for the 
 Contributions are welcome. The most useful things right now:
 
 - **Testing**: Connect stock BC 1.1 clients, report connection issues or protocol mismatches
-- **Reverse engineering**: Ghidra analysis, packet captures, behavioral documentation
+- **Protocol analysis**: Packet captures, behavioral observation, documentation
 - **Data files**: Ship stats, map definitions, game rule sets
 - **Code review**: Protocol correctness, edge cases, platform compatibility
 
@@ -187,7 +206,7 @@ Open an issue to discuss before starting large changes.
 
 ## Related Projects
 
-- [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) -- Functional DDraw proxy dedicated server, RE workspace, decompiled reference code, and Ghidra annotation tools. RE findings feed directly into OpenBC.
+- [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) -- Functional DDraw proxy dedicated server used for packet capture and protocol verification. Behavioral observations feed directly into OpenBC's clean-room documentation.
 
 ## Legal Basis
 
