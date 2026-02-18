@@ -821,6 +821,7 @@ static int build_round0_response(u8 *buf, int buf_size,
     bc_buf_write_u16(&b, 1);                    /* file_count */
     bc_buf_write_u32(&b, name_hash);            /* file name_hash */
     bc_buf_write_u32(&b, content_hash);         /* file content_hash */
+    bc_buf_write_u8(&b, 0);                     /* subdir_count = 0 */
 
     return (int)b.pos;
 }
@@ -912,6 +913,7 @@ TEST(checksum_resp_validate_file_missing)
     bc_buf_write_u32(&b, 0x12345678);
     bc_buf_write_u32(&b, 0x4DAFCB2F);
     bc_buf_write_u16(&b, 0);  /* 0 files */
+    bc_buf_write_u8(&b, 0);   /* 0 subdirs */
 
     bc_checksum_resp_t resp;
     ASSERT(bc_checksum_response_parse(&resp, buf, (int)b.pos));

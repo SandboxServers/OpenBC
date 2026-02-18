@@ -125,8 +125,8 @@ TEST(checksum_resp_roundtrip)
                                              0xDEADBEEF, 0xCAFEBABE,
                                              files, 2);
     ASSERT(len > 0);
-    /* Header: [0x21][0][ref:4][dir:4] = 10, file_count:2 = 2, 2 files * 8 = 16 */
-    ASSERT_EQ(len, 10 + 2 + 16);
+    /* Header: [0x21][0][ref:4][dir:4] = 10, fc:2 + 2×8 = 18, sc:1 = 1 → 29 */
+    ASSERT_EQ(len, 10 + 2 + 16 + 1);
 
     /* Parse it back with the server's parser */
     bc_checksum_resp_t resp;
@@ -162,7 +162,7 @@ TEST(checksum_resp_recursive_roundtrip)
     bc_checksum_resp_t resp;
     ASSERT(bc_checksum_response_parse(&resp, buf, len));
     ASSERT_EQ(resp.round_index, 2);
-    ASSERT_EQ(resp.ref_hash, 0x11111111);
+    ASSERT_EQ(resp.ref_hash, 0);  /* ref_hash only present in round 0 */
     ASSERT_EQ(resp.dir_hash, 0x22222222);
     ASSERT_EQ(resp.file_count, 1);
     ASSERT_EQ(resp.files[0].name_hash, 0xAAAAAAAA);
@@ -176,14 +176,13 @@ TEST(checksum_resp_recursive_roundtrip)
 TEST(checksum_final_roundtrip)
 {
     u8 buf[32];
-    int len = bc_client_build_checksum_final(buf, sizeof(buf),
-                                              0x7E0CE243, 0xFACEFACE);
-    ASSERT(len == 14);
+    int len = bc_client_build_checksum_final(buf, sizeof(buf), 0xFACEFACE);
+    ASSERT(len == 9);  /* [0x21][0xFF][dir:4][fc:2][sc:1] — no ref_hash */
 
     bc_checksum_resp_t resp;
     ASSERT(bc_checksum_response_parse(&resp, buf, len));
     ASSERT_EQ(resp.round_index, 0xFF);
-    ASSERT_EQ(resp.ref_hash, 0x7E0CE243);
+    ASSERT_EQ(resp.ref_hash, 0);  /* ref_hash only present in round 0 */
     ASSERT_EQ(resp.dir_hash, 0xFACEFACE);
     ASSERT_EQ(resp.file_count, 0);
     ASSERT_EQ(resp.subdir_count, 0);

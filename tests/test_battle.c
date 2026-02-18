@@ -676,7 +676,7 @@ TEST(full_join_flow_multi_client)
             ASSERT_EQ(rmsg->payload[1], 0xFF);
 
             u8 resp[32];
-            int resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0, 0);
+            int resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0);
             ASSERT(resp_len > 0);
 
             u8 out[512];

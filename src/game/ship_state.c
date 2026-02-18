@@ -129,36 +129,25 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
 {
     if (!ship->alive || cls->subsystem_count == 0) return 0;
 
-    /* Build field data: [startIdx:u8][health_bytes...][6 shield bytes][1 hull byte] */
+    /* Build field data: [startIdx:u8][health_bytes...]
+     * Per spec (ship-subsystems.md §4): flag 0x20 carries ONLY subsystem
+     * condition bytes.  Shield facings and hull HP are NOT included here.
+     * Each byte = (u8)(current_hp / max_condition * 255).
+     *
+     * The batch starts at start_idx and runs forward WITHOUT wrapping.
+     * Over multiple ticks the round-robin index cycles to cover all
+     * subsystems. */
     u8 field[128];
     int fpos = 0;
 
     field[fpos++] = start_idx;
 
-    /* Subsystem health bytes (round-robin window) */
     int count = cls->subsystem_count;
-    if (batch_size > count) batch_size = count;
-    for (int i = 0; i < batch_size; i++) {
-        int idx = ((int)start_idx + i) % count;
+    int end = (int)start_idx + batch_size;
+    if (end > count) end = count;
+    for (int idx = (int)start_idx; idx < end; idx++) {
         f32 max_hp = cls->subsystems[idx].max_condition;
         f32 ratio = (max_hp > 0.0f) ? (ship->subsystem_hp[idx] / max_hp) : 0.0f;
-        if (ratio < 0.0f) ratio = 0.0f;
-        if (ratio > 1.0f) ratio = 1.0f;
-        field[fpos++] = (u8)(ratio * 255.0f);
-    }
-
-    /* Shield HP: 6 bytes, each 0-255 mapped to 0.0 - max_shield_hp */
-    for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
-        f32 max_sh = cls->shield_hp[i];
-        f32 ratio = (max_sh > 0.0f) ? (ship->shield_hp[i] / max_sh) : 0.0f;
-        if (ratio < 0.0f) ratio = 0.0f;
-        if (ratio > 1.0f) ratio = 1.0f;
-        field[fpos++] = (u8)(ratio * 255.0f);
-    }
-
-    /* Hull HP: 1 byte, 0-255 mapped to 0.0 - max hull */
-    {
-        f32 ratio = (cls->hull_hp > 0.0f) ? (ship->hull_hp / cls->hull_hp) : 0.0f;
         if (ratio < 0.0f) ratio = 0.0f;
         if (ratio > 1.0f) ratio = 1.0f;
         field[fpos++] = (u8)(ratio * 255.0f);

@@ -91,8 +91,8 @@ int bc_build_explosion(u8 *buf, int buf_size,
     if (!bc_buf_write_u8(&b, BC_OP_EXPLOSION)) return -1;
     if (!bc_buf_write_i32(&b, object_id)) return -1;
     if (!bc_buf_write_cv4(&b, ix, iy, iz)) return -1;
-    if (!bc_buf_write_cf16(&b, damage)) return -1;
     if (!bc_buf_write_cf16(&b, radius)) return -1;
+    if (!bc_buf_write_cf16(&b, damage)) return -1;
 
     return (int)b.pos;
 }

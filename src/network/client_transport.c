@@ -174,15 +174,20 @@ int bc_client_build_checksum_resp(u8 *buf, int buf_size, u8 round,
 
     if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP)) return -1;
     if (!bc_buf_write_u8(&b, round)) return -1;
-    if (!bc_buf_write_u32(&b, ref_hash)) return -1;
+    /* Only round 0 includes ref_hash (StringHash of gamever "60").
+     * Other rounds start directly with dir_hash. */
+    if (round == 0) {
+        if (!bc_buf_write_u32(&b, ref_hash)) return -1;
+    }
     if (!bc_buf_write_u32(&b, dir_hash)) return -1;
 
-    /* File tree: [file_count:u16][{name_hash:u32, content_hash:u32}...] */
+    /* File tree: [file_count:u16][files × 8][subdir_count:u8=0] */
     if (!bc_buf_write_u16(&b, (u16)file_count)) return -1;
     for (int i = 0; i < file_count; i++) {
         if (!bc_buf_write_u32(&b, files[i].name_hash)) return -1;
         if (!bc_buf_write_u32(&b, files[i].content_hash)) return -1;
     }
+    if (!bc_buf_write_u8(&b, 0)) return -1;  /* subdir_count = 0 */
 
     return (int)b.pos;
 }
@@ -198,7 +203,9 @@ int bc_client_build_checksum_resp_recursive(
 
     if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP)) return -1;
     if (!bc_buf_write_u8(&b, round)) return -1;
-    if (!bc_buf_write_u32(&b, ref_hash)) return -1;
+    if (round == 0) {
+        if (!bc_buf_write_u32(&b, ref_hash)) return -1;
+    }
     if (!bc_buf_write_u32(&b, dir_hash)) return -1;
 
     /* Top-level files */
@@ -208,36 +215,38 @@ int bc_client_build_checksum_resp_recursive(
         if (!bc_buf_write_u32(&b, files[i].content_hash)) return -1;
     }
 
-    /* Subdirectories */
-    if (!bc_buf_write_u16(&b, (u16)subdir_count)) return -1;
+    /* Subdirectories: [subdir_count:u8][name_0:u32..name_N:u32][tree_0..tree_N]
+     * All name hashes first, then all trees sequentially. */
+    if (!bc_buf_write_u8(&b, (u8)subdir_count)) return -1;
     for (int s = 0; s < subdir_count; s++) {
         if (!bc_buf_write_u32(&b, subdirs[s].name_hash)) return -1;
+    }
+    for (int s = 0; s < subdir_count; s++) {
+        /* Each subdir tree: [file_count:u16][files × 8][subdir_count:u8=0] */
         if (!bc_buf_write_u16(&b, (u16)subdirs[s].file_count)) return -1;
         for (int i = 0; i < subdirs[s].file_count; i++) {
             if (!bc_buf_write_u32(&b, subdirs[s].files[i].name_hash)) return -1;
             if (!bc_buf_write_u32(&b, subdirs[s].files[i].content_hash)) return -1;
         }
+        if (!bc_buf_write_u8(&b, 0)) return -1;  /* no sub-subdirs */
     }
 
     return (int)b.pos;
 }
 
-int bc_client_build_checksum_final(u8 *buf, int buf_size,
-                                    u32 ref_hash, u32 dir_hash)
+int bc_client_build_checksum_final(u8 *buf, int buf_size, u32 dir_hash)
 {
     /* Build an empty recursive response for round 0xFF (Scripts/Multiplayer).
-     * Wire: [0x21][0xFF][ref_hash:u32][dir_hash:u32][file_count:u16=0][subdir_count:u16=0]
-     * This is the standard checksum response format with zero files and
-     * zero subdirectories, used when Scripts/Multiplayer is empty or absent. */
+     * Wire: [0x21][0xFF][dir_hash:u32][file_count:u16=0][subdir_count:u8=0]
+     * Round 0xFF has no ref_hash (only round 0 includes ref_hash). */
     bc_buffer_t b;
     bc_buf_init(&b, buf, (size_t)buf_size);
 
     if (!bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP)) return -1;
     if (!bc_buf_write_u8(&b, 0xFF)) return -1;
-    if (!bc_buf_write_u32(&b, ref_hash)) return -1;
     if (!bc_buf_write_u32(&b, dir_hash)) return -1;
     if (!bc_buf_write_u16(&b, 0)) return -1;  /* file_count = 0 */
-    if (!bc_buf_write_u16(&b, 0)) return -1;  /* subdir_count = 0 */
+    if (!bc_buf_write_u8(&b, 0)) return -1;   /* subdir_count = 0 */
 
     return (int)b.pos;
 }

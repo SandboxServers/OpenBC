@@ -117,8 +117,8 @@ bool bc_parse_explosion(const u8 *payload, int len, bc_explosion_event_t *out)
     if (!bc_buf_read_i32(&buf, &out->object_id)) return false;
     if (!bc_buf_read_cv4(&buf, &out->impact_x, &out->impact_y, &out->impact_z))
         return false;
-    if (!bc_buf_read_cf16(&buf, &out->damage)) return false;
     if (!bc_buf_read_cf16(&buf, &out->radius)) return false;
+    if (!bc_buf_read_cf16(&buf, &out->damage)) return false;
 
     return true;
 }

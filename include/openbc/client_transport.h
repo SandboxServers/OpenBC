@@ -68,16 +68,18 @@ typedef struct {
 bool bc_client_parse_checksum_request(const u8 *payload, int payload_len,
                                        bc_checksum_request_t *req);
 
-/* Build a wire-accurate checksum response for rounds 0-3 (non-recursive).
- * Wire: [0x21][round][ref_hash:u32][dir_hash:u32]
- *       [file_count:u16][{name_hash:u32,content_hash:u32}...]
+/* Build a wire-accurate checksum response for non-recursive rounds.
+ * Wire: [0x21][round][ref_hash:u32 (round 0 only)][dir_hash:u32]
+ *       [file_count:u16][files × {name:u32,content:u32}][subdir_count:u8=0]
  * Returns payload length, or -1 on error. */
 int bc_client_build_checksum_resp(u8 *buf, int buf_size, u8 round,
                                    u32 ref_hash, u32 dir_hash,
                                    const bc_client_file_hash_t *files, int file_count);
 
-/* Build a wire-accurate checksum response for round 2 (recursive).
- * Adds subdirectory entries after the top-level file list.
+/* Build a wire-accurate checksum response for recursive rounds.
+ * File tree format: [file_count:u16][files × 8][subdir_count:u8]
+ *   [name_0:u32..name_N:u32][tree_0][tree_1]...[tree_N]
+ * Names are listed first, then trees sequentially. Each tree is recursive.
  * Returns payload length, or -1 on error. */
 int bc_client_build_checksum_resp_recursive(
     u8 *buf, int buf_size, u8 round,
@@ -86,11 +88,11 @@ int bc_client_build_checksum_resp_recursive(
     const bc_client_subdir_hash_t *subdirs, int subdir_count);
 
 /* Build an empty checksum response for the final round (0xFF).
- * Wire: [0x21][0xFF][ref_hash:u32][dir_hash:u32][file_count:u16=0][subdir_count:u16=0]
+ * Wire: [0x21][0xFF][dir_hash:u32][file_count:u16=0][subdir_count:u8=0]
+ * Round 0xFF has no ref_hash (only round 0 includes ref_hash).
  * Used when Scripts/Multiplayer is empty or absent.
- * Returns payload length (14), or -1 on error. */
-int bc_client_build_checksum_final(u8 *buf, int buf_size,
-                                    u32 ref_hash, u32 dir_hash);
+ * Returns payload length (9), or -1 on error. */
+int bc_client_build_checksum_final(u8 *buf, int buf_size, u32 dir_hash);
 
 /* --- Directory scanning for checksum computation --- */
 

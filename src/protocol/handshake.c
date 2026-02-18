@@ -1,5 +1,6 @@
 #include "openbc/handshake.h"
 #include "openbc/opcodes.h"
+#include "openbc/log.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -195,43 +196,81 @@ int bc_delete_player_anim_build(u8 *buf, int buf_size,
 
 /* --- Checksum response parsing --- */
 
-/* Parse a file tree from a buffer: [file_count:u16][{name_hash:u32, content_hash:u32}...]
- * If recursive: [subdir_count:u16][{name_hash:u32, file_tree...}...] */
+/* Parse a recursive file tree from a buffer.
+ * Wire format (self-describing, same at every nesting level):
+ *   [file_count:u16 LE][files × {name_hash:u32, content_hash:u32}]
+ *   [subdir_count:u8]
+ *   [name_hash_0:u32][name_hash_1:u32]...[name_hash_N:u32]   (all names first)
+ *   [tree_0][tree_1]...[tree_N]                                (then all trees)
+ *
+ * If files/file_count are non-NULL, stores file entries (up to max_files).
+ * If resp is non-NULL, stores first-level subdirectory data in resp->subdirs.
+ * Nested subdirectories (level 2+) are consumed without storing. */
 static bool parse_file_tree(bc_buffer_t *b,
                             bc_checksum_file_t *files, int *file_count, int max_files,
-                            bc_checksum_resp_t *resp, bool recursive)
+                            bc_checksum_resp_t *resp)
 {
     u16 fc;
-    if (!bc_buf_read_u16(b, &fc)) return false;
-    if ((int)fc > max_files) return false;
-    *file_count = (int)fc;
+    if (!bc_buf_read_u16(b, &fc)) {
+        LOG_DEBUG("checksum", "tree: failed to read file_count at pos=%d",
+                  (int)b->pos);
+        return false;
+    }
+    if (files && (int)fc > max_files) {
+        LOG_DEBUG("checksum", "tree: file_count=%d exceeds max=%d at pos=%d",
+                  (int)fc, max_files, (int)b->pos);
+        return false;
+    }
+    if (file_count) *file_count = (int)fc;
 
     for (int i = 0; i < (int)fc; i++) {
         u32 nh, ch;
         if (!bc_buf_read_u32(b, &nh)) return false;
         if (!bc_buf_read_u32(b, &ch)) return false;
-        files[i].name_hash = nh;
-        files[i].content_hash = ch;
+        if (files && i < max_files) {
+            files[i].name_hash = nh;
+            files[i].content_hash = ch;
+        }
     }
 
-    if (recursive && resp) {
-        u16 sc;
-        if (!bc_buf_read_u16(b, &sc)) return false;
-        if ((int)sc > BC_CHECKSUM_MAX_RESP_SUBDIRS) return false;
-        resp->subdir_count = (int)sc;
+    /* subdir_count is ALWAYS present (u8, NOT u16).
+     * The tree format is self-describing: subdir_count=0 means leaf node. */
+    u8 sc;
+    if (!bc_buf_read_u8(b, &sc)) {
+        LOG_DEBUG("checksum", "tree: failed to read subdir_count(u8) at pos=%d",
+                  (int)b->pos);
+        return false;
+    }
 
-        for (int i = 0; i < (int)sc; i++) {
-            u32 sd_name;
-            if (!bc_buf_read_u32(b, &sd_name)) return false;
-            resp->subdirs[i].name_hash = sd_name;
+    if (sc == 0) return true;
 
+    if (resp) {
+        resp->subdir_count = (int)sc > BC_CHECKSUM_MAX_RESP_SUBDIRS
+                           ? BC_CHECKSUM_MAX_RESP_SUBDIRS : (int)sc;
+    }
+
+    /* Read ALL name hashes first, store directly into resp if available */
+    for (int i = 0; i < (int)sc; i++) {
+        u32 nh;
+        if (!bc_buf_read_u32(b, &nh)) return false;
+        if (resp && i < BC_CHECKSUM_MAX_RESP_SUBDIRS) {
+            resp->subdirs[i].name_hash = nh;
+        }
+    }
+
+    /* Then parse each tree sequentially */
+    for (int i = 0; i < (int)sc; i++) {
+        if (resp && i < BC_CHECKSUM_MAX_RESP_SUBDIRS) {
             if (!parse_file_tree(b,
                     resp->subdirs[i].data.files,
                     &resp->subdirs[i].data.file_count,
                     BC_CHECKSUM_MAX_SUB_FILES,
-                    NULL, false)) {
+                    NULL))
                 return false;
-            }
+        } else {
+            /* Consume bytes without storing */
+            if (!parse_file_tree(b, NULL, NULL, 0, NULL))
+                return false;
         }
     }
 
@@ -250,25 +289,47 @@ bool bc_checksum_response_parse(bc_checksum_resp_t *resp,
 
     u8 opcode;
     if (!bc_buf_read_u8(&b, &opcode)) return false;
-    if (opcode != BC_OP_CHECKSUM_RESP) return false;
+    if (opcode != BC_OP_CHECKSUM_RESP) {
+        LOG_DEBUG("checksum", "parse: bad opcode 0x%02X (expected 0x21)", opcode);
+        return false;
+    }
 
     u8 index;
     if (!bc_buf_read_u8(&b, &index)) return false;
     resp->round_index = index;
 
-    /* Normal response: [0x21][index:u8][ref_hash:u32][dir_hash:u32][file_tree...] */
-    u32 rh, dh;
-    if (!bc_buf_read_u32(&b, &rh)) return false;
-    if (!bc_buf_read_u32(&b, &dh)) return false;
+    /* Response format (verified from live client trace data):
+     *   Round 0:    [0x21][round:u8][ref_hash:u32][dir_hash:u32][file_tree...]
+     *   Other rounds: [0x21][round:u8][dir_hash:u32][file_tree...]
+     *
+     * Only round 0 includes ref_hash (StringHash of gamever "60" = 0x7E0CE243).
+     * Rounds 1-3 and 0xFF skip ref_hash and start directly with dir_hash.
+     * The checksum-handshake-protocol.md incorrectly generalized round 0's
+     * format to all rounds. */
+    u32 rh = 0, dh;
+    if (index == 0) {
+        if (!bc_buf_read_u32(&b, &rh)) {
+            LOG_DEBUG("checksum", "parse: round=%d failed to read ref_hash", index);
+            return false;
+        }
+    }
+    if (!bc_buf_read_u32(&b, &dh)) {
+        LOG_DEBUG("checksum", "parse: round=%d failed to read dir_hash", index);
+        return false;
+    }
     resp->ref_hash = rh;
     resp->dir_hash = dh;
 
-    /* Round 2 (scripts/ships) and 0xFF (Scripts/Multiplayer) are recursive */
-    bool recursive = (index == 2 || index == 0xFF);
+    LOG_DEBUG("checksum", "parse: round=0x%02X ref=0x%08X dir=0x%08X "
+              "remaining=%d", index, rh, dh, (int)(b.capacity - b.pos));
 
+    /* File tree format is self-describing (subdir_count:u8 always present).
+     * No need for a recursive flag — the parser recurses when subdir_count > 0. */
     if (!parse_file_tree(&b,
             resp->files, &resp->file_count, BC_CHECKSUM_MAX_RESP_FILES,
-            resp, recursive)) {
+            resp)) {
+        LOG_DEBUG("checksum", "parse: round=%d file_tree parse failed "
+                  "at pos=%d", index, (int)b.pos);
         return false;
     }
 

@@ -45,6 +45,7 @@ typedef struct {
     u32  gamespy_queries;
     u32  reliable_retransmits;
     u32  opcodes_recv[256];
+    u32  opcodes_rejected[256];   /* unhandled or wrong-state opcodes */
     player_record_t players[32];
     int  player_count;
 } bc_session_stats_t;
@@ -561,8 +562,15 @@ static void handle_checksum_response(int peer_slot,
         /* Parse the response to verify it's well-formed */
         bc_checksum_resp_t resp;
         if (!bc_checksum_response_parse(&resp, msg->payload, msg->payload_len)) {
+            /* Full hex dump for debugging */
+            int dump_len = msg->payload_len < 300 ? msg->payload_len : 300;
+            char *hex = (char *)alloca((size_t)(dump_len * 3 + 1));
+            hex[0] = '\0';
+            for (int i = 0; i < dump_len; i++)
+                sprintf(hex + i * 3, "%02X ", msg->payload[i]);
             LOG_WARN("handshake", "slot=%d round 0xFF parse error (len=%d)",
                      peer_slot, msg->payload_len);
+            LOG_WARN("handshake", "  hex=[%s]", hex);
             g_stats.boots_checksum++;
             u8 boot[4];
             int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
@@ -692,6 +700,29 @@ static int find_peer_by_object(i32 object_id)
     return peer_slot;
 }
 
+/* Send an immediate subsystem health update (flag 0x20) for a ship to all
+ * clients.  Called after server-authoritative damage (collisions, beams,
+ * torpedoes) so clients see the HP change without waiting for the periodic
+ * health broadcast tick. */
+static void send_health_update(int target_slot)
+{
+    bc_peer_t *target = &g_peers.peers[target_slot];
+    if (!target->has_ship || !target->ship.alive) return;
+
+    const bc_ship_class_t *cls =
+        bc_registry_get_ship(&g_registry, target->class_index);
+    if (!cls) return;
+
+    /* Send ALL subsystems in one shot for immediate damage visibility */
+    u8 hbuf[128];
+    int hlen = bc_ship_build_health_update(
+        &target->ship, cls, g_game_time,
+        0, cls->subsystem_count, hbuf, sizeof(hbuf));
+    if (hlen > 0) {
+        send_to_all(hbuf, hlen, false);  /* unreliable, matches stock dedi */
+    }
+}
+
 /* Apply beam damage: compute, send Explosion, check kill. */
 static void apply_beam_damage(int shooter_slot, int target_slot)
 {
@@ -726,6 +757,9 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
     /* Apply damage server-side (phaser = directed, no blast radius) */
     bc_combat_apply_damage(&target->ship, target_cls, damage, 0.0f,
                            impact_dir, false);
+
+    /* Send authoritative health to all clients */
+    send_health_update(target_slot);
 
     /* Build and send Explosion to all clients.
      * Impact position is the target ship's world-space position (cv4). */
@@ -808,6 +842,9 @@ static void torpedo_hit_callback(int shooter_slot, i32 target_id,
     /* Torpedoes are area-effect with a blast radius */
     bc_combat_apply_damage(&target->ship, target_cls, damage, damage_radius,
                            impact_dir, (damage_radius > 0.0f));
+
+    /* Send authoritative health to all clients */
+    send_health_update(target_slot);
 
     /* Send Explosion at target's world-space position */
     u8 expl[32];
@@ -915,8 +952,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* Below here, only accept messages from peers in LOBBY or IN_GAME state */
     if (peer->state < PEER_LOBBY) {
-        LOG_DEBUG("game", "slot=%d opcode=0x%02X (%s) ignored (state=%d)",
-                  peer_slot, opcode, name ? name : "?", peer->state);
+        g_stats.opcodes_rejected[opcode]++;
+        LOG_WARN("game", "slot=%d opcode=0x%02X (%s) rejected (state=%d)",
+                 peer_slot, opcode, name ? name : "?", peer->state);
         return;
     }
 
@@ -1343,6 +1381,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                                        dmg, 1.0f);
                         if (elen > 0) send_to_all(expl, elen, true);
 
+                        /* Send authoritative health to all clients */
+                        send_health_update(target_slot);
+
                         LOG_INFO("combat", "Collision: %s took %.1f damage (source=%s)",
                                  peer_name(target_slot), dmg,
                                  cev.source_object_id == 0 ? "environment" :
@@ -1373,8 +1414,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
 
     default:
-        LOG_DEBUG("game", "slot=%d opcode=0x%02X (%s) len=%d (unhandled)",
-                  peer_slot, opcode, name ? name : "?", payload_len);
+        g_stats.opcodes_rejected[opcode]++;
+        LOG_WARN("game", "slot=%d opcode=0x%02X (%s) len=%d (unhandled)",
+                 peer_slot, opcode, name ? name : "?", payload_len);
         break;
     }
 }
@@ -1689,6 +1731,40 @@ static void log_session_summary(void)
             else
                 LOG_INFO("summary", "    0x%02X                 %u",
                          entries[i].opcode, entries[i].count);
+        }
+    }
+
+    /* Rejected opcodes (unhandled or wrong-state) */
+    {
+        opcode_entry_t rej[256];
+        int rej_count = 0;
+        for (int i = 0; i < 256; i++) {
+            if (g_stats.opcodes_rejected[i] > 0) {
+                rej[rej_count].opcode = i;
+                rej[rej_count].count = g_stats.opcodes_rejected[i];
+                rej_count++;
+            }
+        }
+        for (int i = 1; i < rej_count; i++) {
+            opcode_entry_t tmp = rej[i];
+            int j = i - 1;
+            while (j >= 0 && rej[j].count < tmp.count) {
+                rej[j + 1] = rej[j];
+                j--;
+            }
+            rej[j + 1] = tmp;
+        }
+        if (rej_count > 0) {
+            LOG_INFO("summary", "");
+            LOG_INFO("summary", "  Opcodes rejected (unhandled/wrong-state):");
+            for (int i = 0; i < rej_count; i++) {
+                const char *rname = bc_opcode_name(rej[i].opcode);
+                if (rname)
+                    LOG_INFO("summary", "    %-20s %u", rname, rej[i].count);
+                else
+                    LOG_INFO("summary", "    0x%02X                 %u",
+                             rej[i].opcode, rej[i].count);
+            }
         }
     }
 
@@ -2176,11 +2252,13 @@ int main(int argc, char **argv)
                         &p->ship, cls, g_game_time,
                         p->subsys_rr_idx, batch, hbuf, sizeof(hbuf));
                     if (hlen > 0) {
-                        /* Send to OTHER clients only -- never to the ship owner.
-                         * Stock BC: server sends 0x20 to others, owner manages
-                         * its own health locally. */
+                        /* Send to ALL clients including the ship owner.
+                         * Stock BC dedicated server sends flag 0x20 to all
+                         * clients (verified from protocol traces).  The owner
+                         * needs it because collision damage is host-authoritative
+                         * and the client treats its own ship as "invulnerable"
+                         * to local collision processing. */
                         for (int j = 1; j < BC_MAX_PLAYERS; j++) {
-                            if (j == i) continue;  /* skip owner */
                             if (g_peers.peers[j].state >= PEER_LOBBY)
                                 queue_unreliable(j, hbuf, hlen);
                         }

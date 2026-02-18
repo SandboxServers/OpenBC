@@ -36,3 +36,4 @@ server_*.log
 battle_trace.bin
 
 mods/*
+logs/packet_trace.log

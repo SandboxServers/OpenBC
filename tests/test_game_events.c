@@ -171,8 +171,8 @@ static int build_explosion(u8 *buf, int buf_size)
     bc_buf_write_u8(&b, BC_OP_EXPLOSION);
     bc_buf_write_i32(&b, 0x3FFFFFFF + 0x40000); /* object_id (slot 1) */
     bc_buf_write_cv4(&b, 10.0f, 20.0f, 30.0f);  /* impact position */
-    bc_buf_write_cf16(&b, 150.0f);               /* damage */
     bc_buf_write_cf16(&b, 45.0f);                /* radius */
+    bc_buf_write_cf16(&b, 150.0f);               /* damage */
 
     return (int)b.pos;
 }

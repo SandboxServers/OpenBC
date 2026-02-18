@@ -303,7 +303,7 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
                                                (u8)round, &scan);
         } else {
             /* Final round: send empty response */
-            resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0, 0);
+            resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0);
         }
         if (resp_len <= 0) return false;
 
