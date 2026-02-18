@@ -286,14 +286,17 @@ static void nb_apply_damage(battle_player_t *target, battle_player_t *attacker,
     target->ship.hull_hp -= hull_damage;
     if (target->ship.hull_hp < 0.0f) target->ship.hull_hp = 0.0f;
 
-    /* Subsystem damage: find nearest subsystem to impact point */
+    /* Subsystem damage: AABB overlap test */
     bc_vec3_t right = bc_vec3_cross(target->ship.fwd, target->ship.up);
     bc_vec3_t local = {
         bc_vec3_dot(impact_dir, right),
         bc_vec3_dot(impact_dir, target->ship.fwd),
         bc_vec3_dot(impact_dir, target->ship.up),
     };
-    int ss_idx = bc_combat_find_hit_subsystem(target->cls, local);
+    int hit_indices[BC_MAX_SUBSYSTEMS];
+    int hit_count = bc_combat_find_hit_subsystems(target->cls, local, 1.0f,
+                                                   hit_indices, BC_MAX_SUBSYSTEMS);
+    int ss_idx = (hit_count > 0) ? hit_indices[0] : -1;
 
     if (ss_idx >= 0 && ss_idx < target->subsys_count &&
         target->subsys[ss_idx].current_hp > 0.0f) {

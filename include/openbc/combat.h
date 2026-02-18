@@ -64,24 +64,40 @@ void bc_combat_switch_torpedo_type(bc_ship_state_t *ship,
 int bc_combat_shield_facing(const bc_ship_state_t *target,
                             bc_vec3_t impact_dir);
 
-/* Find nearest subsystem to a local-frame impact point.
- * Returns subsystem index, or -1 if none in range. */
-int bc_combat_find_hit_subsystem(const bc_ship_class_t *cls,
-                                 bc_vec3_t local_impact);
+/* Find all subsystems whose AABB overlaps the damage volume.
+ * Each subsystem AABB = [pos - radius, pos + radius] per axis.
+ * Damage AABB = [impact - damage_radius, impact + damage_radius].
+ * Returns count of overlapping subsystems written to out_indices. */
+int bc_combat_find_hit_subsystems(const bc_ship_class_t *cls,
+                                  bc_vec3_t local_impact, f32 damage_radius,
+                                  int *out_indices, int max_out);
 
-/* Apply damage to target with directional shield absorption.
- * impact_dir = normalized direction from attacker to target. */
+/* Apply damage to target with shield absorption.
+ * impact_dir = normalized direction from attacker to target.
+ * area_effect: true = damage/6 per shield facing, false = single facing.
+ * damage_radius: used for subsystem AABB overlap test (scaled by target's
+ * damage_radius_multiplier; if multiplier is 0.0, subsystem damage skipped). */
 void bc_combat_apply_damage(bc_ship_state_t *target,
                             const bc_ship_class_t *cls,
-                            f32 damage,
-                            bc_vec3_t impact_dir);
+                            f32 damage, f32 damage_radius,
+                            bc_vec3_t impact_dir,
+                            bool area_effect);
+
+/* Compute collision damage from raw collision energy.
+ * raw = (energy / mass) / contact_count
+ * scaled = raw * scale + offset
+ * Returns min(scaled, 0.5). */
+f32 bc_combat_collision_damage(f32 collision_energy, f32 ship_mass,
+                               int contact_count,
+                               f32 collision_scale, f32 collision_offset);
 
 /* --- Shield recharge --- */
 
-/* Tick shield recharge (only when not cloaked). */
+/* Tick shield recharge with power budget and overflow redistribution.
+ * power_level: 0.0-1.0, scales recharge rate. Only when not cloaked. */
 void bc_combat_shield_tick(bc_ship_state_t *ship,
                            const bc_ship_class_t *cls,
-                           f32 dt);
+                           f32 power_level, f32 dt);
 
 /* --- Cloaking device --- */
 
@@ -89,7 +105,8 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
  * BC engine uses ~3s; not exposed in hardpoint scripts. */
 #define BC_CLOAK_TRANSITION_TIME  3.0f
 
-/* Begin cloaking. Shields drop immediately, weapons disabled.
+/* Begin cloaking. Shields functionally disabled (stop absorbing/recharging)
+ * but HP preserved. Weapons disabled.
  * Returns false if ship cannot cloak (no device, dead, already cloaking/cloaked). */
 bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls);
 
@@ -98,7 +115,8 @@ bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls);
  * Returns false if not cloaked/cloaking. */
 bool bc_cloak_stop(bc_ship_state_t *ship);
 
-/* Advance cloak state machine timer. Call each tick. */
+/* Advance cloak state machine timer. Call each tick.
+ * On DECLOAKING->DECLOAKED transition: any shield facing at 0 HP set to 1.0. */
 void bc_cloak_tick(bc_ship_state_t *ship, f32 dt);
 
 /* Check if ship can fire weapons (only when fully DECLOAKED). */
@@ -124,7 +142,8 @@ int bc_combat_tractor_engage(bc_ship_state_t *ship,
 /* Release tractor beam. */
 void bc_combat_tractor_disengage(bc_ship_state_t *ship);
 
-/* Tick tractor beam: apply drag to target's speed. */
+/* Tick tractor beam: apply multiplicative drag to target's speed.
+ * No damage applied (spec: tractor beams do NOT apply direct damage). */
 void bc_combat_tractor_tick(bc_ship_state_t *ship,
                              bc_ship_state_t *target,
                              const bc_ship_class_t *cls,
@@ -139,8 +158,11 @@ bool bc_repair_add(bc_ship_state_t *ship, u8 subsys_idx);
 /* Remove a subsystem from the repair queue. */
 void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx);
 
-/* Tick repair: heal the top-priority subsystem in queue.
- * Rate = max_repair_points / num_repair_teams * dt. */
+/* Tick repair: heal up to num_repair_teams subsystems simultaneously.
+ * raw_repair = max_repair_points * repair_system_health_pct * dt
+ * per_sub = raw_repair / min(queue_count, num_repair_teams)
+ * condition_gain = per_sub / repair_complexity
+ * Destroyed subsystems (0 HP) are skipped but remain in queue. */
 void bc_repair_tick(bc_ship_state_t *ship,
                     const bc_ship_class_t *cls,
                     f32 dt);

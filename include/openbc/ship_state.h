@@ -57,7 +57,7 @@ typedef struct {
 
     /* Systems */
     bool       alive;
-    u8         repair_queue[8];
+    u8         repair_queue[BC_MAX_SUBSYSTEMS];
     int        repair_count;
 } bc_ship_state_t;
 

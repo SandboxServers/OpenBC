@@ -106,6 +106,8 @@ static bool load_ship(bc_ship_class_t *ship, const json_value_t *obj)
     ship->tractor_beams = (u8)json_int(json_get(obj, "tractor_beams"));
     ship->max_repair_points = (f32)json_number(json_get(obj, "max_repair_points"));
     ship->num_repair_teams = json_int(json_get(obj, "num_repair_teams"));
+    ship->damage_radius_multiplier = 1.0f;
+    ship->damage_falloff_multiplier = 1.0f;
 
     /* Subsystems */
     json_value_t *subs = json_get(obj, "subsystems");

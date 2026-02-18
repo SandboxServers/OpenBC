@@ -227,89 +227,177 @@ int bc_combat_shield_facing(const bc_ship_state_t *target,
     }
 }
 
-int bc_combat_find_hit_subsystem(const bc_ship_class_t *cls,
-                                 bc_vec3_t local_impact)
+/* Bug 1: AABB overlap test — find ALL subsystems whose bounding box overlaps
+ * the damage volume, not just the nearest point-sphere hit. */
+int bc_combat_find_hit_subsystems(const bc_ship_class_t *cls,
+                                  bc_vec3_t local_impact, f32 damage_radius,
+                                  int *out_indices, int max_out)
 {
-    int best = -1;
-    f32 best_dist = 1e30f;
+    int count = 0;
 
-    for (int i = 0; i < cls->subsystem_count; i++) {
+    for (int i = 0; i < cls->subsystem_count && count < max_out; i++) {
         const bc_subsystem_def_t *ss = &cls->subsystems[i];
         if (ss->radius <= 0.0f) continue;
 
-        f32 dx = local_impact.x - ss->position.x;
-        f32 dy = local_impact.y - ss->position.y;
-        f32 dz = local_impact.z - ss->position.z;
-        f32 dist = sqrtf(dx * dx + dy * dy + dz * dz);
+        /* Subsystem AABB: [pos - radius, pos + radius] per axis */
+        /* Damage AABB:    [impact - damage_radius, impact + damage_radius] */
+        /* Overlap requires all 3 axes to overlap */
+        bool overlap_x = (local_impact.x - damage_radius) <= (ss->position.x + ss->radius) &&
+                          (local_impact.x + damage_radius) >= (ss->position.x - ss->radius);
+        bool overlap_y = (local_impact.y - damage_radius) <= (ss->position.y + ss->radius) &&
+                          (local_impact.y + damage_radius) >= (ss->position.y - ss->radius);
+        bool overlap_z = (local_impact.z - damage_radius) <= (ss->position.z + ss->radius) &&
+                          (local_impact.z + damage_radius) >= (ss->position.z - ss->radius);
 
-        if (dist <= ss->radius && dist < best_dist) {
-            best_dist = dist;
-            best = i;
+        if (overlap_x && overlap_y && overlap_z) {
+            out_indices[count++] = i;
         }
     }
-    return best;
+    return count;
 }
 
+/* Bug 7: area-effect vs directed shield absorption.
+ * Bug 9: skip shield absorption when cloaked.
+ * Bug 10: damage_radius scaled by target's damage_radius_multiplier. */
 void bc_combat_apply_damage(bc_ship_state_t *target,
                             const bc_ship_class_t *cls,
-                            f32 damage,
-                            bc_vec3_t impact_dir)
+                            f32 damage, f32 damage_radius,
+                            bc_vec3_t impact_dir,
+                            bool area_effect)
 {
     if (!target->alive || damage <= 0.0f) return;
 
-    /* 1. Determine shield facing */
-    int facing = bc_combat_shield_facing(target, impact_dir);
-
-    /* 2. Shield absorbs damage */
     f32 overflow = 0.0f;
-    if (target->shield_hp[facing] > 0.0f) {
-        if (damage <= target->shield_hp[facing]) {
-            target->shield_hp[facing] -= damage;
-            return; /* fully absorbed */
-        }
-        overflow = damage - target->shield_hp[facing];
-        target->shield_hp[facing] = 0.0f;
-    } else {
+
+    /* Bug 9: shields don't absorb while cloaked */
+    if (!bc_cloak_shields_active(target)) {
         overflow = damage;
+    } else if (area_effect) {
+        /* Bug 7: area-effect — damage/6 per facing, each independently absorbs */
+        f32 per_facing = damage / 6.0f;
+        f32 total_absorbed = 0.0f;
+        for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+            f32 absorbed = per_facing;
+            if (absorbed > target->shield_hp[i])
+                absorbed = target->shield_hp[i];
+            target->shield_hp[i] -= absorbed;
+            total_absorbed += absorbed;
+        }
+        overflow = damage - total_absorbed;
+    } else {
+        /* Directed: single facing absorbs */
+        int facing = bc_combat_shield_facing(target, impact_dir);
+        if (target->shield_hp[facing] > 0.0f) {
+            if (damage <= target->shield_hp[facing]) {
+                target->shield_hp[facing] -= damage;
+                return; /* fully absorbed */
+            }
+            overflow = damage - target->shield_hp[facing];
+            target->shield_hp[facing] = 0.0f;
+        } else {
+            overflow = damage;
+        }
     }
 
-    /* 3. Hull damage */
+    if (overflow <= 0.0f) return;
+
+    /* Hull damage */
     target->hull_hp -= overflow;
     if (target->hull_hp <= 0.0f) {
         target->hull_hp = 0.0f;
         target->alive = false;
     }
 
-    /* 4. Subsystem damage: find nearest subsystem to impact
-     * (use impact_dir scaled as a rough local-frame point) */
-    bc_vec3_t right = bc_vec3_cross(target->fwd, target->up);
-    bc_vec3_t local = {
-        bc_vec3_dot(impact_dir, right),
-        bc_vec3_dot(impact_dir, target->fwd),
-        bc_vec3_dot(impact_dir, target->up),
-    };
-    int ss_idx = bc_combat_find_hit_subsystem(cls, local);
-    if (ss_idx >= 0 && target->subsystem_hp[ss_idx] > 0.0f) {
-        target->subsystem_hp[ss_idx] -= overflow * 0.5f;
-        if (target->subsystem_hp[ss_idx] < 0.0f) {
-            target->subsystem_hp[ss_idx] = 0.0f;
+    /* Subsystem damage: AABB overlap test */
+    /* Bug 10: scale damage_radius by target's multiplier */
+    f32 effective_radius = damage_radius * cls->damage_radius_multiplier;
+    if (effective_radius > 0.0f) {
+        bc_vec3_t right = bc_vec3_cross(target->fwd, target->up);
+        bc_vec3_t local = {
+            bc_vec3_dot(impact_dir, right),
+            bc_vec3_dot(impact_dir, target->fwd),
+            bc_vec3_dot(impact_dir, target->up),
+        };
+
+        /* Bug 1: find ALL overlapping subsystems */
+        int hit_indices[BC_MAX_SUBSYSTEMS];
+        int hit_count = bc_combat_find_hit_subsystems(cls, local,
+                                                       effective_radius,
+                                                       hit_indices,
+                                                       BC_MAX_SUBSYSTEMS);
+
+        for (int h = 0; h < hit_count; h++) {
+            int ss_idx = hit_indices[h];
+            if (target->subsystem_hp[ss_idx] > 0.0f) {
+                target->subsystem_hp[ss_idx] -= overflow * 0.5f;
+                if (target->subsystem_hp[ss_idx] < 0.0f) {
+                    target->subsystem_hp[ss_idx] = 0.0f;
+                }
+            }
         }
     }
 }
 
+/* Bug 8: collision damage formula per spec */
+f32 bc_combat_collision_damage(f32 collision_energy, f32 ship_mass,
+                               int contact_count,
+                               f32 collision_scale, f32 collision_offset)
+{
+    if (ship_mass <= 0.0f || contact_count <= 0) return 0.0f;
+    f32 raw = (collision_energy / ship_mass) / (f32)contact_count;
+    f32 scaled = raw * collision_scale + collision_offset;
+    if (scaled > 0.5f) scaled = 0.5f;
+    if (scaled < 0.0f) scaled = 0.0f;
+    return scaled;
+}
+
 /* --- Shield recharge --- */
 
+/* Bug 6: power budget with overflow redistribution */
 void bc_combat_shield_tick(bc_ship_state_t *ship,
                            const bc_ship_class_t *cls,
-                           f32 dt)
+                           f32 power_level, f32 dt)
 {
     if (!ship->alive || dt <= 0.0f) return;
     if (ship->cloak_state != BC_CLOAK_DECLOAKED) return;
 
+    /* Pass 1: compute raw gain, cap at max, accumulate overflow */
+    f32 overflow = 0.0f;
+    f32 raw_gain[BC_MAX_SHIELD_FACINGS];
+    bool is_full[BC_MAX_SHIELD_FACINGS];
+
     for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
-        ship->shield_hp[i] += cls->shield_recharge[i] * dt;
-        if (ship->shield_hp[i] > cls->shield_hp[i]) {
+        raw_gain[i] = cls->shield_recharge[i] * power_level * dt;
+        f32 new_hp = ship->shield_hp[i] + raw_gain[i];
+        if (new_hp >= cls->shield_hp[i]) {
+            overflow += new_hp - cls->shield_hp[i];
             ship->shield_hp[i] = cls->shield_hp[i];
+            is_full[i] = true;
+        } else {
+            ship->shield_hp[i] = new_hp;
+            is_full[i] = false;
+        }
+    }
+
+    /* Pass 2: redistribute overflow to non-full facings proportionally */
+    if (overflow > 0.0f) {
+        f32 total_capacity = 0.0f;
+        for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+            if (!is_full[i]) {
+                total_capacity += cls->shield_hp[i] - ship->shield_hp[i];
+            }
+        }
+        if (total_capacity > 0.0f) {
+            f32 to_distribute = overflow;
+            if (to_distribute > total_capacity) to_distribute = total_capacity;
+            for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+                if (is_full[i]) continue;
+                f32 room = cls->shield_hp[i] - ship->shield_hp[i];
+                f32 share = to_distribute * (room / total_capacity);
+                ship->shield_hp[i] += share;
+                if (ship->shield_hp[i] > cls->shield_hp[i])
+                    ship->shield_hp[i] = cls->shield_hp[i];
+            }
         }
     }
 }
@@ -326,6 +414,7 @@ static int find_cloak_subsys(const bc_ship_class_t *cls)
     return -1;
 }
 
+/* Bug 9: cloak preserves shield HP (does NOT zero them) */
 bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls)
 {
     if (!ship->alive) return false;
@@ -339,9 +428,9 @@ bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls)
     ship->cloak_state = BC_CLOAK_CLOAKING;
     ship->cloak_timer = BC_CLOAK_TRANSITION_TIME;
 
-    /* Shields drop immediately */
-    for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++)
-        ship->shield_hp[i] = 0.0f;
+    /* Shield HP preserved — shields are functionally disabled via
+     * bc_cloak_shields_active() returning false, which causes
+     * apply_damage to skip absorption and shield_tick to skip recharge. */
 
     return true;
 }
@@ -356,6 +445,7 @@ bool bc_cloak_stop(bc_ship_state_t *ship)
     return true;
 }
 
+/* Bug 9: on DECLOAKING->DECLOAKED, reset any 0 HP facing to 1.0 */
 void bc_cloak_tick(bc_ship_state_t *ship, f32 dt)
 {
     if (dt <= 0.0f) return;
@@ -373,7 +463,11 @@ void bc_cloak_tick(bc_ship_state_t *ship, f32 dt)
         if (ship->cloak_timer <= 0.0f) {
             ship->cloak_timer = 0.0f;
             ship->cloak_state = BC_CLOAK_DECLOAKED;
-            /* Shields begin recharging from 0 (handled by shield_tick) */
+            /* Any shield facing at 0 HP gets reset to 1.0 */
+            for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+                if (ship->shield_hp[i] <= 0.0f)
+                    ship->shield_hp[i] = 1.0f;
+            }
         }
         break;
     default:
@@ -441,6 +535,8 @@ void bc_combat_tractor_disengage(bc_ship_state_t *ship)
     ship->tractor_target_id = -1;
 }
 
+/* Bug 2: tractor beams do NOT apply damage.
+ * Bug 3: multiplicative drag, not additive. */
 void bc_combat_tractor_tick(bc_ship_state_t *ship,
                              bc_ship_state_t *target,
                              const bc_ship_class_t *cls,
@@ -452,7 +548,7 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
     }
     if (dt <= 0.0f) return;
 
-    /* Find first alive tractor subsystem for damage/range stats */
+    /* Find first alive tractor subsystem for range stats */
     int ss_idx = find_tractor_subsys(cls, 0);
     if (ss_idx < 0 || ship->subsystem_hp[ss_idx] <= 0.0f) {
         ship->tractor_target_id = -1;
@@ -468,27 +564,28 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
         return;
     }
 
-    /* Apply drag: reduce target speed toward 0 */
-    f32 drag = ss->max_damage * dt * 0.1f; /* proportional drag */
-    if (target->speed > drag) {
-        target->speed -= drag;
-    } else {
-        target->speed = 0.0f;
-    }
+    /* Bug 3: multiplicative drag formula from spec.
+     * force = max_damage * system_condition_pct * distance_ratio * dt
+     * tractor_ratio = force / max_damage
+     * effective_speed *= (1.0 - tractor_ratio) */
+    f32 sys_hp_pct = ship->subsystem_hp[ss_idx] / ss->max_condition;
+    f32 dist_ratio = (dist <= ss->max_damage_distance)
+                     ? 1.0f
+                     : ss->max_damage_distance / dist;
+    f32 force = ss->max_damage * sys_hp_pct * dist_ratio * dt;
+    f32 tractor_ratio = force / ss->max_damage;
+    if (tractor_ratio > 1.0f) tractor_ratio = 1.0f;
+    target->speed *= (1.0f - tractor_ratio);
 
-    /* Apply low tractor damage to target */
-    f32 dmg = ss->max_damage * dt * 0.02f; /* 2% of MaxDamage per second */
-    if (dmg > 0.0f) {
-        bc_vec3_t impact = bc_vec3_normalize(bc_vec3_sub(target->pos, ship->pos));
-        bc_combat_apply_damage(target, cls, dmg, impact);
-    }
+    /* Bug 2: NO damage applied — tractor beams do not deal direct damage */
 }
 
 /* --- Repair system --- */
 
 bool bc_repair_add(bc_ship_state_t *ship, u8 subsys_idx)
 {
-    if (ship->repair_count >= 8) return false;
+    /* Bug 4: queue size is BC_MAX_SUBSYSTEMS, not 8 */
+    if (ship->repair_count >= BC_MAX_SUBSYSTEMS) return false;
 
     /* Check not already queued */
     for (int i = 0; i < ship->repair_count; i++) {
@@ -512,6 +609,12 @@ void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx)
     }
 }
 
+/* Bug 5: repair rate formula per spec.
+ * raw_repair = max_repair_points * repair_sys_health_pct * dt
+ * active = min(queue_count, num_repair_teams)
+ * per_sub = raw_repair / active
+ * condition_gain = per_sub / repair_complexity
+ * Multiple subsystems repaired simultaneously; destroyed (0 HP) skipped. */
 void bc_repair_tick(bc_ship_state_t *ship,
                     const bc_ship_class_t *cls,
                     f32 dt)
@@ -520,20 +623,59 @@ void bc_repair_tick(bc_ship_state_t *ship,
     if (ship->repair_count == 0) return;
     if (cls->max_repair_points <= 0.0f || cls->num_repair_teams <= 0) return;
 
-    /* Repair rate: repair_points per second, split across teams */
-    f32 rate = cls->max_repair_points * (f32)cls->num_repair_teams;
-    f32 heal = rate * dt;
+    /* Find the repair subsystem and its health ratio */
+    f32 repair_sys_hp_pct = 1.0f;
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        if (strcmp(cls->subsystems[i].type, "repair") == 0) {
+            f32 max_cond = cls->subsystems[i].max_condition;
+            if (max_cond > 0.0f)
+                repair_sys_hp_pct = ship->subsystem_hp[i] / max_cond;
+            break;
+        }
+    }
+    if (repair_sys_hp_pct <= 0.0f) return; /* repair system destroyed */
 
-    /* Heal top-priority subsystem */
-    u8 ss_idx = ship->repair_queue[0];
-    if (ss_idx < (u8)cls->subsystem_count) {
+    f32 raw_repair = cls->max_repair_points * repair_sys_hp_pct * dt;
+
+    /* Repair up to num_repair_teams subsystems simultaneously */
+    int active = ship->repair_count;
+    if (active > cls->num_repair_teams)
+        active = cls->num_repair_teams;
+
+    f32 per_sub = raw_repair / (f32)active;
+
+    /* Process the first 'active' queue entries */
+    int repaired = 0;
+    for (int q = 0; q < active && q < ship->repair_count; q++) {
+        u8 ss_idx = ship->repair_queue[q];
+        if (ss_idx >= (u8)cls->subsystem_count) continue;
+
+        /* Skip destroyed subsystems (0 HP) but keep in queue */
+        if (ship->subsystem_hp[ss_idx] <= 0.0f) continue;
+
+        f32 complexity = cls->subsystems[ss_idx].repair_complexity;
+        if (complexity <= 0.0f) complexity = 1.0f;
+        f32 gain = per_sub / complexity;
+
         f32 max_hp = cls->subsystems[ss_idx].max_condition;
-        ship->subsystem_hp[ss_idx] += heal;
+        ship->subsystem_hp[ss_idx] += gain;
         if (ship->subsystem_hp[ss_idx] >= max_hp) {
             ship->subsystem_hp[ss_idx] = max_hp;
-            /* Remove from queue when fully repaired */
-            bc_repair_remove(ship, ss_idx);
+            /* Mark for removal (defer to avoid modifying while iterating) */
+            ship->repair_queue[q] = 0xFF; /* sentinel */
+            repaired++;
         }
+    }
+
+    /* Remove fully repaired entries (marked 0xFF) */
+    if (repaired > 0) {
+        int w = 0;
+        for (int r = 0; r < ship->repair_count; r++) {
+            if (ship->repair_queue[r] != 0xFF) {
+                ship->repair_queue[w++] = ship->repair_queue[r];
+            }
+        }
+        ship->repair_count = w;
     }
 }
 

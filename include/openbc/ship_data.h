@@ -75,6 +75,8 @@ typedef struct {
     u8      tractor_beams;
     f32     max_repair_points;
     i32     num_repair_teams;
+    f32     damage_radius_multiplier;  /* 1.0 = normal, 0.0 = immune */
+    f32     damage_falloff_multiplier; /* 1.0 = normal */
     int     subsystem_count;
     bc_subsystem_def_t subsystems[BC_MAX_SUBSYSTEMS];
 } bc_ship_class_t;

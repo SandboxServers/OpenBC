@@ -198,7 +198,8 @@ static void ai_update(int idx, f32 dt)
                             f32 dmg = p->cls->subsystems[ss].max_damage;
                             bc_vec3_t impact = bc_vec3_normalize(
                                 bc_vec3_sub(tgt->ship.pos, p->ship.pos));
-                            bc_combat_apply_damage(&tgt->ship, tgt->cls, dmg, impact);
+                            bc_combat_apply_damage(&tgt->ship, tgt->cls, dmg, 0.0f,
+                                                   impact, false);
                             p->damage_dealt += dmg;
                             tgt->damage_taken += dmg;
                         }
@@ -228,7 +229,16 @@ static void ai_update(int idx, f32 dt)
                         }
                         bc_vec3_t impact = bc_vec3_normalize(
                             bc_vec3_sub(tgt->ship.pos, p->ship.pos));
-                        bc_combat_apply_damage(&tgt->ship, tgt->cls, dmg, impact);
+                        f32 dmg_radius = 0.0f;
+                        for (int pr2 = 0; pr2 < g_reg.projectile_count; pr2++) {
+                            if (g_reg.projectiles[pr2].net_type_id == p->ship.torpedo_type) {
+                                dmg_radius = g_reg.projectiles[pr2].damage *
+                                             g_reg.projectiles[pr2].damage_radius_factor;
+                                break;
+                            }
+                        }
+                        bc_combat_apply_damage(&tgt->ship, tgt->cls, dmg, dmg_radius,
+                                               impact, (dmg_radius > 0.0f));
                         p->damage_dealt += dmg;
                         tgt->damage_taken += dmg;
                     }
@@ -423,7 +433,7 @@ TEST(dynamic_battle)
             bc_combat_torpedo_tick(&g_players[i].ship, g_players[i].cls, dt);
 
             /* Shield recharge */
-            bc_combat_shield_tick(&g_players[i].ship, g_players[i].cls, dt);
+            bc_combat_shield_tick(&g_players[i].ship, g_players[i].cls, 1.0f, dt);
 
             /* Cloak tick */
             bc_cloak_tick(&g_players[i].ship, dt);
@@ -590,8 +600,8 @@ TEST(galaxy_vs_shuttle_asymmetric)
         bc_combat_charge_tick(&shuttle, shuttle_cls, 1.0f, dt);
         bc_combat_torpedo_tick(&galaxy, galaxy_cls, dt);
         bc_combat_torpedo_tick(&shuttle, shuttle_cls, dt);
-        bc_combat_shield_tick(&galaxy, galaxy_cls, dt);
-        bc_combat_shield_tick(&shuttle, shuttle_cls, dt);
+        bc_combat_shield_tick(&galaxy, galaxy_cls, 1.0f, dt);
+        bc_combat_shield_tick(&shuttle, shuttle_cls, 1.0f, dt);
 
         u8 pkt[256];
 
@@ -608,7 +618,8 @@ TEST(galaxy_vs_shuttle_asymmetric)
                         if (cnt == b) {
                             bc_vec3_t imp = {0, 1, 0};
                             bc_combat_apply_damage(&shuttle, shuttle_cls,
-                                                    galaxy_cls->subsystems[s].max_damage, imp);
+                                                    galaxy_cls->subsystems[s].max_damage,
+                                                    0.0f, imp, false);
                             break;
                         }
                         cnt++;
@@ -623,9 +634,10 @@ TEST(galaxy_vs_shuttle_asymmetric)
                 bc_vec3_t dir = {0, 1, 0};
                 bc_combat_fire_torpedo(&galaxy, galaxy_cls, t,
                                         shuttle.object_id, dir, pkt, sizeof(pkt));
-                /* Photon torpedo damage = 500 */
+                /* Photon torpedo damage = 500, area-effect */
                 bc_vec3_t imp = {0, 1, 0};
-                bc_combat_apply_damage(&shuttle, shuttle_cls, 500.0f, imp);
+                bc_combat_apply_damage(&shuttle, shuttle_cls, 500.0f, 500.0f,
+                                        imp, true);
             }
         }
 
@@ -641,7 +653,8 @@ TEST(galaxy_vs_shuttle_asymmetric)
                         if (cnt == b) {
                             bc_vec3_t imp = {0, -1, 0};
                             bc_combat_apply_damage(&galaxy, galaxy_cls,
-                                                    shuttle_cls->subsystems[s].max_damage, imp);
+                                                    shuttle_cls->subsystems[s].max_damage,
+                                                    0.0f, imp, false);
                             break;
                         }
                         cnt++;
@@ -671,10 +684,14 @@ TEST(bop_cloak_attack_cycle)
     bc_ship_state_t bop;
     bc_ship_init(&bop, bop_cls, 5, bc_make_ship_id(0), 0, 0);
 
-    /* 1. Cloak */
+    /* Save initial shield HP for comparison */
+    f32 initial_shield = bop.shield_hp[0];
+    ASSERT(initial_shield > 0.0f);
+
+    /* 1. Cloak (shields preserved per spec, just functionally disabled) */
     ASSERT(bc_cloak_start(&bop, bop_cls));
     ASSERT_EQ((int)bop.cloak_state, BC_CLOAK_CLOAKING);
-    ASSERT(bop.shield_hp[0] == 0.0f); /* shields dropped */
+    ASSERT(bop.shield_hp[0] == initial_shield); /* shields preserved */
 
     /* Cannot fire while cloaking */
     ASSERT(!bc_combat_can_fire_phaser(&bop, bop_cls, 0));
@@ -703,9 +720,9 @@ TEST(bop_cloak_attack_cycle)
     /* 6. Now can fire (alpha strike) */
     ASSERT(bc_combat_can_fire_phaser(&bop, bop_cls, 0));
 
-    /* Shields start recharging from 0 */
-    bc_combat_shield_tick(&bop, bop_cls, 1.0f);
-    ASSERT(bop.shield_hp[0] > 0.0f); /* recharging */
+    /* Shields were preserved and can now recharge */
+    bc_combat_shield_tick(&bop, bop_cls, 1.0f, 1.0f);
+    ASSERT(bop.shield_hp[0] > 0.0f); /* shields active */
 }
 
 /* === Run all tests === */

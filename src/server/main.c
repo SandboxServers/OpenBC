@@ -710,8 +710,9 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
     bc_vec3_t impact_dir = bc_vec3_normalize(
         bc_vec3_sub(target->ship.pos, shooter->ship.pos));
 
-    /* Apply damage server-side */
-    bc_combat_apply_damage(&target->ship, target_cls, damage, impact_dir);
+    /* Apply damage server-side (phaser = directed, no blast radius) */
+    bc_combat_apply_damage(&target->ship, target_cls, damage, 0.0f,
+                           impact_dir, false);
 
     /* Build and send Explosion to all clients.
      * Impact position is the target ship's world-space position (cv4). */
@@ -774,7 +775,6 @@ static void torpedo_hit_callback(int shooter_slot, i32 target_id,
                                   bc_vec3_t impact_pos,
                                   void *user_data)
 {
-    (void)damage_radius;
     (void)user_data;
 
     int target_slot = find_peer_by_object(target_id);
@@ -792,7 +792,9 @@ static void torpedo_hit_callback(int shooter_slot, i32 target_id,
     bc_vec3_t impact_dir = bc_vec3_normalize(
         bc_vec3_sub(target->ship.pos, impact_pos));
 
-    bc_combat_apply_damage(&target->ship, target_cls, damage, impact_dir);
+    /* Torpedoes are area-effect with a blast radius */
+    bc_combat_apply_damage(&target->ship, target_cls, damage, damage_radius,
+                           impact_dir, (damage_radius > 0.0f));
 
     /* Send Explosion at target's world-space position */
     u8 expl[32];
@@ -1298,9 +1300,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                         bc_registry_get_ship(&g_registry, target->class_index);
 
                     if (tcls && target->ship.alive) {
-                        /* Apply collision force as hull damage.
-                         * Minimal implementation: no per-subsystem distribution. */
-                        f32 dmg = cev.collision_force;
+                        /* Bug 8: collision damage formula per spec */
+                        f32 dmg = bc_combat_collision_damage(
+                            cev.collision_force, tcls->mass, 1,
+                            1.0f, 0.0f);
 
                         /* Determine impact direction for shield facing */
                         bc_vec3_t impact_dir = {0.0f, 0.0f, 1.0f};
@@ -1313,7 +1316,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             }
                         }
 
-                        bc_combat_apply_damage(&target->ship, tcls, dmg, impact_dir);
+                        /* Collision = area-effect, radius=6000 per spec */
+                        bc_combat_apply_damage(&target->ship, tcls, dmg, 6000.0f,
+                                               impact_dir, true);
 
                         /* Send explosion at target's world-space position */
                         u8 expl[32];
@@ -2120,7 +2125,7 @@ int main(int argc, char **argv)
                     if (!cls) continue;
 
                     /* Shield recharge */
-                    bc_combat_shield_tick(&p->ship, cls, dt);
+                    bc_combat_shield_tick(&p->ship, cls, 1.0f, dt);
 
                     /* Phaser charge + torpedo cooldown */
                     bc_combat_charge_tick(&p->ship, cls, 1.0f, dt);

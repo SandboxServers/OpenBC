@@ -71,10 +71,12 @@ test: $(TEST_BIN)
 	echo "=== $$pass passed, $$fail failed ===";\
 	[ $$fail -eq 0 ]
 
-# Each test binary links against all library objects
+# Each test binary links against all library objects.
+# Tests use -O1 to avoid i686-w64-mingw32-gcc -O2 dead-store bugs that occur
+# when a test .c is compiled separately from the library .o files.
 $(BUILD)/tests/test_%$(EXE): tests/test_%.c $(LIB_OBJ)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS)
+	$(CC) $(CFLAGS) -O1 $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS)
 
 # --- Generic object compilation ---
 $(BUILD)/%.o: %.c
