@@ -558,8 +558,21 @@ static void handle_checksum_response(int peer_slot,
     bc_peer_t *peer = &g_peers.peers[peer_slot];
     /* Handle 0xFF final round response */
     if (peer->state == PEER_CHECKSUMMING_FINAL) {
-        LOG_DEBUG("handshake", "slot=%d checksum round 0xFF accepted (len=%d)",
-                  peer_slot, msg->payload_len);
+        /* Parse the response to verify it's well-formed */
+        bc_checksum_resp_t resp;
+        if (!bc_checksum_response_parse(&resp, msg->payload, msg->payload_len)) {
+            LOG_WARN("handshake", "slot=%d round 0xFF parse error (len=%d)",
+                     peer_slot, msg->payload_len);
+            g_stats.boots_checksum++;
+            u8 boot[4];
+            int blen = bc_bootplayer_build(boot, sizeof(boot), BC_BOOT_CHECKSUM);
+            if (blen > 0) queue_reliable(peer_slot, boot, blen);
+            handle_peer_disconnect(peer_slot);
+            return;
+        }
+        LOG_DEBUG("handshake", "slot=%d checksum round 0xFF validated "
+                  "(%d files, %d subdirs, dir=0x%08X)",
+                  peer_slot, resp.file_count, resp.subdir_count, resp.dir_hash);
         send_settings_and_gameinit(peer_slot);
         return;
     }
