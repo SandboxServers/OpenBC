@@ -713,12 +713,13 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
     /* Apply damage server-side */
     bc_combat_apply_damage(&target->ship, target_cls, damage, impact_dir);
 
-    /* Build and send Explosion to all clients */
+    /* Build and send Explosion to all clients.
+     * Impact position is the target ship's world-space position (cv4). */
     u8 expl[32];
     int elen = bc_build_explosion(expl, sizeof(expl),
                                    target->ship.object_id,
-                                   impact_dir.x, impact_dir.y, impact_dir.z,
-                                   damage, 1.0f);
+                                   target->ship.pos.x, target->ship.pos.y,
+                                   target->ship.pos.z, damage, 1.0f);
     if (elen > 0) {
         send_to_all(expl, elen, true);
     }
@@ -793,12 +794,12 @@ static void torpedo_hit_callback(int shooter_slot, i32 target_id,
 
     bc_combat_apply_damage(&target->ship, target_cls, damage, impact_dir);
 
-    /* Send Explosion */
+    /* Send Explosion at target's world-space position */
     u8 expl[32];
     int elen = bc_build_explosion(expl, sizeof(expl),
                                    target->ship.object_id,
-                                   impact_dir.x, impact_dir.y, impact_dir.z,
-                                   damage, damage_radius);
+                                   target->ship.pos.x, target->ship.pos.y,
+                                   target->ship.pos.z, damage, damage_radius);
     if (elen > 0) send_to_all(expl, elen, true);
 
     LOG_INFO("combat", "Torpedo hit: slot %d -> %s, %.1f dmg (hull=%.1f)",
@@ -1314,12 +1315,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
                         bc_combat_apply_damage(&target->ship, tcls, dmg, impact_dir);
 
-                        /* Send explosion at target */
+                        /* Send explosion at target's world-space position */
                         u8 expl[32];
                         int elen = bc_build_explosion(expl, sizeof(expl),
                                                        target->ship.object_id,
-                                                       impact_dir.x, impact_dir.y,
-                                                       impact_dir.z, dmg, 1.0f);
+                                                       target->ship.pos.x,
+                                                       target->ship.pos.y,
+                                                       target->ship.pos.z,
+                                                       dmg, 1.0f);
                         if (elen > 0) send_to_all(expl, elen, true);
 
                         LOG_INFO("combat", "Collision: %s took %.1f damage (source=%s)",
