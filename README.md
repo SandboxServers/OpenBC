@@ -160,11 +160,15 @@ See the [verified protocol reference](docs/phase1-verified-protocol.md) for the 
 
 ## Game Data and Mods
 
-- Ship definitions (16 ships) and projectile data (15 types) are stored in `data/vanilla-1.1.json`, extracted from BC reference scripts by `tools/scrape_bc.py`
-- The ship data registry loads this JSON at server startup, providing hull strength, shield capacity, subsystem counts, weapon hardpoints, and projectile properties
-- The hash manifest system validates any mod combination without needing the actual files
-- `openbc-hash` generates manifests from a BC install or mod pack directory
-- Mods are designed as data packs that overlay base configuration
+The original Bridge Commander had a thriving mod community that pushed the game far beyond its original scope -- new ships, new UI panels, entirely new game modes. Those mods succeeded despite the engine, not because of it, fighting their way in through undocumented Python hooks and fragile monkey-patching. OpenBC is designed so that none of that is necessary. Every layer exposes clean extensibility points:
+
+- **Data packs** -- Ship stats, weapons, projectiles, maps, and game rules are JSON. Add a ship by adding a file, not by hacking a script.
+- **Custom opcodes** -- The network layer supports registering new message types. Mods that need custom client-server communication get a proper channel for it.
+- **UI and menus** -- The client UI is built on a modular document system. Mods can add new panels, replace existing screens, or reskin the entire interface.
+- **Game logic hooks** -- Extensibility points for game rules, damage formulas, victory conditions, and event handling. Change how the game plays without forking the engine.
+- **Hash manifests** -- The manifest system validates any mod combination without the server needing the actual files. `openbc-hash` generates manifests from a BC install or mod pack directory.
+
+The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla-1.1.json`, extracted from BC's readable scripts by `tools/scrape_bc.py`. The goal is that any mod that existed for Bridge Commander can reimplement itself in OpenBC through supported extension points, without having to pick up a crowbar.
 
 ## Documentation
 
@@ -177,13 +181,15 @@ See the [verified protocol reference](docs/phase1-verified-protocol.md) for the 
 
 **Protocol & Wire Format:**
 - [Verified Protocol](docs/phase1-verified-protocol.md) -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery, compressed types
+- [Transport Layer](docs/transport-layer.md) -- UDP transport: packet framing, message types, reliability, cipher integration
 - [Transport Cipher](docs/transport-cipher.md) -- AlbyRules PRNG cipher: key schedule, cross-multiplication, plaintext feedback
 - [GameSpy Protocol](docs/gamespy-protocol.md) -- LAN discovery, master server heartbeat, challenge-response
 - [Join Flow](docs/join-flow.md) -- Connection lifecycle: connect, checksums, lobby, gameplay
 - [Checksum Handshake](docs/checksum-handshake-protocol.md) -- Hash algorithms, 5-round checksum exchange
 - [Disconnect Flow](docs/disconnect-flow.md) -- Player disconnect detection and cleanup
 - [Wire Format Audit](docs/wire-format-audit.md) -- Audit of wire format implementation vs spec
-- Wire format specs: [ObjCreate](docs/objcreate-wire-format.md), [StateUpdate](docs/stateupdate-wire-format.md), [CollisionEffect](docs/collision-effect-wire-format.md)
+- Wire format specs: [ObjCreate](docs/objcreate-wire-format.md), [StateUpdate](docs/stateupdate-wire-format.md), [CollisionEffect](docs/collision-effect-wire-format.md), [Explosion](docs/explosion-wire-format.md)
+- [ObjCreate Unknown Species](docs/objcreate-unknown-species.md) -- Behavior when species index exceeds client ship table
 
 **Game Systems:**
 - [Combat System](docs/combat-system.md) -- Damage pipeline, shields, cloaking, tractor beams, repair
