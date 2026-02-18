@@ -26,7 +26,8 @@ typedef struct {
     char      hostname[128];     /* Original "host:port" for logging */
     u32       last_beat;         /* Timestamp of last heartbeat sent */
     bool      enabled;           /* DNS resolved, active */
-    bool      verified;          /* Got response during startup probe */
+    bool      verified;          /* Got response (secure or status query) */
+    u32       status_checks;     /* Number of \status\ queries received */
 } bc_master_entry_t;
 
 typedef struct {
@@ -52,6 +53,11 @@ bool bc_master_is_from_master(const bc_master_list_t *ml, const bc_addr_t *from)
 /* Mark a master as verified (registered) if not already.
  * Returns the hostname if newly verified, NULL otherwise. */
 const char *bc_master_mark_verified(bc_master_list_t *ml, const bc_addr_t *from);
+
+/* Record a \status\ query from a master. Increments status_checks counter.
+ * Returns the hostname if this is the first status check (= master listed us),
+ * NULL if not from a known master or already status-checked. */
+const char *bc_master_record_status_check(bc_master_list_t *ml, const bc_addr_t *from);
 
 /* Periodic tick: heartbeat all enabled masters if interval elapsed. */
 void bc_master_tick(bc_master_list_t *ml, bc_socket_t *sock, u32 now_ms);

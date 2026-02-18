@@ -215,10 +215,11 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
                 if (resp_len > 0)
                     bc_socket_send(sock, &from, resp, resp_len);
 
+                ml->entries[master_idx].status_checks++;
                 if (!ml->entries[master_idx].verified) {
                     ml->entries[master_idx].verified = true;
                     registered++;
-                    LOG_INFO("master", "Registered with %s",
+                    LOG_INFO("master", "Listed on %s (status check)",
                              ml->entries[master_idx].hostname);
                 }
             }
@@ -262,6 +263,23 @@ const char *bc_master_mark_verified(bc_master_list_t *ml, const bc_addr_t *from)
                 return ml->entries[i].hostname;
             }
             return NULL;  /* Already verified */
+        }
+    }
+    return NULL;  /* Not a known master */
+}
+
+const char *bc_master_record_status_check(bc_master_list_t *ml, const bc_addr_t *from)
+{
+    for (int i = 0; i < ml->count; i++) {
+        if (!ml->entries[i].enabled) continue;
+        if (bc_addr_equal(&ml->entries[i].addr, from)) {
+            ml->entries[i].status_checks++;
+            /* Also mark verified if not already (status check = master knows us) */
+            if (!ml->entries[i].verified)
+                ml->entries[i].verified = true;
+            if (ml->entries[i].status_checks == 1)
+                return ml->entries[i].hostname;  /* First status check */
+            return NULL;
         }
     }
     return NULL;  /* Not a known master */

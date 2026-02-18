@@ -186,12 +186,18 @@ static void handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     if (resp_len > 0) {
         g_stats.gamespy_queries++;
         int sent = bc_socket_send(sock, from, response, resp_len);
-        const char *master = bc_master_mark_verified(&g_masters, from);
-        if (master)
-            LOG_INFO("master", "Registered with %s", master);
-        else
-            LOG_DEBUG("gamespy", "Response to %s (%d bytes, sent=%d): %.*s",
-                      addr_str, resp_len, sent, resp_len, (const char *)response);
+
+        /* Check if this is a master server status-checking us */
+        const char *listed = bc_master_record_status_check(&g_masters, from);
+        if (listed) {
+            LOG_INFO("master", "Listed on %s (status check)", listed);
+        } else if (bc_master_is_from_master(&g_masters, from)) {
+            LOG_DEBUG("master", "Status check from known master %s", addr_str);
+        } else {
+            LOG_DEBUG("gamespy", "Response to %s (%d bytes, sent=%d)",
+                      addr_str, resp_len, sent);
+        }
+        (void)sent;
     }
 }
 
@@ -1686,9 +1692,14 @@ static void log_session_summary(void)
         LOG_INFO("summary", "  Master servers: %d/%d registered",
                  verified, g_masters.count);
         for (int i = 0; i < g_masters.count; i++) {
-            if (g_masters.entries[i].verified)
-                LOG_INFO("summary", "    + %s",
-                         g_masters.entries[i].hostname);
+            bc_master_entry_t *e = &g_masters.entries[i];
+            if (!e->enabled) continue;
+            if (e->verified)
+                LOG_INFO("summary", "    + %s (%u status checks)",
+                         e->hostname, e->status_checks);
+            else
+                LOG_INFO("summary", "    - %s (no response)",
+                         e->hostname);
         }
     }
 
