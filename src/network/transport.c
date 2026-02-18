@@ -28,29 +28,38 @@ bool bc_transport_parse(const u8 *data, int len, bc_packet_t *pkt)
             msg->payload_len = 0;
             pos += 4;
         } else if (msg->type == 0x32) {
-            /* Type 0x32 carries both reliable and unreliable game data.
-             * flags & 0x80 distinguishes them:
-             *   Reliable:   [0x32][totalLen][flags][seqHi][seqLo][payload...]
-             *   Unreliable: [0x32][totalLen][0x00][payload...]  (no seq bytes) */
-            if (pos + 2 > len) return false;
-            u8 total_len = data[pos + 1]; /* includes the 0x32 byte */
+            /* Type 0x32 game data — all game opcodes carried here.
+             * Wire: [0x32][flags_len:u16 LE][seq:2 if reliable][payload...]
+             *
+             * flags_len is a 16-bit LE field (NOT two separate bytes):
+             *   bit 15 (0x8000) = reliable (seq field present)
+             *   bit 14 (0x4000) = ordered
+             *   bit 13 (0x2000) = fragment (frag metadata follows seq)
+             *   bits 12-0       = total message size including type byte
+             *
+             * For messages < 256 bytes, low byte == total_len by coincidence.
+             * For messages >= 256 (e.g. round 0xFF checksum ~273 bytes),
+             * the full u16 LE read is required.  See docs/transport-layer.md. */
+            if (pos + 3 > len) return false;
+            u16 flags_len = (u16)data[pos + 1] | ((u16)data[pos + 2] << 8);
+            u16 total_len = flags_len & 0x1FFF;
             if (total_len < 3) return false;
-            if (pos + total_len > len) return false;
+            if (pos + (int)total_len > len) return false;
 
-            msg->flags = data[pos + 2];
+            msg->flags = (u8)(flags_len >> 8); /* high byte has flag bits */
             if (msg->flags & 0x80) {
-                /* Reliable: 5-byte header */
+                /* Reliable: 5-byte header (type + flags_len + seq) */
                 if (total_len < 5) return false;
                 msg->seq = ((u16)data[pos + 3] << 8) | (u16)data[pos + 4];
                 msg->payload = (u8 *)data + pos + 5;
-                msg->payload_len = total_len - 5;
+                msg->payload_len = (int)total_len - 5;
             } else {
-                /* Unreliable: 3-byte header, no seq bytes */
+                /* Unreliable: 3-byte header (type + flags_len), no seq */
                 msg->seq = 0;
                 msg->payload = (u8 *)data + pos + 3;
-                msg->payload_len = total_len - 3;
+                msg->payload_len = (int)total_len - 3;
             }
-            pos += total_len;
+            pos += (int)total_len;
         } else {
             /* Generic: [type][totalLen][data...] */
             if (pos + 2 > len) return false;

@@ -14,8 +14,9 @@
  *
  * Transport message types:
  *   0x01 ACK:      [0x01][counter:1][0x00][flags:1]          (4 bytes fixed)
- *   0x32 Reliable: [0x32][totalLen:1][flags:1][counter:1][0x00][payload...]
- *   Other:         [type:1][totalLen:1][data...]
+ *   0x32 Game:     [0x32][flags_len:u16 LE][seq:2 if reliable][payload...]
+ *                  flags_len: bit15=reliable, bit13=fragment, bits12-0=total_len
+ *   Other:         [type:1][totalLen:1][flags:1][data...]
  *
  * Reliable sequence numbering:
  *   Counter starts at 0 and increments by 1 for each reliable message sent.
