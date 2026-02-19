@@ -71,6 +71,8 @@ extern int         g_time_limit;
 extern int         g_frag_limit;
 extern f32         g_game_time;
 
+extern bool             g_game_ended;
+
 extern bc_manifest_t    g_manifest;
 extern bool             g_manifest_loaded;
 extern bool             g_no_checksum;

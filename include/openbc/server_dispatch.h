@@ -13,6 +13,9 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len);
 void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
                        const u8 *data, int len);
 
+/* Find the peer that owns an object_id. Returns peer_slot or -1. */
+int find_peer_by_object(i32 object_id);
+
 /* Find the minimum efficiency among Powered ser_list entries whose children
  * include subsystems of the given type. Returns 1.0f if none found.
  * Used by the simulation tick in the main loop. */

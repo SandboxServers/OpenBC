@@ -54,6 +54,10 @@ typedef struct {
     u32                 last_torpedo_time[BC_MAX_TORPEDO_TUBES]; /* Anti-cheat: last torp ms */
     u8                  fire_violations; /* Rapid-fire violation counter */
     u32                 violation_window_start; /* Window start for rate-limit tracking */
+
+    /* Respawn */
+    f32                 respawn_timer;  /* Countdown to respawn (0 = not waiting) */
+    int                 respawn_class;  /* Ship class for respawn (-1 = none) */
 } bc_peer_t;
 
 typedef struct {

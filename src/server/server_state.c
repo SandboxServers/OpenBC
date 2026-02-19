@@ -48,6 +48,9 @@ int         g_time_limit = -1;    /* Minutes, -1 = no limit */
 int         g_frag_limit = -1;    /* Kills, -1 = no limit */
 f32         g_game_time = 0.0f;
 
+/* Win condition */
+bool g_game_ended = false;
+
 /* Manifest / checksum validation */
 bc_manifest_t g_manifest;
 bool          g_manifest_loaded = false;

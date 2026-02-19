@@ -302,6 +302,20 @@ void bc_master_tick(bc_master_list_t *ml, bc_socket_t *sock, u32 now_ms)
     }
 }
 
+void bc_master_statechanged(bc_master_list_t *ml, bc_socket_t *sock)
+{
+    for (int i = 0; i < ml->count; i++) {
+        bc_master_entry_t *entry = &ml->entries[i];
+        if (!entry->enabled) continue;
+
+        char buf[128];
+        int len = snprintf(buf, sizeof(buf),
+                           "\\heartbeat\\%u\\gamename\\bcommander\\statechanged\\1",
+                           ml->game_port);
+        bc_socket_send(sock, &entry->addr, (const u8 *)buf, len);
+    }
+}
+
 void bc_master_shutdown(bc_master_list_t *ml, bc_socket_t *sock)
 {
     for (int i = 0; i < ml->count; i++) {

@@ -59,6 +59,9 @@ const char *bc_master_mark_verified(bc_master_list_t *ml, const bc_addr_t *from)
  * NULL if not from a known master or already status-checked. */
 const char *bc_master_record_status_check(bc_master_list_t *ml, const bc_addr_t *from);
 
+/* Notify masters that player count changed (connect/disconnect). */
+void bc_master_statechanged(bc_master_list_t *ml, bc_socket_t *sock);
+
 /* Periodic tick: heartbeat all enabled masters if interval elapsed. */
 void bc_master_tick(bc_master_list_t *ml, bc_socket_t *sock, u32 now_ms);
 

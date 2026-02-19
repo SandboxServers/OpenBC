@@ -6,6 +6,7 @@
 #include "openbc/opcodes.h"
 #include "openbc/handshake.h"
 #include "openbc/reliable.h"
+#include "openbc/master.h"
 #include "openbc/game_events.h"
 #include "openbc/game_builders.h"
 #include "openbc/ship_state.h"
@@ -180,9 +181,15 @@ void bc_handle_peer_disconnect(int slot)
                   "(DestroyObj+DeletePlayerUI+DeletePlayerAnim)", slot);
     }
 
+    g_peers.peers[slot].respawn_timer = 0.0f;
+    g_peers.peers[slot].respawn_class = -1;
+
     bc_peers_remove(&g_peers, slot);
     LOG_INFO("net", "Player removed: %s (slot %d), %d remaining",
              addr_str, slot, g_peers.count - 1);
+
+    /* Notify master servers that player count changed */
+    bc_master_statechanged(&g_masters, &g_socket);
 }
 
 void bc_handle_connect(const bc_addr_t *from, int len)
@@ -223,6 +230,7 @@ void bc_handle_connect(const bc_addr_t *from, int len)
 
     g_peers.peers[slot].last_recv_time = GetTickCount();
     g_peers.peers[slot].connect_time = GetTickCount();
+
     LOG_INFO("net", "Player connected from %s -> slot %d (%d/%d)",
              addr_str, slot, g_peers.count - 1, g_info.maxplayers);
 
@@ -295,6 +303,9 @@ void bc_handle_connect(const bc_addr_t *from, int len)
         alby_cipher_encrypt(pkt, (size_t)pos);
         bc_socket_send(&g_socket, from, pkt, pos);
     }
+
+    /* Notify master servers that player count changed */
+    bc_master_statechanged(&g_masters, &g_socket);
 
     (void)len;
 }

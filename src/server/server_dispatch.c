@@ -120,7 +120,7 @@ static const char *object_owner_name(i32 object_id)
 /* Find the peer that owns an object_id. Returns peer_slot or -1.
  * bc_object_id_to_slot() returns game_slot (0-based from Settings).
  * peer_slot = game_slot + 1 because peers[0] is the dedi server. */
-static int find_peer_by_object(i32 object_id)
+int find_peer_by_object(i32 object_id)
 {
     int game_slot = bc_object_id_to_slot(object_id);
     if (game_slot < 0) return -1;
@@ -268,12 +268,17 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
         /* Clear victim ship state */
         target->has_ship = false;
         target->spawn_len = 0;
+        if (!g_game_ended) {
+            target->respawn_timer = 5.0f;
+            target->respawn_class = target->class_index;
+        }
 
         /* Check frag limit */
-        if (g_frag_limit > 0 && shooter->score >= g_frag_limit) {
+        if (!g_game_ended && g_frag_limit > 0 && shooter->score >= g_frag_limit) {
             u8 eg[8];
             int eglen = bc_build_end_game(eg, sizeof(eg), BC_END_REASON_FRAG_LIMIT);
             if (eglen > 0) bc_send_to_all(eg, eglen, true);
+            g_game_ended = true;
             LOG_INFO("game", "Frag limit reached by %s (%d kills)",
                      peer_name(shooter_slot), shooter->score);
         }
@@ -347,11 +352,18 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
 
         target->has_ship = false;
         target->spawn_len = 0;
+        if (!g_game_ended) {
+            target->respawn_timer = 5.0f;
+            target->respawn_class = target->class_index;
+        }
 
-        if (g_frag_limit > 0 && shooter->score >= g_frag_limit) {
+        if (!g_game_ended && g_frag_limit > 0 && shooter->score >= g_frag_limit) {
             u8 eg[8];
             int eglen = bc_build_end_game(eg, sizeof(eg), BC_END_REASON_FRAG_LIMIT);
             if (eglen > 0) bc_send_to_all(eg, eglen, true);
+            g_game_ended = true;
+            LOG_INFO("game", "Frag limit reached by %s (%d kills)",
+                     peer_name(shooter_slot), shooter->score);
         }
     }
 }
@@ -865,6 +877,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             if (dlen > 0) bc_send_to_all(dest, dlen, true);
                             target->has_ship = false;
                             target->spawn_len = 0;
+                            if (!g_game_ended) {
+                                target->respawn_timer = 5.0f;
+                                target->respawn_class = target->class_index;
+                            }
                             LOG_INFO("combat", "%s destroyed in collision",
                                      peer_name(target_slot));
                         }
@@ -976,7 +992,11 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
                  slot, pkt.direction, expected_dir);
     }
 
-    /* Process each transport message */
+    /* Process each transport message.  Disconnect signals (0x05, 0x06) are
+     * deferred until after all messages in the packet are processed, so that
+     * ACKs and game data multiplexed in the same UDP packet are not skipped. */
+    bool disconnect_pending = false;
+
     for (int i = 0; i < pkt.msg_count; i++) {
         bc_transport_msg_t *tmsg = &pkt.msgs[i];
 
@@ -989,16 +1009,23 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
             char addr_str[32];
             bc_addr_to_string(from, addr_str, sizeof(addr_str));
             LOG_INFO("net", "Player disconnected: %s (slot %d)", addr_str, slot);
-            bc_handle_peer_disconnect(slot);
-            return;
+            disconnect_pending = true;
+            continue;
         }
 
         /* ConnectACK from a connected client = graceful disconnect signal.
          * The client sends type 0x05 when the user presses Escape / quits. */
         if (tmsg->type == BC_TRANSPORT_CONNECT_ACK) {
             LOG_INFO("net", "slot=%d graceful disconnect (ConnectACK)", slot);
-            bc_handle_peer_disconnect(slot);
-            return;
+            /* ACK the disconnect (reliable low-type).  Seq byte is payload[1]
+             * (embedded reliable format: [flags:C0][seq_hi][seq_lo][slot][ip...]).
+             * Stock server ACKs this before tearing down the peer. */
+            if (tmsg->payload_len >= 2) {
+                u16 disc_seq = (u16)tmsg->payload[1] << 8;
+                bc_outbox_add_ack(&g_peers.peers[slot].outbox, disc_seq, 0x00);
+            }
+            disconnect_pending = true;
+            continue;
         }
 
         /* Stale Connect retransmissions from a peer that's already connected.
@@ -1065,5 +1092,11 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
         if (tmsg->payload_len > 0) {
             handle_game_message(slot, tmsg);
         }
+    }
+
+    /* Deferred disconnect: flush queued ACK, then tear down the peer. */
+    if (disconnect_pending) {
+        bc_flush_peer(slot);
+        bc_handle_peer_disconnect(slot);
     }
 }

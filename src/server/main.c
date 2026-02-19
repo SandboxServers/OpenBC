@@ -19,6 +19,7 @@
 #include "openbc/ship_power.h"
 #include "openbc/combat.h"
 #include "openbc/torpedo_tracker.h"
+#include "openbc/game_builders.h"
 #include "openbc/log.h"
 
 #include <windows.h>  /* For Sleep(), GetTickCount() */
@@ -489,9 +490,11 @@ int main(int argc, char **argv)
                 bc_master_tick(&g_masters, &g_socket, now);
             }
 
+            /* Delta time for this tick (used by simulation + respawn) */
+            f32 dt = (f32)(now - last_tick) / 1000.0f;
+
             /* === Simulation tick (every 100ms when registry loaded) === */
             if (g_registry_loaded) {
-                f32 dt = (f32)(now - last_tick) / 1000.0f;
 
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *p = &g_peers.peers[i];
@@ -503,6 +506,10 @@ int main(int argc, char **argv)
 
                     /* Reactor: generate power, compute per-subsystem efficiency */
                     bc_ship_power_tick(&p->ship, cls, dt);
+
+                    /* Server-side position estimate for range checks + torpedo targeting */
+                    f32 eng_eff = bc_powered_efficiency(&p->ship, cls, "impulse");
+                    bc_ship_move_tick(&p->ship, eng_eff, dt);
 
                     /* Shield recharge (shield gen is Base format, eff = 1.0) */
                     bc_combat_shield_tick(&p->ship, cls, 1.0f, dt);
@@ -520,6 +527,19 @@ int main(int argc, char **argv)
                     /* Repair */
                     bc_repair_tick(&p->ship, cls, dt);
                     bc_repair_auto_queue(&p->ship, cls);
+
+                    /* Tractor beam physics: drag target if engaged */
+                    if (p->ship.tractor_target_id >= 0) {
+                        int tgt = find_peer_by_object(p->ship.tractor_target_id);
+                        if (tgt >= 0 && g_peers.peers[tgt].has_ship &&
+                            g_peers.peers[tgt].ship.alive) {
+                            bc_combat_tractor_tick(&p->ship,
+                                                    &g_peers.peers[tgt].ship,
+                                                    cls, dt);
+                        } else {
+                            bc_combat_tractor_disengage(&p->ship);
+                        }
+                    }
                 }
 
                 /* Torpedo tracker tick */
@@ -558,6 +578,58 @@ int main(int argc, char **argv)
                             if (g_peers.peers[j].state >= PEER_LOBBY)
                                 bc_queue_unreliable(j, hbuf, hlen);
                         }
+                    }
+                }
+            }
+
+            /* Win condition: time limit */
+            if (g_registry_loaded && !g_game_ended && g_time_limit > 0) {
+                f32 limit_sec = (f32)g_time_limit * 60.0f;
+                if (g_game_time >= limit_sec) {
+                    u8 eg[8];
+                    int eglen = bc_build_end_game(eg, sizeof(eg),
+                                                   BC_END_REASON_TIME_UP);
+                    if (eglen > 0) bc_send_to_all(eg, eglen, true);
+                    g_game_ended = true;
+                    LOG_INFO("game", "Time limit reached (%.0f sec)", g_game_time);
+                }
+            }
+
+            /* Respawn: countdown dead players, re-create ships */
+            if (g_registry_loaded && !g_game_ended) {
+                for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+                    bc_peer_t *rp = &g_peers.peers[i];
+                    if (rp->state < PEER_IN_GAME || rp->has_ship) continue;
+                    if (rp->respawn_timer <= 0.0f) continue;
+
+                    rp->respawn_timer -= dt;
+                    if (rp->respawn_timer > 0.0f) continue;
+                    rp->respawn_timer = 0.0f;
+
+                    const bc_ship_class_t *rcls =
+                        bc_registry_get_ship(&g_registry, rp->respawn_class);
+                    if (!rcls) continue;
+
+                    int gs = i > 0 ? i - 1 : 0;
+                    bc_ship_init(&rp->ship, rcls, rp->respawn_class,
+                                 bc_make_ship_id(gs), (u8)i, rp->ship.team_id);
+                    rp->ship.pos.x = (f32)(rand() % 4001) - 2000.0f;
+                    rp->ship.pos.y = (f32)(rand() % 1001) - 500.0f;
+                    rp->ship.pos.z = (f32)(rand() % 4001) - 2000.0f;
+                    rp->class_index = rp->respawn_class;
+                    rp->has_ship = true;
+                    rp->subsys_rr_idx = 0;
+
+                    u8 cpkt[1024];
+                    int clen = bc_ship_build_create_packet(&rp->ship, rcls,
+                                                            cpkt, sizeof(cpkt));
+                    if (clen > 0) {
+                        if (clen <= (int)sizeof(rp->spawn_payload)) {
+                            memcpy(rp->spawn_payload, cpkt, (size_t)clen);
+                            rp->spawn_len = clen;
+                        }
+                        bc_send_to_all(cpkt, clen, true);
+                        LOG_INFO("game", "slot=%d respawned as %s", i, rcls->name);
                     }
                 }
             }
