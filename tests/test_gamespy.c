@@ -555,124 +555,144 @@ static bool start_server_with_master(bc_test_server_t *srv, u16 game_port,
     }
 
     srv->running = true;
+    test_server_registry_add(srv->pi.hProcess);
     return true;
 }
 
 TEST(mock_master_full_handshake)
 {
-    ASSERT(bc_net_init());
+    bc_socket_t master;
+    bc_test_server_t srv;
+    bool net_ok = false, sock_ok = false, srv_ok = false;
+    int fail = 0;
+
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        fail++; goto cleanup; \
+    } \
+} while(0)
+
+    CHECK(bc_net_init());
+    net_ok = true;
 
     /* Step 1: Open mock master socket */
-    bc_socket_t master;
-    ASSERT(bc_socket_open(&master, MOCK_MASTER_PORT));
+    CHECK(bc_socket_open(&master, MOCK_MASTER_PORT));
+    sock_ok = true;
 
     /* Step 2: Start server with our mock master */
-    bc_test_server_t srv;
-    ASSERT(start_server_with_master(&srv, MOCK_GAME_PORT, MOCK_MASTER_PORT,
+    CHECK(start_server_with_master(&srv, MOCK_GAME_PORT, MOCK_MASTER_PORT,
                                      MANIFEST_PATH));
+    srv_ok = true;
 
     /* Step 3: Wait for heartbeat from server */
-    u8 recv_buf[2048];
-    bc_addr_t from;
-    bool got_heartbeat = false;
+    {
+        u8 recv_buf[2048];
+        bc_addr_t from;
+        int got;
+        bool got_heartbeat = false;
 
-    for (int i = 0; i < 50; i++) {
-        int got = bc_socket_recv(&master, &from, recv_buf, sizeof(recv_buf));
-        if (got > 0) {
-            recv_buf[got] = '\0';
-            /* Verify heartbeat format: \heartbeat\<port>\gamename\bcommander\ */
-            ASSERT(gs_has_key((char *)recv_buf, got, "heartbeat"));
-            ASSERT(gs_has_value((char *)recv_buf, got, "gamename", "bcommander"));
-            got_heartbeat = true;
-            break;
-        }
-        Sleep(100);
-    }
-    ASSERT(got_heartbeat);
-
-    /* Step 4: Send \secure\ challenge back to server */
-    const char *challenge_str = "MOCKCH";
-    char secure_pkt[64];
-    int secure_len = snprintf(secure_pkt, sizeof(secure_pkt),
-                               "\\secure\\%s", challenge_str);
-    bc_socket_send(&master, &from, (const u8 *)secure_pkt, secure_len);
-
-    /* Step 5: Wait for \validate\ response */
-    bool got_validate = false;
-    for (int i = 0; i < 30; i++) {
-        int got = bc_socket_recv(&master, &from, recv_buf, sizeof(recv_buf));
-        if (got > 0) {
-            recv_buf[got] = '\0';
-            if (gs_has_key((char *)recv_buf, got, "validate")) {
-                got_validate = true;
-
-                /* Verify gamename and gamever */
-                ASSERT(gs_has_value((char *)recv_buf, got, "gamename", "bcommander"));
-                ASSERT(gs_has_value((char *)recv_buf, got, "gamever", "60"));
-
-                /* Verify the validate hash matches our own computation */
-                char expected_hash[89];
-                bc_gsmsalg(expected_hash, challenge_str, BC_GAMESPY_SECRET_KEY, 0);
-
-                int vlen = 0;
-                const char *val = gs_find_value((char *)recv_buf, got,
-                                                 "validate", &vlen);
-                ASSERT(val != NULL);
-                ASSERT(vlen == (int)strlen(expected_hash));
-                ASSERT(memcmp(val, expected_hash, (size_t)vlen) == 0);
+        for (int i = 0; i < 50; i++) {
+            got = bc_socket_recv(&master, &from, recv_buf, sizeof(recv_buf));
+            if (got > 0) {
+                recv_buf[got] = '\0';
+                /* Verify heartbeat format: \heartbeat\<port>\gamename\bcommander\ */
+                CHECK(gs_has_key((char *)recv_buf, got, "heartbeat"));
+                CHECK(gs_has_value((char *)recv_buf, got, "gamename", "bcommander"));
+                got_heartbeat = true;
                 break;
             }
+            Sleep(100);
         }
-        Sleep(100);
-    }
-    ASSERT(got_validate);
+        CHECK(got_heartbeat);
 
-    /* Step 6: Send a \status\ query (like master verifying server info) */
-    const char *status_query = "\\status\\";
-    bc_socket_send(&master, &from, (const u8 *)status_query,
-                   (int)strlen(status_query));
+        /* Step 4: Send \secure\ challenge back to server */
+        const char *challenge_str = "MOCKCH";
+        char secure_pkt[64];
+        int secure_len = snprintf(secure_pkt, sizeof(secure_pkt),
+                                   "\\secure\\%s", challenge_str);
+        bc_socket_send(&master, &from, (const u8 *)secure_pkt, secure_len);
 
-    /* Step 7: Wait for server info response */
-    bool got_info = false;
-    for (int i = 0; i < 30; i++) {
-        int got = bc_socket_recv(&master, &from, recv_buf, sizeof(recv_buf));
-        if (got > 0) {
-            recv_buf[got] = '\0';
-            if (gs_has_key((char *)recv_buf, got, "hostname")) {
-                got_info = true;
+        /* Step 5: Wait for \validate\ response */
+        bool got_validate = false;
+        for (int i = 0; i < 30; i++) {
+            got = bc_socket_recv(&master, &from, recv_buf, sizeof(recv_buf));
+            if (got > 0) {
+                recv_buf[got] = '\0';
+                if (gs_has_key((char *)recv_buf, got, "validate")) {
+                    got_validate = true;
 
-                /* Verify all stock BC QR1 fields */
-                /* Basic callback */
-                ASSERT(gs_has_key((char *)recv_buf, got, "missionscript"));
-                ASSERT(gs_has_key((char *)recv_buf, got, "mapname"));
-                ASSERT(gs_has_key((char *)recv_buf, got, "numplayers"));
-                ASSERT(gs_has_key((char *)recv_buf, got, "maxplayers"));
-                ASSERT(gs_has_key((char *)recv_buf, got, "gamemode"));
-                /* Info callback */
-                ASSERT(gs_has_value((char *)recv_buf, got,
-                                     "gamename", "bcommander"));
-                ASSERT(gs_has_value((char *)recv_buf, got, "gamever", "60"));
-                /* Rules callback */
-                ASSERT(gs_has_key((char *)recv_buf, got, "timelimit"));
-                ASSERT(gs_has_key((char *)recv_buf, got, "fraglimit"));
-                ASSERT(gs_has_key((char *)recv_buf, got, "system"));
-                ASSERT(gs_has_value((char *)recv_buf, got, "password", "0"));
-                ASSERT(gs_has_key((char *)recv_buf, got, "queryid"));
-                /* \final\ before \queryid\ */
-                ASSERT(strstr((char *)recv_buf, "\\final\\") != NULL);
-                ASSERT(strstr((char *)recv_buf, "\\final\\") <
-                       strstr((char *)recv_buf, "\\queryid\\"));
-                break;
+                    /* Verify gamename and gamever */
+                    CHECK(gs_has_value((char *)recv_buf, got, "gamename", "bcommander"));
+                    CHECK(gs_has_value((char *)recv_buf, got, "gamever", "60"));
+
+                    /* Verify the validate hash matches our own computation */
+                    char expected_hash[89];
+                    bc_gsmsalg(expected_hash, challenge_str, BC_GAMESPY_SECRET_KEY, 0);
+
+                    int vlen = 0;
+                    const char *val = gs_find_value((char *)recv_buf, got,
+                                                     "validate", &vlen);
+                    CHECK(val != NULL);
+                    CHECK(vlen == (int)strlen(expected_hash));
+                    CHECK(memcmp(val, expected_hash, (size_t)vlen) == 0);
+                    break;
+                }
             }
+            Sleep(100);
         }
-        Sleep(100);
-    }
-    ASSERT(got_info);
+        CHECK(got_validate);
 
-    /* Cleanup */
-    test_server_stop(&srv);
-    bc_socket_close(&master);
-    bc_net_shutdown();
+        /* Step 6: Send a \status\ query (like master verifying server info) */
+        const char *status_query = "\\status\\";
+        bc_socket_send(&master, &from, (const u8 *)status_query,
+                       (int)strlen(status_query));
+
+        /* Step 7: Wait for server info response */
+        bool got_info = false;
+        for (int i = 0; i < 30; i++) {
+            got = bc_socket_recv(&master, &from, recv_buf, sizeof(recv_buf));
+            if (got > 0) {
+                recv_buf[got] = '\0';
+                if (gs_has_key((char *)recv_buf, got, "hostname")) {
+                    got_info = true;
+
+                    /* Verify all stock BC QR1 fields */
+                    /* Basic callback */
+                    CHECK(gs_has_key((char *)recv_buf, got, "missionscript"));
+                    CHECK(gs_has_key((char *)recv_buf, got, "mapname"));
+                    CHECK(gs_has_key((char *)recv_buf, got, "numplayers"));
+                    CHECK(gs_has_key((char *)recv_buf, got, "maxplayers"));
+                    CHECK(gs_has_key((char *)recv_buf, got, "gamemode"));
+                    /* Info callback */
+                    CHECK(gs_has_value((char *)recv_buf, got,
+                                         "gamename", "bcommander"));
+                    CHECK(gs_has_value((char *)recv_buf, got, "gamever", "60"));
+                    /* Rules callback */
+                    CHECK(gs_has_key((char *)recv_buf, got, "timelimit"));
+                    CHECK(gs_has_key((char *)recv_buf, got, "fraglimit"));
+                    CHECK(gs_has_key((char *)recv_buf, got, "system"));
+                    CHECK(gs_has_value((char *)recv_buf, got, "password", "0"));
+                    CHECK(gs_has_key((char *)recv_buf, got, "queryid"));
+                    /* \final\ before \queryid\ */
+                    CHECK(strstr((char *)recv_buf, "\\final\\") != NULL);
+                    CHECK(strstr((char *)recv_buf, "\\final\\") <
+                           strstr((char *)recv_buf, "\\queryid\\"));
+                    break;
+                }
+            }
+            Sleep(100);
+        }
+        CHECK(got_info);
+    }
+
+#undef CHECK
+
+cleanup:
+    if (srv_ok) test_server_stop(&srv);
+    if (sock_ok) bc_socket_close(&master);
+    if (net_ok) bc_net_shutdown();
+    ASSERT(fail == 0);
 }
 
 /* ======================================================================

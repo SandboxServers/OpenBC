@@ -30,13 +30,60 @@
 #include "openbc/checksum.h"
 #include "openbc/buffer.h"
 
-/* --- Server process --- */
+/* --- Server process registry + atexit cleanup --- */
+
+#define TEST_MAX_SERVERS 4
 
 typedef struct {
     PROCESS_INFORMATION pi;
     u16 port;
     bool running;
 } bc_test_server_t;
+
+/* Global registry of spawned server handles for atexit cleanup */
+static HANDLE g_server_handles[TEST_MAX_SERVERS];
+static int    g_server_count = 0;
+static bool   g_atexit_registered = false;
+
+/* Kill all tracked servers -- called via atexit on early exit / crash */
+static void test_kill_all_servers(void)
+{
+    for (int i = 0; i < g_server_count; i++) {
+        if (g_server_handles[i] != NULL) {
+            DWORD code = 0;
+            if (GetExitCodeProcess(g_server_handles[i], &code) &&
+                code == STILL_ACTIVE) {
+                TerminateProcess(g_server_handles[i], 1);
+                WaitForSingleObject(g_server_handles[i], 5000);
+            }
+            CloseHandle(g_server_handles[i]);
+            g_server_handles[i] = NULL;
+        }
+    }
+    g_server_count = 0;
+}
+
+/* Track a server handle in the global registry */
+static void test_server_registry_add(HANDLE h)
+{
+    if (!g_atexit_registered) {
+        atexit(test_kill_all_servers);
+        g_atexit_registered = true;
+    }
+    if (g_server_count < TEST_MAX_SERVERS)
+        g_server_handles[g_server_count++] = h;
+}
+
+/* Remove a server handle from the global registry */
+static void test_server_registry_remove(HANDLE h)
+{
+    for (int i = 0; i < g_server_count; i++) {
+        if (g_server_handles[i] == h) {
+            g_server_handles[i] = NULL;
+            break;
+        }
+    }
+}
 
 /* Forward declarations */
 static void test_server_stop(bc_test_server_t *srv);
@@ -66,6 +113,7 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
     }
 
     srv->running = true;
+    test_server_registry_add(srv->pi.hProcess);
 
     /* Probe until server responds */
     bc_socket_t probe;
@@ -100,10 +148,18 @@ static void test_server_stop(bc_test_server_t *srv)
 {
     if (!srv->running) return;
 
-    TerminateProcess(srv->pi.hProcess, 0);
-    WaitForSingleObject(srv->pi.hProcess, 2000);
+    test_server_registry_remove(srv->pi.hProcess);
+
+    DWORD code = 0;
+    if (GetExitCodeProcess(srv->pi.hProcess, &code) &&
+        code == STILL_ACTIVE) {
+        TerminateProcess(srv->pi.hProcess, 0);
+        WaitForSingleObject(srv->pi.hProcess, 5000);
+    }
     CloseHandle(srv->pi.hProcess);
     CloseHandle(srv->pi.hThread);
+    srv->pi.hProcess = NULL;
+    srv->pi.hThread = NULL;
     srv->running = false;
 }
 

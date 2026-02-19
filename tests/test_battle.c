@@ -553,17 +553,35 @@ TEST(real_checksum_handshake)
 {
     bc_test_server_t srv;
     bc_test_client_t client;
+    bool net_ok = false, srv_ok = false, cli_ok = false;
+    int fail = 0;
 
-    ASSERT(bc_net_init());
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        fail++; goto cleanup; \
+    } \
+} while(0)
 
-    ASSERT(test_server_start(&srv, 29877, MANIFEST_PATH));
-    ASSERT(test_client_connect(&client, 29877, "Tester", 0, GAME_DIR));
+    CHECK(bc_net_init());
+    net_ok = true;
+
+    CHECK(test_server_start(&srv, 29877, MANIFEST_PATH));
+    srv_ok = true;
+
+    CHECK(test_client_connect(&client, 29877, "Tester", 0, GAME_DIR));
+    cli_ok = true;
 
     /* If we get here, the server accepted our real checksums! */
-    test_client_disconnect(&client);
+
+#undef CHECK
+
+cleanup:
+    if (cli_ok) test_client_disconnect(&client);
     Sleep(100);
-    test_server_stop(&srv);
-    bc_net_shutdown();
+    if (srv_ok) test_server_stop(&srv);
+    if (net_ok) bc_net_shutdown();
+    ASSERT(fail == 0);
 }
 
 /* === Step-by-step join flow test ===
@@ -574,13 +592,33 @@ TEST(full_join_flow_multi_client)
     bc_test_server_t srv;
     bc_test_client_t clients[3];
     const char *names[] = { "Alpha", "Beta", "Gamma" };
+    bool net_ok = false, srv_ok = false;
+    int fail = 0;
 
-    ASSERT(bc_net_init());
-    ASSERT(test_server_start(&srv, 29878, MANIFEST_PATH));
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        fail++; goto cleanup; \
+    } \
+} while(0)
+
+#define CHECK_EQ(a, b) do { \
+    if ((a) != (b)) { \
+        printf("FAIL\n    %s:%d: %s == 0x%X, expected 0x%X\n", \
+               __FILE__, __LINE__, #a, (unsigned)(a), (unsigned)(b)); \
+        fail++; goto cleanup; \
+    } \
+} while(0)
+
+    memset(clients, 0, sizeof(clients));
+
+    CHECK(bc_net_init());
+    net_ok = true;
+    CHECK(test_server_start(&srv, 29878, MANIFEST_PATH));
+    srv_ok = true;
 
     for (int c = 0; c < 3; c++) {
         bc_test_client_t *cl = &clients[c];
-        memset(cl, 0, sizeof(*cl));
         cl->slot = (u8)c;
         cl->seq_out = 0;
         strncpy(cl->name, names[c], sizeof(cl->name) - 1);
@@ -588,31 +626,31 @@ TEST(full_join_flow_multi_client)
         cl->server_addr.port = htons(29878);
 
         /* Step 1: Open socket */
-        ASSERT(bc_socket_open(&cl->sock, 0));
+        CHECK(bc_socket_open(&cl->sock, 0));
 
         /* Step 2: Send Connect */
         u8 pkt[512];
         int len = bc_client_build_connect(pkt, sizeof(pkt), htonl(0x7F000001));
-        ASSERT(len == 10);
+        CHECK(len == 10);
         tc_send_raw(cl, pkt, len);
 
         /* Step 3: Receive ConnectAck + ChecksumReq round 0 (batched) */
-        ASSERT(tc_recv_raw(cl, 2000) > 0);
+        CHECK(tc_recv_raw(cl, 2000) > 0);
         bc_packet_t parsed;
-        ASSERT(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
-        ASSERT(parsed.msg_count >= 1);
-        ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_CONNECT);
+        CHECK(bc_transport_parse(cl->recv_buf, cl->recv_len, &parsed));
+        CHECK(parsed.msg_count >= 1);
+        CHECK_EQ(parsed.msgs[0].type, BC_TRANSPORT_CONNECT);
 
         /* Extract ChecksumReq round 0 from batched packet */
         bc_transport_msg_t *round0_msg = tc_find_reliable_payload(cl, &parsed);
-        ASSERT(round0_msg != NULL);
-        ASSERT_EQ(round0_msg->payload[0], BC_OP_CHECKSUM_REQ);
-        ASSERT_EQ(round0_msg->payload[1], 0);
+        CHECK(round0_msg != NULL);
+        CHECK_EQ(round0_msg->payload[0], BC_OP_CHECKSUM_REQ);
+        CHECK_EQ(round0_msg->payload[1], 0);
 
         /* Step 4: Send keepalive with name */
         len = bc_client_build_keepalive_name(pkt, sizeof(pkt), (u8)c,
                                               htonl(0x7F000001), names[c]);
-        ASSERT(len > 0);
+        CHECK(len > 0);
         tc_send_raw(cl, pkt, len);
 
         /* Step 5: 4 checksum rounds (round 0 from batch, 1-3 via recv) */
@@ -632,30 +670,30 @@ TEST(full_join_flow_multi_client)
                     rmsg = tc_find_reliable_payload(cl, &rp);
                     if (rmsg) break;
                 }
-                ASSERT(rmsg != NULL);
+                CHECK(rmsg != NULL);
             }
 
-            ASSERT_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
-            ASSERT_EQ(rmsg->payload[1], (u8)round);
+            CHECK_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
+            CHECK_EQ(rmsg->payload[1], (u8)round);
 
             bc_checksum_request_t req;
-            ASSERT(bc_client_parse_checksum_request(rmsg->payload,
+            CHECK(bc_client_parse_checksum_request(rmsg->payload,
                                                       rmsg->payload_len, &req));
-            ASSERT_EQ(req.round, (u8)round);
+            CHECK_EQ(req.round, (u8)round);
 
             bc_client_dir_scan_t scan;
-            ASSERT(bc_client_scan_directory(GAME_DIR, req.directory,
+            CHECK(bc_client_scan_directory(GAME_DIR, req.directory,
                                              req.filter, req.recursive, &scan));
 
             u8 resp[4096];
             int resp_len = tc_build_real_checksum(resp, sizeof(resp),
                                                     (u8)round, &scan);
-            ASSERT(resp_len > 0);
+            CHECK(resp_len > 0);
 
             u8 out[4096];
             int out_len = bc_client_build_reliable(out, sizeof(out), (u8)c,
                                                      resp, resp_len, cl->seq_out++);
-            ASSERT(out_len > 0);
+            CHECK(out_len > 0);
             tc_send_raw(cl, out, out_len);
         }
 
@@ -671,18 +709,18 @@ TEST(full_join_flow_multi_client)
                 rmsg = tc_find_reliable_payload(cl, &rp);
                 if (rmsg) break;
             }
-            ASSERT(rmsg != NULL);
-            ASSERT_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
-            ASSERT_EQ(rmsg->payload[1], 0xFF);
+            CHECK(rmsg != NULL);
+            CHECK_EQ(rmsg->payload[0], BC_OP_CHECKSUM_REQ);
+            CHECK_EQ(rmsg->payload[1], 0xFF);
 
             u8 resp[32];
             int resp_len = bc_client_build_checksum_final(resp, sizeof(resp), 0);
-            ASSERT(resp_len > 0);
+            CHECK(resp_len > 0);
 
             u8 out[512];
             int out_len = bc_client_build_reliable(out, sizeof(out), (u8)c,
                                                      resp, resp_len, cl->seq_out++);
-            ASSERT(out_len > 0);
+            CHECK(out_len > 0);
             tc_send_raw(cl, out, out_len);
         }
 
@@ -713,15 +751,15 @@ TEST(full_join_flow_multi_client)
                 if (got_settings && got_gameinit) break;
             }
 
-            ASSERT(got_settings);
-            ASSERT(got_gameinit);
+            CHECK(got_settings);
+            CHECK(got_gameinit);
 
             /* Client sends NewPlayerInGame */
             u8 npig[2] = { BC_OP_NEW_PLAYER_IN_GAME, 0x20 };
             u8 npig_out[64];
             int npig_len = bc_client_build_reliable(npig_out, sizeof(npig_out),
                                                       (u8)c, npig, 2, cl->seq_out++);
-            ASSERT(npig_len > 0);
+            CHECK(npig_len > 0);
             tc_send_raw(cl, npig_out, npig_len);
 
             /* Receive MissionInit response */
@@ -743,7 +781,7 @@ TEST(full_join_flow_multi_client)
                 if (got_mission) break;
             }
 
-            ASSERT(got_mission);
+            CHECK(got_mission);
         }
 
         cl->connected = true;
@@ -759,8 +797,8 @@ TEST(full_join_flow_multi_client)
     {
         u8 buf[64];
         int len = bc_build_chat(buf, sizeof(buf), 0, false, "hello");
-        ASSERT(len > 0);
-        ASSERT(test_client_send_reliable(&clients[0], buf, len));
+        CHECK(len > 0);
+        CHECK(test_client_send_reliable(&clients[0], buf, len));
 
         Sleep(200);
 
@@ -768,22 +806,26 @@ TEST(full_join_flow_multi_client)
         const u8 *msg;
 
         msg = test_client_expect_opcode(&clients[1], BC_MSG_CHAT, &msg_len, TIMEOUT);
-        ASSERT(msg != NULL);
+        CHECK(msg != NULL);
         bc_chat_event_t cev;
-        ASSERT(bc_parse_chat_message(msg, msg_len, &cev));
-        ASSERT(strcmp(cev.message, "hello") == 0);
-        ASSERT_EQ(cev.sender_slot, 0);
+        CHECK(bc_parse_chat_message(msg, msg_len, &cev));
+        CHECK(strcmp(cev.message, "hello") == 0);
+        CHECK_EQ(cev.sender_slot, 0);
 
         msg = test_client_expect_opcode(&clients[2], BC_MSG_CHAT, &msg_len, TIMEOUT);
-        ASSERT(msg != NULL);
+        CHECK(msg != NULL);
     }
 
-    /* Disconnect all */
+#undef CHECK
+#undef CHECK_EQ
+
+cleanup:
     for (int c = 0; c < 3; c++)
         test_client_disconnect(&clients[c]);
     Sleep(100);
-    test_server_stop(&srv);
-    bc_net_shutdown();
+    if (srv_ok) test_server_stop(&srv);
+    if (net_ok) bc_net_shutdown();
+    ASSERT(fail == 0);
 }
 
 TEST_MAIN_BEGIN()
