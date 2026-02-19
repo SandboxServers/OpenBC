@@ -209,3 +209,45 @@ ACK 2: [0x01] [0x00 0x02] [0x01] [0x02]    seq=2, flags=fragmented, frag_idx=2
 ### What actually happens:
 
 The client ignores the ACKs and retransmits all 3 fragments approximately every 2 seconds for the duration of the session.
+
+---
+
+## ACK-Outbox Accumulation Bug (Second Bug)
+
+### Behavior
+
+In addition to the fragment ACK matching failure above, the stock transport layer has a second bug: **ACK entries are never removed from the ACK-outbox after being sent**. They accumulate for the entire session duration and are retransmitted in every outbound packet.
+
+### Observable Symptoms
+
+- The ACK-outbox starts empty and grows monotonically throughout the session
+- After the connection handshake: ~4 stale ACK entries
+- After checksum exchange: ~10-13 stale ACK entries
+- During gameplay: 30-40+ stale ACK entries
+- Each ACK entry is 4-5 bytes on the wire — at 38 entries this is ~190 bytes of overhead per packet
+- The retransmit count on each entry grows indefinitely (observed up to retx=8 within 6 seconds)
+- Both sides (server and client) exhibit identical behavior
+
+### How It Manifests
+
+Every outbound UDP packet contains ALL accumulated ACK entries piggybacked alongside the actual game data. The remote side receives these ACKs, calls its ACK handler, finds its retransmit queue empty (the original messages were already cleared), and silently discards them. But neither side ever removes the ACK entries from the outbox.
+
+The "errant checksum packets flowing after checksum completes" that originally prompted this investigation are actually stale ACKs for checksum-phase reliable messages being endlessly retransmitted — not checksum data packets.
+
+### Interaction with Fragment ACK Bug
+
+The two bugs are independent but both contribute to bandwidth waste:
+- **Fragment ACK bug**: Client retransmits fragment data, server creates new ACKs for each retransmission
+- **ACK-outbox bug**: All ACKs (fragment and non-fragment) accumulate and never drain
+
+### Reimplementation Guidance
+
+A reimplementation should fix the ACK-outbox accumulation by removing ACK entries from the outbox after they have been sent a sufficient number of times (3 is a reasonable limit — enough to tolerate UDP packet loss without infinite accumulation).
+
+The stock game uses a retransmit timer for ACK entries in the outbox but never removes them. A clean implementation should:
+
+1. Send each ACK entry up to N times (e.g., 3)
+2. After N sends, remove the entry from the outbox
+3. If a duplicate reliable message arrives after the ACK was removed, the dedup logic should create a fresh ACK entry (the stock dedup logic already does this correctly)
+
+This eliminates the bandwidth leak while maintaining reliable ACK delivery. The stock game's tolerance for stale ACK traffic means no compatibility issues — a reimplemented server can simply stop sending stale ACKs and stock clients will continue working normally.

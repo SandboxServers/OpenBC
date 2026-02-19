@@ -7,7 +7,7 @@ Observed and inferred behavior of the Bridge Commander 1.1 player disconnect pro
 **Trace corpus**: 2,648,271 lines / 136MB combat session (3 players, 34 minutes), plus 4,343-line loopback session
 **Clean room statement**: This document contains no decompiled code, no binary addresses, no internal memory offsets, and no handler tables. All formats are derived from observable wire data or readable Python source.
 
-**Important limitation**: No actual player disconnect was captured in either available trace. All three players remained connected for the full 34-minute combat session. The disconnect lifecycle below is reconstructed from protocol structure (transport message type 0x06, cleanup opcodes observed at join time, readable Python scripts) rather than direct packet-trace verification.
+**Update 2026-02-19**: A graceful disconnect has been captured in a stock-dedi loopback trace. The transport disconnect type is **0x05** (DisconnectMessage), verified on the wire. See Section 7 for the complete verified disconnect sequence.
 
 ---
 
@@ -38,24 +38,18 @@ The server tracks when each peer last sent data. If no packets (including keepal
 
 Keepalive messages (transport type 0x00) are exchanged approximately every 12 seconds, providing 3-4 missed keepalive cycles before the timeout fires.
 
-### 1.2 Graceful Disconnect (Transport Message 0x06)
+### 1.2 Graceful Disconnect (Transport Message 0x05)
 
-The transport layer includes a dedicated Disconnect message type (0x06). From the transport message type table:
+The transport layer includes a dedicated Disconnect message type (0x05, as documented in [transport-layer.md](transport-layer.md)). When a client cleanly exits (menu quit, ALT+F4 with clean shutdown), it sends a transport-level 0x05 DisconnectMessage. This allows the server to immediately begin cleanup rather than waiting for the timeout.
 
-| Type | Name | Notes |
-|------|------|-------|
-| 0x06 | Disconnect | Graceful disconnect |
-
-When a client cleanly exits (menu quit, ALT+F4 with clean shutdown), it sends a transport-level 0x06 Disconnect message. This allows the server to immediately begin cleanup rather than waiting for the timeout.
-
-**Wire format** (inferred from transport framing pattern):
+**Wire format** (verified from captured disconnect, 2026-02-19):
 ```
-[0x06][totalLen:1][peer_id:1]
+[0x05][payload: 9 bytes]
 ```
+
+The disconnect message is multiplexed with other transport messages (typically stale ACKs from the ACK-outbox bug) in a single UDP packet. See Section 7 for the full captured packet.
 
 The graceful disconnect reaches the same cleanup path as the timeout, but without the ~45-second delay.
-
-**Trace note**: 0 transport 0x06 messages were observed in either available trace (no player disconnected during the sessions).
 
 ### 1.3 Boot/Kick (Host-Initiated)
 
@@ -207,7 +201,7 @@ Time ~45s:   Server detects timeout
 
 ### 4.2 Graceful Disconnect
 
-Same as timeout, but the transport 0x06 message triggers cleanup immediately instead of waiting ~45 seconds.
+Same as timeout, but the transport 0x05 DisconnectMessage triggers cleanup immediately instead of waiting ~45 seconds. See Section 7 for the verified wire sequence.
 
 ### 4.3 Boot/Kick
 
@@ -256,15 +250,91 @@ Some aspects of the disconnect flow are handled entirely within the engine and l
 
 ---
 
+## 7. Verified Graceful Disconnect Sequence (2026-02-19)
+
+A graceful disconnect was captured in a stock dedicated server loopback trace on 2026-02-19. Session duration: ~91 seconds (connect at 11:37:53, disconnect at 11:39:24).
+
+### 7.1 Disconnect Packet (Client → Server)
+
+```
+UDP payload (20 bytes, decrypted):
+  0000: 02 03 05 0A C0 02 00 02 0A 0A 0A EF 01 27 00 00  |.............'..|
+  0010: 01 28 00 00                                      |.(..|
+
+Decoded:
+  peer_id = 0x02 (client)
+  msg_count = 3
+
+  [msg 0] type=0x05 DisconnectMessage, payload=9 bytes
+  [msg 1] type=0x01 ACK seq=39 (stale, from ACK-outbox accumulation bug)
+  [msg 2] type=0x01 ACK seq=40 (stale)
+```
+
+**Key observations**:
+- Transport type is **0x05**, not 0x06 (corrected from earlier documentation)
+- The disconnect is multiplexed with stale ACK entries in a single UDP packet
+- The disconnect payload is 9 bytes: `[0A C0 02 00 02 0A 0A 0A EF]` (content meaning TBD)
+
+### 7.2 Server Response
+
+The server responds with an ACK for the disconnect message:
+
+```
+UDP payload (6 bytes):
+  01 01 01 02 00 02
+
+Decoded:
+  peer_id = 0x01 (server)
+  msg_count = 1
+  [msg 0] type=0x01 ACK seq=2 (low-type, for the disconnect message)
+```
+
+The server retransmits this ACK **7 times** at ~0.67-second intervals over 4 seconds. This is the ACK-outbox accumulation bug — the server's ACK for the disconnect is never removed from its outbox, so it retransmits until the peer cleanup removes the peer entry entirely.
+
+### 7.3 GameSpy Notification
+
+After ACK retransmission stops:
+```
+\heartbeat\0\gamename\bcommander\statechanged\1
+```
+
+Sent to the master server at 81.205.81.173:27900. The `statechanged=1` field signals that the server's player count has changed.
+
+### 7.4 Complete Timeline
+
+```
+11:39:21.416  Last game data from server (PythonEvent seq=39, seq=40)
+11:39:21.419  Client ACKs for seq=39, seq=40 (first send)
+11:39:22.085  Client retransmits stale ACKs (ACK-outbox bug)
+11:39:22.753  Client retransmits again
+11:39:24.851  Client sends DISCONNECT (type 0x05) + 2 stale ACKs
+11:39:24.854  Server ACKs disconnect (seq=2)
+11:39:25.519  Server retransmits ACK (×1)
+    ... 5 more retransmits at ~0.67s intervals ...
+11:39:28.855  Last ACK retransmit (×7)
+11:39:29.016  GameSpy heartbeat with statechanged=1
+```
+
+**Total time**: ~4.2 seconds from disconnect to GameSpy notification. The ~3.4-second gap between last game data and the disconnect message is the client's shutdown sequence.
+
+### 7.5 Implementation Notes
+
+- A reimplementation should handle the disconnect message arriving **multiplexed** with other transport messages in the same packet. Process all messages in the packet normally — ACKs, data messages, then the disconnect.
+- The server should ACK the disconnect (it's a reliable low-type message) but does NOT need to retransmit the ACK 7 times. The stock behavior of endless retransmission is the ACK-outbox bug, not intentional protocol design.
+- After processing the disconnect, trigger the same cleanup path as a timeout disconnect (destroy ship, remove from scoreboard, notify remaining clients, update GameSpy).
+- The `statechanged=1` GameSpy heartbeat should be sent after cleanup completes.
+
+---
+
 ## Summary
 
 | Property | Value |
 |----------|-------|
-| Disconnect detection | Timeout (~45s), graceful (transport 0x06), or kick |
+| Disconnect detection | Timeout (~45s), graceful (transport 0x05), or kick |
 | Cleanup messages | 0x14 (DestroyObject) + 0x17 (DeletePlayerUI) + 0x18 (DeletePlayerAnim) |
 | Cleanup delivery | All reliable (ACK required from each remaining client) |
 | Python behavior | RebuildPlayerList() only; scores preserved for rejoin |
 | Score persistence | By design — scores survive disconnect/reconnect |
 | DeletePlayerUI dual use | Sent at both join time (clear stale slot) and disconnect time |
-| Trace evidence | **None** — no disconnect captured in available traces |
-| Primary source | Protocol structure analysis + readable Python mission scripts |
+| Trace evidence | **Graceful disconnect captured** (2026-02-19, stock-dedi loopback, transport 0x05) |
+| Primary source | Wire trace verification + readable Python mission scripts |
