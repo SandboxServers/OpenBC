@@ -120,4 +120,16 @@ bool bc_parse_ship_blob_header(const u8 *blob, int len,
 bool bc_parse_state_update(const u8 *payload, int len,
                             bc_state_update_t *out);
 
+/* SetPhaserLevel (0x12) -- 18-byte fixed message.
+ * Carries phaser intensity toggle (LOW=0, MED=1, HIGH=2). */
+typedef struct {
+    i32  source_object_id;
+    u8   phaser_level;       /* 0=LOW, 1=MED, 2=HIGH */
+} bc_phaser_level_event_t;
+
+/* Parse SetPhaserLevel (opcode 0x12).
+ * Extracts source ship object ID and phaser level byte. */
+bool bc_parse_set_phaser_level(const u8 *payload, int len,
+                                bc_phaser_level_event_t *out);
+
 #endif /* OPENBC_GAME_EVENTS_H */

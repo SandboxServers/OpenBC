@@ -80,7 +80,104 @@ static bool load_subsystem(bc_subsystem_def_t *ss, const json_value_t *obj)
     ss->max_repair_points = (f32)json_number(json_get(obj, "max_repair_points"));
     ss->num_repair_teams = json_int(json_get(obj, "num_repair_teams"));
 
+    ss->parent_idx = -1; /* set during serialization list loading */
+
     return true;
+}
+
+/* Find a subsystem in the flat array by name. Returns index or -1. */
+static int find_subsys_by_name(const bc_ship_class_t *ship, const char *name)
+{
+    for (int i = 0; i < ship->subsystem_count; i++) {
+        if (strcmp(ship->subsystems[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+/* Parse format string ("base", "powered", "power") to enum. */
+static u8 parse_ss_format(const json_value_t *val)
+{
+    const char *s = json_string(val);
+    if (!s) return BC_SS_FORMAT_BASE;
+    if (strcmp(s, "powered") == 0) return BC_SS_FORMAT_POWERED;
+    if (strcmp(s, "power") == 0)   return BC_SS_FORMAT_POWER;
+    return BC_SS_FORMAT_BASE;
+}
+
+/* Load the hierarchical serialization list from JSON.
+ * Matches entries/children to the flat subsystem array by name.
+ * New container entries get HP slots beyond subsystem_count. */
+static void load_serialization_list(bc_ship_class_t *ship, const json_value_t *arr)
+{
+    bc_ss_list_t *sl = &ship->ser_list;
+    memset(sl, 0, sizeof(*sl));
+    sl->reactor_entry_idx = -1;
+
+    if (!arr || arr->type != JSON_ARRAY) {
+        sl->total_hp_slots = ship->subsystem_count;
+        return;
+    }
+
+    size_t n = json_array_len(arr);
+    if ((int)n > BC_SS_MAX_ENTRIES) n = BC_SS_MAX_ENTRIES;
+    sl->count = (int)n;
+
+    /* Next available HP slot for containers not in the flat array */
+    int next_hp_slot = ship->subsystem_count;
+
+    for (size_t i = 0; i < n; i++) {
+        const json_value_t *entry_obj = json_array_get(arr, i);
+        bc_ss_entry_t *e = &sl->entries[i];
+        memset(e, 0, sizeof(*e));
+
+        e->format = parse_ss_format(json_get(entry_obj, "format"));
+        e->max_condition = (f32)json_number(json_get(entry_obj, "max_condition"));
+        e->normal_power = (f32)json_number(json_get(entry_obj, "normal_power"));
+
+        /* Match entry name to flat subsystem array */
+        const char *ename = json_string(json_get(entry_obj, "name"));
+        int flat_idx = ename ? find_subsys_by_name(ship, ename) : -1;
+        if (flat_idx >= 0) {
+            e->hp_index = flat_idx;
+        } else {
+            /* Container not in flat array — allocate a new HP slot */
+            e->hp_index = next_hp_slot;
+            if (next_hp_slot < BC_MAX_SUBSYSTEMS) next_hp_slot++;
+        }
+
+        /* Track reactor entry */
+        if (e->format == BC_SS_FORMAT_POWER) {
+            sl->reactor_entry_idx = (int)i;
+        }
+
+        /* Children */
+        const json_value_t *children = json_get(entry_obj, "children");
+        if (children && children->type == JSON_ARRAY) {
+            size_t cn = json_array_len(children);
+            if ((int)cn > BC_SS_MAX_CHILDREN) cn = BC_SS_MAX_CHILDREN;
+            e->child_count = (int)cn;
+
+            for (size_t c = 0; c < cn; c++) {
+                const json_value_t *child_obj = json_array_get(children, c);
+                const char *cname = json_string(json_get(child_obj, "name"));
+                int cidx = cname ? find_subsys_by_name(ship, cname) : -1;
+                if (cidx >= 0) {
+                    e->child_hp_index[c] = cidx;
+                    e->child_max_condition[c] = ship->subsystems[cidx].max_condition;
+                    /* Set parent_idx on the child subsystem */
+                    ship->subsystems[cidx].parent_idx = e->hp_index;
+                } else {
+                    /* Child not found — allocate slot (shouldn't happen with correct data) */
+                    e->child_hp_index[c] = next_hp_slot;
+                    e->child_max_condition[c] = (f32)json_number(
+                        json_get(child_obj, "max_condition"));
+                    if (next_hp_slot < BC_MAX_SUBSYSTEMS) next_hp_slot++;
+                }
+            }
+        }
+    }
+
+    sl->total_hp_slots = next_hp_slot;
 }
 
 static bool load_ship(bc_ship_class_t *ship, const json_value_t *obj)
@@ -119,6 +216,16 @@ static bool load_ship(bc_ship_class_t *ship, const json_value_t *obj)
             load_subsystem(&ship->subsystems[i], json_array_get(subs, i));
         }
     }
+
+    /* Serialization list (must be after subsystems are loaded) */
+    load_serialization_list(ship, json_get(obj, "serialization_list"));
+
+    /* Power plant parameters */
+    ship->power_output = (f32)json_number(json_get(obj, "power_output"));
+    ship->main_battery_limit = (f32)json_number(json_get(obj, "main_battery_limit"));
+    ship->backup_battery_limit = (f32)json_number(json_get(obj, "backup_battery_limit"));
+    ship->main_conduit_capacity = (f32)json_number(json_get(obj, "main_conduit_capacity"));
+    ship->backup_conduit_capacity = (f32)json_number(json_get(obj, "backup_conduit_capacity"));
 
     return true;
 }

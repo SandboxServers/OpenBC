@@ -229,11 +229,11 @@ TEST(move_tick_advances_position)
     ship.fwd = (bc_vec3_t){0, 1, 0};
     bc_ship_set_speed(&ship, cls, 5.0f);
 
-    bc_ship_move_tick(&ship, 1.0f);
+    bc_ship_move_tick(&ship, 1.0f, 1.0f);
     ASSERT(fabsf(ship.pos.y - 5.0f) < 0.01f);
     ASSERT(fabsf(ship.pos.x) < 0.01f);
 
-    bc_ship_move_tick(&ship, 0.5f);
+    bc_ship_move_tick(&ship, 1.0f, 0.5f);
     ASSERT(fabsf(ship.pos.y - 7.5f) < 0.01f);
 }
 

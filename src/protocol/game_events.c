@@ -320,6 +320,41 @@ bool bc_parse_state_update(const u8 *payload, int len,
 }
 
 /*
+ * SetPhaserLevel (opcode 0x12)
+ *
+ * Wire format (18 bytes fixed):
+ *   [0x12][class_id:i32=0x105][code:i32=0x8000E0]
+ *   [source_obj:i32][related_obj:i32][level:u8]
+ */
+bool bc_parse_set_phaser_level(const u8 *payload, int len,
+                                bc_phaser_level_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (len < 18) return false;
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_SET_PHASER_LEVEL) return false;
+
+    /* Skip event_class_id (4) + event_code (4) */
+    i32 skip32;
+    if (!bc_buf_read_i32(&buf, &skip32)) return false;
+    if (!bc_buf_read_i32(&buf, &skip32)) return false;
+
+    if (!bc_buf_read_i32(&buf, &out->source_object_id)) return false;
+
+    /* Skip related_object_id */
+    if (!bc_buf_read_i32(&buf, &skip32)) return false;
+
+    if (!bc_buf_read_u8(&buf, &out->phaser_level)) return false;
+
+    return true;
+}
+
+/*
  * Chat / Team Chat (opcode 0x2C / 0x2D)
  *
  * Wire format:

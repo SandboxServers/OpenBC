@@ -9,6 +9,13 @@
 #define BC_MAX_SUBSYSTEMS     64
 #define BC_MAX_SHIELD_FACINGS  6
 
+/* Serialization list formats (for flag 0x20 health round-robin) */
+#define BC_SS_FORMAT_BASE     0   /* Hull, Shield Gen, Bridge: [cond:u8][children...] */
+#define BC_SS_FORMAT_POWERED  1   /* Sensors, Engines, etc.: Base + [bit][power_pct:u8] */
+#define BC_SS_FORMAT_POWER    2   /* Reactor only: Base + [main_batt:u8][backup_batt:u8] */
+#define BC_SS_MAX_CHILDREN   12   /* Max children per serialization list entry */
+#define BC_SS_MAX_ENTRIES    16   /* Max top-level entries in serialization list */
+
 typedef struct { f32 x, y, z; } bc_vec3_t;
 
 typedef struct {
@@ -52,7 +59,32 @@ typedef struct {
     /* Repair */
     f32     max_repair_points;
     i32     num_repair_teams;
+
+    /* Parent container index into subsystem_hp[] (-1 = no parent) */
+    int     parent_idx;
 } bc_subsystem_def_t;
+
+/* Serialization list entry: one top-level subsystem in the flag 0x20 round-robin.
+ * Each entry has a format (Base/Powered/Power), an hp_index into subsystem_hp[],
+ * and optionally children that are serialized recursively. */
+typedef struct {
+    u8  format;                               /* BC_SS_FORMAT_BASE/POWERED/POWER */
+    int hp_index;                             /* index into subsystem_hp[] */
+    f32 max_condition;                        /* max HP for this entry */
+    int child_count;
+    int child_hp_index[BC_SS_MAX_CHILDREN];   /* children's indices into subsystem_hp[] */
+    f32 child_max_condition[BC_SS_MAX_CHILDREN];
+    f32 normal_power;                         /* power draw units/sec at 100% */
+} bc_ss_entry_t;
+
+/* Complete serialization list for a ship class. Determines wire format order
+ * for flag 0x20 health round-robin. */
+typedef struct {
+    bc_ss_entry_t entries[BC_SS_MAX_ENTRIES];
+    int count;                                /* number of top-level entries */
+    int total_hp_slots;                       /* subsystem_count + container slots */
+    int reactor_entry_idx;                    /* which entry is the reactor (-1 if none) */
+} bc_ss_list_t;
 
 typedef struct {
     char    name[32];
@@ -79,6 +111,16 @@ typedef struct {
     f32     damage_falloff_multiplier; /* 1.0 = normal */
     int     subsystem_count;
     bc_subsystem_def_t subsystems[BC_MAX_SUBSYSTEMS];
+
+    /* Hierarchical serialization list for flag 0x20 health round-robin */
+    bc_ss_list_t ser_list;
+
+    /* Reactor / power plant parameters */
+    f32     power_output;             /* units/sec at full health */
+    f32     main_battery_limit;
+    f32     backup_battery_limit;
+    f32     main_conduit_capacity;
+    f32     backup_conduit_capacity;
 } bc_ship_class_t;
 
 typedef struct {

@@ -76,6 +76,11 @@ int bc_socket_send(bc_socket_t *sock, const bc_addr_t *to,
     if (sent == SOCKET_ERROR) {
         int err = WSAGetLastError();
         if (err == WSAEWOULDBLOCK) return 0;
+        LOG_ERROR("net", "sendto() failed: err=%d, fd=%d, to=%u.%u.%u.%u:%u, len=%d",
+                  err, sock->fd,
+                  to->ip & 0xFF, (to->ip >> 8) & 0xFF,
+                  (to->ip >> 16) & 0xFF, (to->ip >> 24) & 0xFF,
+                  ntohs(to->port), len);
         return -1;
     }
     return sent;

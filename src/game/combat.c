@@ -107,6 +107,10 @@ bool bc_combat_can_fire_phaser(const bc_ship_state_t *ship,
     /* Subsystem must be alive */
     if (ship->subsystem_hp[ss_idx] <= 0.0f) return false;
 
+    /* Parent container must be alive (if any) */
+    int parent = cls->subsystems[ss_idx].parent_idx;
+    if (parent >= 0 && ship->subsystem_hp[parent] <= 0.0f) return false;
+
     /* Check disabled threshold */
     const bc_subsystem_def_t *ss = &cls->subsystems[ss_idx];
     if (ss->disabled_pct > 0.0f) {
@@ -152,6 +156,11 @@ bool bc_combat_can_fire_torpedo(const bc_ship_state_t *ship,
     int ss_idx = find_torpedo_subsys(cls, tube_idx);
     if (ss_idx < 0) return false;
     if (ship->subsystem_hp[ss_idx] <= 0.0f) return false;
+
+    /* Parent container must be alive (if any) */
+    int parent = cls->subsystems[ss_idx].parent_idx;
+    if (parent >= 0 && ship->subsystem_hp[parent] <= 0.0f) return false;
+
     if (ship->torpedo_cooldown[tube_idx] > 0.0f) return false;
 
     return true;
@@ -329,9 +338,18 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
         for (int h = 0; h < hit_count; h++) {
             int ss_idx = hit_indices[h];
             if (target->subsystem_hp[ss_idx] > 0.0f) {
-                target->subsystem_hp[ss_idx] -= overflow * 0.5f;
+                f32 sub_dmg = overflow * 0.5f;
+                target->subsystem_hp[ss_idx] -= sub_dmg;
                 if (target->subsystem_hp[ss_idx] < 0.0f) {
                     target->subsystem_hp[ss_idx] = 0.0f;
+                }
+                /* Propagate 25% to parent container */
+                int parent = cls->subsystems[ss_idx].parent_idx;
+                if (parent >= 0 && target->subsystem_hp[parent] > 0.0f) {
+                    target->subsystem_hp[parent] -= sub_dmg * 0.25f;
+                    if (target->subsystem_hp[parent] < 0.0f) {
+                        target->subsystem_hp[parent] = 0.0f;
+                    }
                 }
             }
         }
@@ -512,6 +530,10 @@ bool bc_combat_can_tractor(const bc_ship_state_t *ship,
     int ss_idx = find_tractor_subsys(cls, beam_idx);
     if (ss_idx < 0) return false;
     if (ship->subsystem_hp[ss_idx] <= 0.0f) return false;
+
+    /* Parent container must be alive (if any) */
+    int parent = cls->subsystems[ss_idx].parent_idx;
+    if (parent >= 0 && ship->subsystem_hp[parent] <= 0.0f) return false;
 
     return true;
 }

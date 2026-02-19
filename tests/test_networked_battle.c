@@ -911,7 +911,7 @@ static int run_networked_battle(void)
             if (!g_bp[i].ship.alive) continue;
 
             /* Movement tick */
-            bc_ship_move_tick(&g_bp[i].ship, NB_DT);
+            bc_ship_move_tick(&g_bp[i].ship, 1.0f, NB_DT);
 
             /* Weapon charge/cooldown */
             bc_combat_charge_tick(&g_bp[i].ship, g_bp[i].cls, 1.0f, NB_DT);

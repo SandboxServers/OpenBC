@@ -50,9 +50,9 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-             "build\\openbc-server.exe --manifest %s -v --log-file server_test.log"
+             "build\\openbc-server.exe --manifest %s -vv --log-file server_test_%u.log"
              " --no-master -p %u",
-             manifest_path, port);
+             manifest_path, port, port);
 
     STARTUPINFO si;
     memset(&si, 0, sizeof(si));
@@ -261,21 +261,43 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
              * May need multiple recv calls since server can send ACK-only
              * packets (keepalives, retransmit ACKs) between rounds. */
             msg = NULL;
+            int dbg_pkts = 0, dbg_parse_fail = 0, dbg_no_reliable = 0;
             u32 round_start = GetTickCount();
             while ((int)(GetTickCount() - round_start) < 2000) {
                 int got = tc_recv_raw(c, 200);
                 if (got <= 0) continue;
+                dbg_pkts++;
 
                 bc_packet_t parsed;
-                if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed))
+                if (!bc_transport_parse(c->recv_buf, c->recv_len, &parsed)) {
+                    dbg_parse_fail++;
+                    fprintf(stderr, "  CLIENT %s: round %d recv'd %d bytes, parse FAILED, hex: ",
+                            name, round, got);
+                    for (int z = 0; z < (got < 32 ? got : 32); z++)
+                        fprintf(stderr, "%02X ", c->recv_buf[z]);
+                    fprintf(stderr, "\n");
                     continue;
+                }
+
+                fprintf(stderr, "  CLIENT %s: round %d recv'd pkt: dir=0x%02X msgs=%d\n",
+                        name, round, parsed.direction, parsed.msg_count);
+                for (int z = 0; z < parsed.msg_count; z++) {
+                    bc_transport_msg_t *m = &parsed.msgs[z];
+                    fprintf(stderr, "    msg[%d] type=0x%02X flags=0x%02X seq=0x%04X plen=%d",
+                            z, m->type, m->flags, m->seq, m->payload_len);
+                    if (m->payload_len > 0)
+                        fprintf(stderr, " op=0x%02X", m->payload[0]);
+                    fprintf(stderr, "\n");
+                }
 
                 msg = tc_find_reliable_payload(c, &parsed);
                 if (msg) break;
+                dbg_no_reliable++;
             }
             if (!msg) {
-                fprintf(stderr, "  CLIENT %s: no checksum request round %d\n",
-                        name, round);
+                fprintf(stderr, "  CLIENT %s: no checksum request round %d "
+                        "(pkts=%d parse_fail=%d no_reliable=%d)\n",
+                        name, round, dbg_pkts, dbg_parse_fail, dbg_no_reliable);
                 return false;
             }
         }
@@ -555,17 +577,19 @@ static bool test_client_expect_bytes(bc_test_client_t *c, u8 opcode,
 
 static void test_client_disconnect(bc_test_client_t *c)
 {
-    if (!c->connected) return;
-    /* Send a disconnect transport message */
-    u8 pkt[8];
-    pkt[0] = BC_DIR_CLIENT + c->slot;
-    pkt[1] = 1;
-    pkt[2] = BC_TRANSPORT_DISCONNECT;
-    pkt[3] = 2; /* totalLen */
-    alby_cipher_encrypt(pkt, 4);
-    bc_socket_send(&c->sock, &c->server_addr, pkt, 4);
+    if (c->connected) {
+        /* Send a disconnect transport message */
+        u8 pkt[8];
+        pkt[0] = BC_DIR_CLIENT + c->slot;
+        pkt[1] = 1;
+        pkt[2] = BC_TRANSPORT_DISCONNECT;
+        pkt[3] = 2; /* totalLen */
+        alby_cipher_encrypt(pkt, 4);
+        bc_socket_send(&c->sock, &c->server_addr, pkt, 4);
+        c->connected = false;
+    }
+    /* Always close socket (even if connect failed partway) */
     bc_socket_close(&c->sock);
-    c->connected = false;
 }
 
 /* ======================================================================

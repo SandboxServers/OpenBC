@@ -55,6 +55,21 @@ typedef struct {
     /* Tractor */
     i32        tractor_target_id; /* -1 = none */
 
+    /* Power allocation (indexed by ser_list entry index) */
+    u8         power_pct[BC_SS_MAX_ENTRIES];     /* 0-100, Powered entries only */
+    bool       subsys_enabled[BC_SS_MAX_ENTRIES]; /* on/off state per entry */
+    u8         phaser_level;                      /* 0=LOW, 1=MED, 2=HIGH */
+
+    /* Reactor / battery state */
+    f32        main_battery;
+    f32        backup_battery;
+    f32        main_conduit_remaining;
+    f32        backup_conduit_remaining;
+    f32        power_tick_accum;        /* 1-second interval accumulator */
+
+    /* Power efficiency (computed per-frame by reactor tick) */
+    f32        efficiency[BC_SS_MAX_ENTRIES];  /* 0.0-1.0 per powered entry */
+
     /* Systems */
     bool       alive;
     u8         repair_queue[BC_MAX_SUBSYSTEMS];
@@ -81,15 +96,5 @@ int bc_ship_serialize(const bc_ship_state_t *ship,
 int bc_ship_build_create_packet(const bc_ship_state_t *ship,
                                 const bc_ship_class_t *cls,
                                 u8 *buf, int buf_size);
-
-/* Build a StateUpdate with dirty=0x20 for subsystem + shield + hull health.
- * Sends batch_size subsystems starting at start_idx (wrapping), plus 6 shield
- * bytes and 1 hull byte appended.
- * Returns bytes written to buf, or 0 if nothing to send. */
-int bc_ship_build_health_update(const bc_ship_state_t *ship,
-                                 const bc_ship_class_t *cls,
-                                 f32 game_time,
-                                 u8 start_idx, int batch_size,
-                                 u8 *buf, int buf_size);
 
 #endif /* OPENBC_SHIP_STATE_H */

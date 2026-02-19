@@ -712,6 +712,149 @@
           "is_targetable": true,
           "repair_complexity": 4.0
         }
+      ],
+      "power_output": 800.0,
+      "main_battery_limit": 150000.0,
+      "backup_battery_limit": 50000.0,
+      "main_conduit_capacity": 900.0,
+      "backup_conduit_capacity": 100.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 9000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 9000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 6000,
+          "normal_power": 150
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 6000
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Phasers",
+          "max_condition": 8000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Ventral Phaser 1"
+            },
+            {
+              "name": "Ventral Phaser 2"
+            },
+            {
+              "name": "Ventral Phaser 3"
+            },
+            {
+              "name": "Ventral Phaser 4"
+            },
+            {
+              "name": "Dorsal Phaser 1"
+            },
+            {
+              "name": "Dorsal Phaser 2"
+            },
+            {
+              "name": "Dorsal Phaser 3"
+            },
+            {
+              "name": "Dorsal Phaser 4"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 7000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 3500.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 3500.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 5000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Forward Torp 1"
+            },
+            {
+              "name": "Forward Torp 2"
+            },
+            {
+              "name": "Forward Torp 3"
+            },
+            {
+              "name": "Forward Torp 4"
+            },
+            {
+              "name": "Aft Torp 1"
+            },
+            {
+              "name": "Aft Torp 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Engineering",
+          "max_condition": 7000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 600,
+          "children": [
+            {
+              "name": "Forward Tractor"
+            },
+            {
+              "name": "Aft Tractor"
+            }
+          ]
+        },
+        {
+          "format": "base",
+          "name": "Bridge",
+          "max_condition": 9000
+        }
       ]
     },
     {
@@ -1373,6 +1516,143 @@
           "arc_height": [
             0.034907,
             1.570796
+          ]
+        }
+      ],
+      "power_output": 600.0,
+      "main_battery_limit": 200000.0,
+      "backup_battery_limit": 50000.0,
+      "main_conduit_capacity": 700.0,
+      "backup_conduit_capacity": 100.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 13000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 6000,
+          "normal_power": 50
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 6000
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Phasers",
+          "max_condition": 8000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Ventral Phaser 1"
+            },
+            {
+              "name": "Ventral Phaser 2"
+            },
+            {
+              "name": "Ventral Phaser 3"
+            },
+            {
+              "name": "Dorsal Phaser 1"
+            },
+            {
+              "name": "Dorsal Phaser 2"
+            },
+            {
+              "name": "Dorsal Phaser 3"
+            },
+            {
+              "name": "Aft Phaser 1"
+            },
+            {
+              "name": "Aft Phaser 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 5000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Forward Torpedo 1"
+            },
+            {
+              "name": "Forward Torpedo 2"
+            },
+            {
+              "name": "Aft Torpedo 1"
+            },
+            {
+              "name": "Aft Torpedo 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Engineering",
+          "max_condition": 7000,
+          "normal_power": 1
+        },
+        {
+          "format": "base",
+          "name": "Bridge",
+          "max_condition": 9000
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 600,
+          "children": [
+            {
+              "name": "Forward Tractor"
+            },
+            {
+              "name": "Aft Tractor"
+            }
           ]
         }
       ]
@@ -2170,6 +2450,159 @@
           ],
           "normal_power": 0.0
         }
+      ],
+      "power_output": 1000.0,
+      "main_battery_limit": 250000.0,
+      "backup_battery_limit": 80000.0,
+      "main_conduit_capacity": 1200.0,
+      "backup_conduit_capacity": 200.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 12000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 7000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 8000,
+          "normal_power": 100
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 6000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Forward Torpedo 1"
+            },
+            {
+              "name": "Forward Torpedo 2"
+            },
+            {
+              "name": "Forward Torpedo 3"
+            },
+            {
+              "name": "Forward Torpedo 4"
+            },
+            {
+              "name": "Aft Torpedo 1"
+            },
+            {
+              "name": "Aft Torpedo 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Phasers",
+          "max_condition": 8000,
+          "normal_power": 300,
+          "children": [
+            {
+              "name": "Ventral Phaser 3"
+            },
+            {
+              "name": "Dorsal Phaser 2"
+            },
+            {
+              "name": "Dorsal Phaser 4"
+            },
+            {
+              "name": "Dorsal Phaser 1"
+            },
+            {
+              "name": "Dorsal Phaser 3"
+            },
+            {
+              "name": "Ventral Phaser 1"
+            },
+            {
+              "name": "Ventral Phaser 4"
+            },
+            {
+              "name": "Ventral Phaser 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Center Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 600,
+          "children": [
+            {
+              "name": "Aft Tractor 1"
+            },
+            {
+              "name": "Aft Tractor 2"
+            },
+            {
+              "name": "Forward Tractor 1"
+            },
+            {
+              "name": "Forward Tractor 2"
+            }
+          ]
+        },
+        {
+          "format": "base",
+          "name": "Bridge",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Engineering",
+          "max_condition": 8000,
+          "normal_power": 1
+        }
       ]
     },
     {
@@ -2882,6 +3315,149 @@
             0.698132
           ],
           "normal_power": 0.0
+        }
+      ],
+      "power_output": 800.0,
+      "main_battery_limit": 100000.0,
+      "backup_battery_limit": 150000.0,
+      "main_conduit_capacity": 1000.0,
+      "backup_conduit_capacity": 200.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 10000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 8000,
+          "normal_power": 100
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 7000
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Phasers",
+          "max_condition": 8000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Dorsal Phaser 1"
+            },
+            {
+              "name": "Dorsal Phaser 2"
+            },
+            {
+              "name": "Dorsal Phaser 3"
+            },
+            {
+              "name": "Dorsal Phaser 4"
+            },
+            {
+              "name": "Ventral Phaser 1"
+            },
+            {
+              "name": "Ventral Phaser 2"
+            },
+            {
+              "name": "Ventral Phaser 3"
+            },
+            {
+              "name": "Ventral Phaser 4"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 5000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Forward Torp 1"
+            },
+            {
+              "name": "Forward Torp 2"
+            },
+            {
+              "name": "Forward Torp 3"
+            },
+            {
+              "name": "Forward Torp 4"
+            },
+            {
+              "name": "Aft Torp 1"
+            },
+            {
+              "name": "Aft Torp 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Repair",
+          "max_condition": 8000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 400,
+          "children": [
+            {
+              "name": "Aft Tractor"
+            },
+            {
+              "name": "Forward Tractor"
+            }
+          ]
+        },
+        {
+          "format": "base",
+          "name": "Bridge",
+          "max_condition": 10000
         }
       ]
     },
@@ -3678,6 +4254,155 @@
           ],
           "normal_power": 0.0
         }
+      ],
+      "power_output": 1200.0,
+      "main_battery_limit": 200000.0,
+      "backup_battery_limit": 100000.0,
+      "main_conduit_capacity": 1450.0,
+      "backup_conduit_capacity": 250.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 12000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 8000,
+          "normal_power": 150
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 7000
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 6000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Forward Torpedo 1"
+            },
+            {
+              "name": "Forward Torpedo 2"
+            },
+            {
+              "name": "Forward Torpedo 3"
+            },
+            {
+              "name": "Forward Torpedo 4"
+            },
+            {
+              "name": "Aft Torpedo 1"
+            },
+            {
+              "name": "Aft Torpedo 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Repair",
+          "max_condition": 8000,
+          "normal_power": 1
+        },
+        {
+          "format": "base",
+          "name": "Bridge",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Phasers",
+          "max_condition": 8000,
+          "normal_power": 400,
+          "children": [
+            {
+              "name": "Ventral Phaser 3"
+            },
+            {
+              "name": "Dorsal Phaser 2"
+            },
+            {
+              "name": "Dorsal Phaser 4"
+            },
+            {
+              "name": "Dorsal Phaser 1"
+            },
+            {
+              "name": "Dorsal Phaser 3"
+            },
+            {
+              "name": "Ventral Phaser 1"
+            },
+            {
+              "name": "Ventral Phaser 4"
+            },
+            {
+              "name": "Ventral Phaser 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 700,
+          "children": [
+            {
+              "name": "Aft Tractor 1"
+            },
+            {
+              "name": "Aft Tractor 2"
+            },
+            {
+              "name": "Forward Tractor 1"
+            },
+            {
+              "name": "Forward Tractor 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4500.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4500.0
+            }
+          ]
+        }
       ]
     },
     {
@@ -3945,6 +4670,99 @@
           "repair_complexity": 4.0,
           "max_repair_points": 16.0,
           "num_repair_teams": 1
+        }
+      ],
+      "power_output": 400.0,
+      "main_battery_limit": 80000.0,
+      "backup_battery_limit": 40000.0,
+      "main_conduit_capacity": 470.0,
+      "backup_conduit_capacity": 70.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 4000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 4000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 3000
+        },
+        {
+          "format": "powered",
+          "name": "Disruptor Cannons",
+          "max_condition": 3000,
+          "normal_power": 80,
+          "children": [
+            {
+              "name": "Port Cannon"
+            },
+            {
+              "name": "Star Cannon"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 2000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Fwd Torpedo"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 2000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Impulse Engine",
+              "max_condition": 2000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 4000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 2000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 2000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Cloaking Device",
+          "max_condition": 3000,
+          "normal_power": 380
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 3000,
+          "normal_power": 50
+        },
+        {
+          "format": "powered",
+          "name": "Engineering",
+          "max_condition": 4000,
+          "normal_power": 1
         }
       ]
     },
@@ -4385,6 +5203,134 @@
             0.0
           ],
           "normal_power": 0.0
+        }
+      ],
+      "power_output": 800.0,
+      "main_battery_limit": 100000.0,
+      "backup_battery_limit": 100000.0,
+      "main_conduit_capacity": 900.0,
+      "backup_conduit_capacity": 200.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 12000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 10000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 7000
+        },
+        {
+          "format": "powered",
+          "name": "Disruptor Beams",
+          "max_condition": 5000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Disruptor"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Disruptor Cannons",
+          "max_condition": 5000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Port Cannon"
+            },
+            {
+              "name": "Star Cannon"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 5000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Fwd Torpedo 1"
+            },
+            {
+              "name": "Fwd Torpedo 2"
+            },
+            {
+              "name": "Aft Torpedo"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Cloaking Device",
+          "max_condition": 6000,
+          "normal_power": 700
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 6000,
+          "normal_power": 100
+        },
+        {
+          "format": "powered",
+          "name": "Repair System",
+          "max_condition": 7000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 700,
+          "children": [
+            {
+              "name": "Aft Tractor"
+            },
+            {
+              "name": "Forward Tractor"
+            }
+          ]
         }
       ]
     },
@@ -4896,6 +5842,142 @@
           ],
           "normal_power": 0.0
         }
+      ],
+      "power_output": 1500.0,
+      "main_battery_limit": 100000.0,
+      "backup_battery_limit": 200000.0,
+      "main_conduit_capacity": 1700.0,
+      "backup_conduit_capacity": 300.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 14000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 10000
+        },
+        {
+          "format": "power",
+          "name": "Power Plant",
+          "max_condition": 8000
+        },
+        {
+          "format": "powered",
+          "name": "Disruptor Beam",
+          "max_condition": 5000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Disruptor"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Disruptor Cannons",
+          "max_condition": 5000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Star Cannon 1"
+            },
+            {
+              "name": "Port Cannon 1"
+            },
+            {
+              "name": "Star Cannon 2"
+            },
+            {
+              "name": "Port Cannon 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 5000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Forward Torpedo"
+            },
+            {
+              "name": "Aft Torpedo"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 300,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Cloaking Device",
+          "max_condition": 7000,
+          "normal_power": 1000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 8000,
+          "normal_power": 200
+        },
+        {
+          "format": "powered",
+          "name": "Engineering",
+          "max_condition": 8000,
+          "normal_power": 1
+        },
+        {
+          "format": "base",
+          "name": "Bridge",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 800,
+          "children": [
+            {
+              "name": "Aft Tractor"
+            },
+            {
+              "name": "Forward Tractor"
+            }
+          ]
+        }
       ]
     },
     {
@@ -5244,6 +6326,111 @@
           ],
           "normal_power": 0.0
         }
+      ],
+      "power_output": 700.0,
+      "main_battery_limit": 140000.0,
+      "backup_battery_limit": 100000.0,
+      "main_conduit_capacity": 900.0,
+      "backup_conduit_capacity": 200.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 8000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 8000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 5000
+        },
+        {
+          "format": "powered",
+          "name": "Phasers",
+          "max_condition": 5000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Ventral Phaser"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 6000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Star Warp",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Port Warp",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 2000,
+          "children": [
+            {
+              "name": "Forward Tractor"
+            },
+            {
+              "name": "Aft Tractor"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 6000,
+          "normal_power": 100
+        },
+        {
+          "format": "powered",
+          "name": "Repair Subsystem",
+          "max_condition": 6000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Plasma Emitters",
+          "max_condition": 5000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Port Emitter"
+            },
+            {
+              "name": "Star Emitter"
+            }
+          ]
+        }
       ]
     },
     {
@@ -5574,6 +6761,99 @@
             0.087266,
             0.610865
           ]
+        }
+      ],
+      "power_output": 500.0,
+      "main_battery_limit": 120000.0,
+      "backup_battery_limit": 50000.0,
+      "main_conduit_capacity": 550.0,
+      "backup_conduit_capacity": 150.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 8000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 8000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 5000
+        },
+        {
+          "format": "powered",
+          "name": "Compressors",
+          "max_condition": 5000,
+          "normal_power": 150,
+          "children": [
+            {
+              "name": "Forward Beam"
+            },
+            {
+              "name": "Port Beam"
+            },
+            {
+              "name": "Star Beam"
+            },
+            {
+              "name": "Aft Beam"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 3000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Forward Torpedo"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engine",
+          "max_condition": 4000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Warp Engine 1",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Repair Subsystem",
+          "max_condition": 5000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 5000,
+          "normal_power": 50
         }
       ]
     },
@@ -6012,6 +7292,124 @@
             -0.034907
           ],
           "normal_power": 0.0
+        }
+      ],
+      "power_output": 600.0,
+      "main_battery_limit": 140000.0,
+      "backup_battery_limit": 50000.0,
+      "main_conduit_capacity": 700.0,
+      "backup_conduit_capacity": 100.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 9000
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 9000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 6000
+        },
+        {
+          "format": "powered",
+          "name": "Compressors",
+          "max_condition": 5000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Forward Beam"
+            },
+            {
+              "name": "Port Beam"
+            },
+            {
+              "name": "Star Beam"
+            },
+            {
+              "name": "Aft Beam"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 4000,
+          "normal_power": 70,
+          "children": [
+            {
+              "name": "Forward Torpedo"
+            },
+            {
+              "name": "Aft Torpedo"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 70,
+          "children": [
+            {
+              "name": "Impulse 1",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Impulse 2",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Impulse 3",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Impulse 4",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engine",
+          "max_condition": 5000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Warp Engine 1",
+              "max_condition": 5000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 6000,
+          "normal_power": 50
+        },
+        {
+          "format": "powered",
+          "name": "Repair Subsystem",
+          "max_condition": 6000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 400,
+          "children": [
+            {
+              "name": "Ventral Tractor"
+            },
+            {
+              "name": "Dorsal Tractor"
+            }
+          ]
         }
       ]
     },
@@ -6636,6 +8034,147 @@
           ],
           "normal_power": 0.0
         }
+      ],
+      "power_output": 1000.0,
+      "main_battery_limit": 160000.0,
+      "backup_battery_limit": 50000.0,
+      "main_conduit_capacity": 1100.0,
+      "backup_conduit_capacity": 100.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 12000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 7000
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 5000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Torpedo 1"
+            },
+            {
+              "name": "Torpedo 2"
+            },
+            {
+              "name": "Aft Torpedo"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Repair System",
+          "max_condition": 7000,
+          "normal_power": 1
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 10000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 7000,
+          "normal_power": 100
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Center Warp",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Beams",
+          "max_condition": 7000,
+          "normal_power": 300,
+          "children": [
+            {
+              "name": "Forward Compressor"
+            },
+            {
+              "name": "Forward Beam 1"
+            },
+            {
+              "name": "Forward Beam 2"
+            },
+            {
+              "name": "Ventral Beam 1"
+            },
+            {
+              "name": "Ventral Beam 2"
+            },
+            {
+              "name": "Dorsal Beam 1"
+            },
+            {
+              "name": "Dorsal Beam 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Disruptor Cannons",
+          "max_condition": 5000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Cannon"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 3000,
+          "normal_power": 400,
+          "children": [
+            {
+              "name": "Forward Tractor"
+            },
+            {
+              "name": "Aft Tractor"
+            }
+          ]
+        }
       ]
     },
     {
@@ -7169,6 +8708,124 @@
             1.22173
           ]
         }
+      ],
+      "power_output": 1400.0,
+      "main_battery_limit": 100000.0,
+      "backup_battery_limit": 100000.0,
+      "main_conduit_capacity": 1500.0,
+      "backup_conduit_capacity": 100.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 16000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 8000
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 8000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 4000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 4000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Positron Beams",
+          "max_condition": 8000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Forward Beam 1"
+            },
+            {
+              "name": "Forward Beam 2"
+            },
+            {
+              "name": "Ventral Beam 1"
+            },
+            {
+              "name": "Ventral Beam 2"
+            },
+            {
+              "name": "Dorsal Beam 1"
+            },
+            {
+              "name": "Dorsal Beam 2"
+            },
+            {
+              "name": "Forward Beam 3"
+            },
+            {
+              "name": "Forward Beam 4"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 5000,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Torpedo Tube 1"
+            },
+            {
+              "name": "Torpedo Tube 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Repair System",
+          "max_condition": 8000,
+          "normal_power": 50
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 12000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 8000,
+          "normal_power": 200
+        },
+        {
+          "format": "powered",
+          "name": "Cloaking Device",
+          "max_condition": 7000,
+          "normal_power": 1300
+        }
       ]
     },
     {
@@ -7677,6 +9334,121 @@
             1.396263
           ]
         }
+      ],
+      "power_output": 900.0,
+      "main_battery_limit": 120000.0,
+      "backup_battery_limit": 80000.0,
+      "main_conduit_capacity": 1000.0,
+      "backup_conduit_capacity": 50.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 10000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 6000
+        },
+        {
+          "format": "powered",
+          "name": "Torpedoes",
+          "max_condition": 4000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Torpedo"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Repair System",
+          "max_condition": 6000,
+          "normal_power": 1
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 8000
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 6000,
+          "normal_power": 100
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 3000,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 6000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 3000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Beams",
+          "max_condition": 7000,
+          "normal_power": 300,
+          "children": [
+            {
+              "name": "Forward Beam 1"
+            },
+            {
+              "name": "Forward Beam 2"
+            },
+            {
+              "name": "Port Beam 1"
+            },
+            {
+              "name": "Port Beam 2"
+            },
+            {
+              "name": "Star Beam 1"
+            },
+            {
+              "name": "Star Beam 2"
+            },
+            {
+              "name": "Aft Beam 1"
+            },
+            {
+              "name": "Aft Beam 2"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Cloaking Device",
+          "max_condition": 5000,
+          "normal_power": 700
+        }
       ]
     },
     {
@@ -7921,6 +9693,94 @@
           ],
           "normal_power": 0.0
         }
+      ],
+      "power_output": 100.0,
+      "main_battery_limit": 20000.0,
+      "backup_battery_limit": 10000.0,
+      "main_conduit_capacity": 140.0,
+      "backup_conduit_capacity": 40.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 3500
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 1000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 1000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 1000.0
+            }
+          ]
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 1500
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 2000,
+          "normal_power": 50
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 3500
+        },
+        {
+          "format": "powered",
+          "name": "Phasers",
+          "max_condition": 3000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Phaser"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Repair",
+          "max_condition": 3000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 2000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Port Warp",
+              "max_condition": 1000.0
+            },
+            {
+              "name": "Starboard Warp",
+              "max_condition": 1000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 1500,
+          "normal_power": 100,
+          "children": [
+            {
+              "name": "Forward Tractor"
+            }
+          ]
+        }
       ]
     },
     {
@@ -8107,6 +9967,79 @@
             -2.094395
           ],
           "normal_power": 0.0
+        }
+      ],
+      "power_output": 400.0,
+      "main_battery_limit": 50000.0,
+      "backup_battery_limit": 10000.0,
+      "main_conduit_capacity": 400.0,
+      "backup_conduit_capacity": 200.0,
+      "serialization_list": [
+        {
+          "format": "base",
+          "name": "Hull",
+          "max_condition": 5000
+        },
+        {
+          "format": "powered",
+          "name": "Impulse Engines",
+          "max_condition": 2000,
+          "normal_power": 50,
+          "children": [
+            {
+              "name": "Port Impulse",
+              "max_condition": 2000.0
+            },
+            {
+              "name": "Starboard Impulse",
+              "max_condition": 2000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Warp Engines",
+          "max_condition": 3000,
+          "normal_power": 0,
+          "children": [
+            {
+              "name": "Warp Drive",
+              "max_condition": 3000.0
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Engineering",
+          "max_condition": 3000,
+          "normal_power": 1
+        },
+        {
+          "format": "powered",
+          "name": "Tractors",
+          "max_condition": 1500,
+          "normal_power": 200,
+          "children": [
+            {
+              "name": "Tractor Beam"
+            }
+          ]
+        },
+        {
+          "format": "powered",
+          "name": "Sensor Array",
+          "max_condition": 3000,
+          "normal_power": 50
+        },
+        {
+          "format": "base",
+          "name": "Shield Generator",
+          "max_condition": 4000
+        },
+        {
+          "format": "power",
+          "name": "Warp Core",
+          "max_condition": 3000
         }
       ]
     }

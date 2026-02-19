@@ -426,7 +426,7 @@ TEST(dynamic_battle)
             if (!g_players[i].ship.alive) continue;
 
             /* Movement */
-            bc_ship_move_tick(&g_players[i].ship, dt);
+            bc_ship_move_tick(&g_players[i].ship, 1.0f, dt);
 
             /* Weapon charge/cooldown */
             bc_combat_charge_tick(&g_players[i].ship, g_players[i].cls, 1.0f, dt);
@@ -704,7 +704,7 @@ TEST(bop_cloak_attack_cycle)
     bc_vec3_t target_pos = {0, 100, 0};
     bc_ship_turn_toward(&bop, bop_cls, target_pos, 0.1f);
     bc_ship_set_speed(&bop, bop_cls, bop_cls->max_speed);
-    bc_ship_move_tick(&bop, 1.0f); /* move forward */
+    bc_ship_move_tick(&bop, 1.0f, 1.0f); /* move forward */
 
     /* 4. Decloak for alpha strike */
     ASSERT(bc_cloak_stop(&bop));

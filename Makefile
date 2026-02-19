@@ -17,10 +17,12 @@ CHECKSUM_SRC := src/checksum/string_hash.c src/checksum/file_hash.c src/checksum
 PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c src/protocol/opcodes.c src/protocol/handshake.c src/protocol/game_events.c src/protocol/game_builders.c
 NETWORK_SRC  := src/network/net.c src/network/peer.c src/network/transport.c src/network/gamespy.c src/network/reliable.c src/network/master.c src/network/client_transport.c
 JSON_SRC     := src/json/json_parse.c
-GAME_SRC     := src/game/ship_data.c src/game/ship_state.c src/game/movement.c src/game/combat.c src/game/torpedo_tracker.c
+GAME_SRC     := src/game/ship_data.c src/game/ship_state.c src/game/ship_power.c src/game/movement.c src/game/combat.c src/game/torpedo_tracker.c
 MANIFEST_SRC := tools/manifest.c
 LOG_SRC      := src/server/log.c
-SERVER_SRC   := src/server/main.c
+SERVER_SRC   := src/server/main.c src/server/server_state.c \
+                src/server/server_send.c src/server/server_handshake.c \
+                src/server/server_dispatch.c src/server/server_stats.c
 
 # Object files
 CHECKSUM_OBJ := $(CHECKSUM_SRC:%.c=$(BUILD)/%.o)

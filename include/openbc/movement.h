@@ -15,8 +15,8 @@
 #define BC_DIRTY_CLOAK       0x40
 #define BC_DIRTY_WEAPON      0x80
 
-/* Advance ship position: pos += fwd * speed * dt */
-void bc_ship_move_tick(bc_ship_state_t *ship, f32 dt);
+/* Advance ship position: pos += fwd * speed * engine_efficiency * dt */
+void bc_ship_move_tick(bc_ship_state_t *ship, f32 engine_efficiency, f32 dt);
 
 /* Rotate ship forward vector toward a target position.
  * Turn rate clamped by cls->max_angular_velocity. */

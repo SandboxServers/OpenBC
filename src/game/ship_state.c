@@ -24,8 +24,18 @@ void bc_ship_init(bc_ship_state_t *ship,
     for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
         ship->shield_hp[i] = cls->shield_hp[i];
     }
+    /* Initialize flat subsystem HP */
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         ship->subsystem_hp[i] = cls->subsystems[i].max_condition;
+    }
+    /* Initialize container HP slots from serialization list */
+    const bc_ss_list_t *sl = &cls->ser_list;
+    for (int i = 0; i < sl->count; i++) {
+        const bc_ss_entry_t *e = &sl->entries[i];
+        /* If hp_index is beyond subsystem_count, it's a container slot */
+        if (e->hp_index >= cls->subsystem_count && e->hp_index < BC_MAX_SUBSYSTEMS) {
+            ship->subsystem_hp[e->hp_index] = e->max_condition;
+        }
     }
 
     /* Default orientation: facing forward (+Y), up (+Z) */
@@ -47,6 +57,23 @@ void bc_ship_init(bc_ship_state_t *ship,
             }
         }
     }
+
+    /* Power allocation: all powered entries at 100%, enabled */
+    for (int i = 0; i < sl->count && i < BC_SS_MAX_ENTRIES; i++) {
+        ship->power_pct[i] = 100;
+        ship->subsys_enabled[i] = true;
+        ship->efficiency[i] = 1.0f;
+    }
+
+    /* Phaser intensity: default MEDIUM */
+    ship->phaser_level = 1;
+
+    /* Batteries: start fully charged */
+    ship->main_battery = cls->main_battery_limit;
+    ship->backup_battery = cls->backup_battery_limit;
+    ship->main_conduit_remaining = cls->main_conduit_capacity;
+    ship->backup_conduit_remaining = cls->backup_conduit_capacity;
+    ship->power_tick_accum = 0.0f;
 }
 
 int bc_ship_serialize(const bc_ship_state_t *ship,
@@ -121,39 +148,3 @@ int bc_ship_build_create_packet(const bc_ship_state_t *ship,
                                        blob, blob_len);
 }
 
-int bc_ship_build_health_update(const bc_ship_state_t *ship,
-                                 const bc_ship_class_t *cls,
-                                 f32 game_time,
-                                 u8 start_idx, int batch_size,
-                                 u8 *buf, int buf_size)
-{
-    if (!ship->alive || cls->subsystem_count == 0) return 0;
-
-    /* Build field data: [startIdx:u8][health_bytes...]
-     * Per spec (ship-subsystems.md §4): flag 0x20 carries ONLY subsystem
-     * condition bytes.  Shield facings and hull HP are NOT included here.
-     * Each byte = (u8)(current_hp / max_condition * 255).
-     *
-     * The batch starts at start_idx and runs forward WITHOUT wrapping.
-     * Over multiple ticks the round-robin index cycles to cover all
-     * subsystems. */
-    u8 field[128];
-    int fpos = 0;
-
-    field[fpos++] = start_idx;
-
-    int count = cls->subsystem_count;
-    int end = (int)start_idx + batch_size;
-    if (end > count) end = count;
-    for (int idx = (int)start_idx; idx < end; idx++) {
-        f32 max_hp = cls->subsystems[idx].max_condition;
-        f32 ratio = (max_hp > 0.0f) ? (ship->subsystem_hp[idx] / max_hp) : 0.0f;
-        if (ratio < 0.0f) ratio = 0.0f;
-        if (ratio > 1.0f) ratio = 1.0f;
-        field[fpos++] = (u8)(ratio * 255.0f);
-    }
-
-    return bc_build_state_update(buf, buf_size,
-                                  ship->object_id, game_time, 0x20,
-                                  field, fpos);
-}

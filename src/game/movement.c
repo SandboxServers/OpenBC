@@ -54,10 +54,10 @@ f32 bc_vec3_dist(bc_vec3_t a, bc_vec3_t b)
 
 /* --- Movement --- */
 
-void bc_ship_move_tick(bc_ship_state_t *ship, f32 dt)
+void bc_ship_move_tick(bc_ship_state_t *ship, f32 engine_efficiency, f32 dt)
 {
     if (!ship->alive || dt <= 0.0f) return;
-    ship->pos = bc_vec3_add(ship->pos, bc_vec3_scale(ship->fwd, ship->speed * dt));
+    ship->pos = bc_vec3_add(ship->pos, bc_vec3_scale(ship->fwd, ship->speed * engine_efficiency * dt));
 }
 
 void bc_ship_turn_toward(bc_ship_state_t *ship,

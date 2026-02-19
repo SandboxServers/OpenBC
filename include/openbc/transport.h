@@ -88,8 +88,12 @@ int bc_transport_build_shutdown_notify(u8 *out, int out_size, u8 slot, u32 ip_be
  * Call add_* to queue messages, then flush to send them all in one packet. */
 typedef struct {
     u8  buf[BC_MAX_PACKET_SIZE];
-    int pos;        /* Write cursor (starts at 2, past direction+count) */
-    int msg_count;  /* Messages accumulated */
+    /* volatile: i686-w64-mingw32-gcc -O2 eliminates stores to fields of
+     * large structs after memset.  bc_outbox_t is embedded in bc_peer_t
+     * which is zeroed in bc_peers_add; without volatile, the compiler
+     * drops the pos=2 write from bc_outbox_init. */
+    volatile int pos;        /* Write cursor (starts at 2, past direction+count) */
+    volatile int msg_count;  /* Messages accumulated */
 } bc_outbox_t;
 
 /* Reset outbox to empty state. */
