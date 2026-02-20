@@ -13,11 +13,13 @@ Behavioral specification of a stock Bridge Commander 1.1 transport layer bug tha
 
 ## Overview
 
-The stock transport layer's ACK-outbox (the per-peer queue of pending ACK messages to send) has a two-pass processing design with a logic deadlock. ACK entries that have been sent 3 or more times become permanently stuck in the outbox — never sent again, never cleaned up, never freed. This causes three compounding effects over long sessions:
+The stock transport layer's ACK-outbox (the per-peer queue of pending ACK messages to send) has a two-pass processing design with a logic deadlock. ACK entries that have been sent 3 or more times become stuck in the outbox when no other traffic is flowing — never sent again, never cleaned up, never freed. This causes three effects over long sessions:
 
-1. **Memory leak** — stuck entries accumulate indefinitely (~76 bytes each)
+1. **Memory leak** — stuck entries accumulate (~76 bytes each)
 2. **Game data starvation** — fresh ACK entries consume packet buffer space meant for game data
 3. **Dedup search degradation** — every incoming reliable message triggers a linear scan of all stuck entries
+
+Empirical validation (34-minute battle trace, 3 players, stock dedicated server) shows the bug is **self-limiting during active gameplay** — the queue peaks at 20-33 entries rather than the hundreds originally projected, with zero observable tick degradation. The bug remains a theoretical concern for very long sessions with extended quiet periods.
 
 The engine has correct bounds checking (no buffer overflow is possible), and the message count cap (255 per packet) is properly enforced. The damage is from resource exhaustion and algorithmic degradation, not memory corruption.
 
@@ -77,6 +79,15 @@ The deadlock resolves when:
 2. **Peer disconnects** — the disconnecting flag opens the Pass 2 gate unconditionally.
 
 During active gameplay (combat, movement, events), new messages flow frequently enough that the gate opens most ticks and entries eventually reach retransmit count 9. During quiet periods (lobby, post-combat lulls), the deadlock persists and entries accumulate.
+
+### Empirical Behavior
+
+Two session traces validate the deadlock mechanism but show it is **self-limiting during active gameplay**:
+
+- **34-minute battle trace** (3 players, stock dedi): Peak ACK-outbox of 20-33 entries, not the hundreds projected. During active combat, game traffic keeps message count > 0 most ticks, opening the cleanup gate frequently enough to drain stuck entries.
+- **91-second instrumented session** (1 client, stock dedi): Peak ACK-outbox of 11-13 entries. 64% of ACK handler calls found an empty retransmit queue (stale ACKs arriving after the retransmit queue was already cleared).
+
+The deadlock is **intermittent, not permanent** — it resolves whenever new game traffic flows. The queue reaches a dynamic equilibrium of 10-33 entries during active play rather than growing unboundedly.
 
 ---
 
@@ -150,14 +161,14 @@ The engine correctly prevents buffer overflows:
 
 Each stuck ACK entry permanently consumes ~76 bytes (message object + queue node). Entries accumulate as new reliable messages are exchanged throughout the session.
 
-| Session Duration | Estimated Stuck Entries | Memory Leaked |
-|------------------|------------------------|---------------|
-| 2 minutes | ~13 | ~1 KB |
-| 30 minutes | ~600 | ~45 KB |
-| 2 hours | ~2,400 | ~180 KB |
-| 4 hours | ~6,000 | ~450 KB |
+| Session Duration | Originally Projected | Observed (34-min trace) | Memory Impact |
+|------------------|---------------------|------------------------|---------------|
+| 2 minutes | ~13 entries | 11-13 entries | ~1 KB |
+| 30 minutes | ~600 entries | **20-33 entries (peak)** | ~2.5 KB |
+| 2 hours | ~2,400 entries | Not measured | Not measured |
+| 4 hours | ~6,000 entries | Not measured | Not measured |
 
-Not catastrophic on modern systems, but meaningful in a 32-bit address space with 2002-era memory budgets.
+The original projections assumed unbounded growth. In practice, during active gameplay the cleanup gate opens frequently (message count > 0 most ticks), draining entries before they accumulate. The queue stabilizes at 10-33 entries during active combat sessions. Long-session projections (2+ hours) remain unmeasured — accumulation during extended quiet periods could still be significant.
 
 ### 5.2 Game Data Starvation
 
@@ -168,24 +179,68 @@ While ACK entries have retransmit count < 3, they consume space in the 512-byte 
 
 This effect is transient per entry (entries stop consuming buffer space once they reach retransmit count 3 and enter the dead zone), but new entries are constantly being created.
 
-### 5.3 Dedup Search Degradation (Most Dangerous)
+**Empirical note**: In the 34-minute battle trace, packets carried up to 33 messages (~132 bytes of ACKs from the ~512-byte budget). This is significant but not catastrophic — approximately 26% of the buffer consumed by stale ACKs at peak, leaving ~378 bytes for game data.
+
+### 5.3 Dedup Search Degradation
 
 Every incoming reliable message triggers a deduplication scan of the **entire** ACK-outbox. The scan is linear (O(N)), checking 4 fields per entry. Stuck entries are included in this scan even though they'll never match new incoming sequence numbers.
 
-| Session Duration | Queue Size | Cost per Reliable Message |
-|------------------|------------|---------------------------|
-| 2 minutes | ~13 | 13 comparisons (negligible) |
-| 30 minutes | ~600 | 600 comparisons |
-| 2 hours | ~2,400 | 2,400 comparisons |
-| 4 hours | ~6,000 | 6,000 comparisons |
+| Session Duration | Originally Projected | Observed (34-min trace) | Dedup Cost per Reliable Message |
+|------------------|---------------------|------------------------|----------------------------------|
+| 2 minutes | ~13 entries | 11-13 entries | ~13 comparisons (negligible) |
+| 30 minutes | ~600 entries | **20-33 entries** | **20-33 comparisons (negligible)** |
+| 2 hours | ~2,400 entries | Not measured | Depends on quiet period duration |
+| 4 hours | ~6,000 entries | Not measured | Depends on quiet period duration |
 
-At typical combat rates of ~60 reliable messages per second: **2,400 entries × 60 msgs/sec = 144,000 four-field comparisons per second**. This runs inside the network receive tick. As the cost grows, the network tick takes longer, packets queue up, and the session progressively degrades.
+At the observed queue sizes (20-33 entries), the dedup cost is negligible: **33 entries × 60 msgs/sec = 1,980 four-field comparisons per second** — trivial even on 2002-era CPUs. Tick timing in the 34-minute battle trace was stable at ~95ms throughout, with zero observable degradation.
 
-The most likely crash vector for long sessions is the dedup scan eventually making the network tick too slow to keep up with incoming traffic, causing cascading timeouts and peer disconnects.
+The original projection of progressive degradation assumed unbounded queue growth. In practice, the queue self-limits during active gameplay. The theoretical risk remains for extreme scenarios: hours-long sessions with extended quiet periods where the queue could grow without the cleanup gate opening. Such conditions have not been observed in testing.
+
+The dedup scan runs inside the network receive tick. At observed queue sizes this is not a concern, but if the queue grew to thousands of entries (possible only during sustained quiet periods), the network tick could fall behind.
 
 ---
 
-## 6. Reimplementation Guidance
+## 6. Empirical Validation
+
+Two real session traces were analyzed to validate the deadlock mechanism and impact projections.
+
+### Trace Summary
+
+| Property | Battle Trace | Instrumented Session |
+|----------|-------------|---------------------|
+| Duration | 34 minutes | 91 seconds |
+| Players | 3 (stock dedi host + 2 clients) | 1 client (stock dedi) |
+| Peak ACK-outbox | 20-33 entries | 11-13 entries |
+| Tick timing | Stable ~95ms, no degradation | N/A (too short) |
+| Session end | Clean exit, no errors | Clean disconnect |
+
+### Predicted vs Observed
+
+| Metric | Doc Prediction | Observed | Assessment |
+|--------|---------------|----------|------------|
+| Queue size at 30 min | ~600 entries | 20-33 peak | **Overstated ~20x** |
+| Memory leak at 30 min | ~45 KB | ~2.5 KB | **Overstated ~18x** |
+| Dedup cost at 30 min | 600 comparisons/msg | 20-33 comparisons/msg | **Negligible in practice** |
+| Tick degradation | Progressive | None observed (stable ~95ms) | **Not observed** |
+| Long-session crash risk | "Most likely crash vector" | Session ended cleanly | **Not observed in 34 min** |
+
+### Key Finding: Self-Limiting During Active Gameplay
+
+The deadlock mechanism is confirmed — entries do get stuck when the cleanup gate fails. But during active gameplay, game traffic keeps message count > 0 most ticks, so the gate opens frequently and stuck entries get incremented toward the cleanup threshold. The queue reaches a dynamic equilibrium of 10-33 entries rather than growing unboundedly.
+
+### When the Bug Would Be Dangerous
+
+The bug could still cause significant degradation under conditions not covered by our traces:
+
+1. **Extended quiet periods** — hours-long sessions where players idle in lobby between rounds
+2. **High player counts** — 8-player sessions generate more ACK entries per quiet period
+3. **Very long sessions** — a slow net positive accumulation rate over many hours could eventually reach problematic levels
+
+None of these conditions were present in the 34-minute, 3-player active combat trace. The theoretical risk at extreme session lengths remains, but it is less severe than originally projected.
+
+---
+
+## 7. Reimplementation Guidance
 
 ### The Simple Fix
 
@@ -222,12 +277,12 @@ The stock two-pass design (fresh ACKs in Pass 1, stale ACKs in Pass 2 with a gat
 
 ## Summary
 
-| Property | Stock Behavior | Recommended Fix |
-|----------|---------------|-----------------|
-| ACK-outbox cleanup | Two-pass with deadlock; entries stuck at retx 3-8 | Single pass, remove after N sends |
-| Memory leak | ~76 bytes/entry, unbounded growth | Entries freed after N sends |
-| Buffer overflow | Not possible (bounds checked) | N/A |
-| Game data starvation | ~170 bytes/packet during active phase | Small outbox = minimal overhead |
-| Dedup scan | O(N) linear, N grows unboundedly | Hash map or bounded list |
-| Long-session crash risk | Progressive degradation from dedup cost | Eliminated by bounded outbox |
-| Compatibility impact | None — stock clients ignore stale ACKs | Safe to fix server-side |
+| Property | Stock Behavior | Empirical | Recommended Fix |
+|----------|---------------|-----------|-----------------|
+| ACK-outbox cleanup | Two-pass with deadlock; entries stuck at retx 3-8 | Confirmed | Single pass, remove after N sends |
+| Memory leak | ~76 bytes/entry, growth during quiet periods | 20-33 peak (not unbounded) | Entries freed after N sends |
+| Buffer overflow | Not possible (bounds checked) | Confirmed safe | N/A |
+| Game data starvation | ~132 bytes/packet at peak | ~26% of buffer at peak | Small outbox = minimal overhead |
+| Dedup scan | O(N) linear | N stays 10-33 during active play | Hash map or bounded list |
+| Long-session crash risk | Theoretical at extreme lengths | Not observed in 34-min trace | Eliminated by bounded outbox |
+| Compatibility impact | None — stock clients ignore stale ACKs | Confirmed | Safe to fix server-side |
