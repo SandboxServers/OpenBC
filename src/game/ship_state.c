@@ -28,13 +28,26 @@ void bc_ship_init(bc_ship_state_t *ship,
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         ship->subsystem_hp[i] = cls->subsystems[i].max_condition;
     }
-    /* Initialize container HP slots from serialization list */
+    /* Initialize container HP slots from serialization list.
+     * Entry-level containers (e.g. "Torpedoes", "Phasers") and their
+     * children (e.g. "Port Impulse", "Starboard Impulse") may have
+     * hp_index values beyond subsystem_count -- these are virtual slots
+     * allocated by load_serialization_list() for subsystem groups that
+     * don't map 1:1 to a flat subsystem.  Without this, children default
+     * to 0.0 HP and the client sees 0% health bars. */
     const bc_ss_list_t *sl = &cls->ser_list;
     for (int i = 0; i < sl->count; i++) {
         const bc_ss_entry_t *e = &sl->entries[i];
-        /* If hp_index is beyond subsystem_count, it's a container slot */
+        /* Entry-level container */
         if (e->hp_index >= cls->subsystem_count && e->hp_index < BC_MAX_SUBSYSTEMS) {
             ship->subsystem_hp[e->hp_index] = e->max_condition;
+        }
+        /* Child-level containers */
+        for (int c = 0; c < e->child_count; c++) {
+            int cidx = e->child_hp_index[c];
+            if (cidx >= cls->subsystem_count && cidx < BC_MAX_SUBSYSTEMS) {
+                ship->subsystem_hp[cidx] = e->child_max_condition[c];
+            }
         }
     }
 

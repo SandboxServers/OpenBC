@@ -165,8 +165,13 @@ f32 bc_powered_efficiency(const bc_ship_state_t *ship,
 /* Send an immediate subsystem health update (flag 0x20) for a ship to all
  * clients.  Called after server-authoritative damage (collisions, beams,
  * torpedoes) so clients see the HP change without waiting for the periodic
- * health broadcast tick. */
-static void send_health_update(int target_slot)
+ * health broadcast tick.
+ *
+ * Does NOT advance the round-robin cursor (subsys_rr_idx).  The periodic
+ * health tick in main.c owns cursor advancement.  If damage handlers also
+ * advanced it, the periodic cycle would be disrupted -- entries would be
+ * sent out of cadence and the client would see flickering health bars. */
+static void send_health_update_immediate(int target_slot)
 {
     bc_peer_t *target = &g_peers.peers[target_slot];
     if (!target->has_ship || !target->ship.alive) return;
@@ -175,16 +180,32 @@ static void send_health_update(int target_slot)
         bc_registry_get_ship(&g_registry, target->class_index);
     if (!cls) return;
 
-    /* Send from current round-robin position; advances the cursor */
-    u8 hbuf[128];
-    u8 next_idx;
-    int hlen = bc_ship_build_health_update(
+    /* Send from current round-robin position; cursor is NOT advanced.
+     * Owner gets is_own_ship=true (no power_pct in Powered entries),
+     * remote observers get is_own_ship=false (with power_pct). */
+    u8 hbuf_own[128], hbuf_rmt[128];
+    u8 next_own, next_rmt;
+    int hlen_own = bc_ship_build_health_update(
         &target->ship, cls, g_game_time,
-        target->subsys_rr_idx, &next_idx, hbuf, sizeof(hbuf));
-    if (hlen > 0) {
-        target->subsys_rr_idx = next_idx;
-        bc_send_to_all(hbuf, hlen, false);  /* unreliable, matches stock dedi */
+        target->subsys_rr_idx, &next_own, true,
+        hbuf_own, sizeof(hbuf_own));
+    int hlen_rmt = bc_ship_build_health_update(
+        &target->ship, cls, g_game_time,
+        target->subsys_rr_idx, &next_rmt, false,
+        hbuf_rmt, sizeof(hbuf_rmt));
+
+    for (int j = 1; j < BC_MAX_PLAYERS; j++) {
+        if (g_peers.peers[j].state < PEER_LOBBY) continue;
+        if (j == target_slot && hlen_own > 0) {
+            bc_queue_unreliable(j, hbuf_own, hlen_own);
+        } else if (j != target_slot && hlen_rmt > 0) {
+            bc_queue_unreliable(j, hbuf_rmt, hlen_rmt);
+        }
     }
+
+    LOG_DEBUG("health", "slot=%d immediate health (rr=%d)",
+              target_slot, target->subsys_rr_idx);
+    /* NOTE: subsys_rr_idx is NOT updated -- periodic tick owns the cursor */
 }
 
 /* Apply beam damage: compute, send Explosion, check kill. */
@@ -222,19 +243,12 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
     bc_combat_apply_damage(&target->ship, target_cls, damage, 0.0f,
                            impact_dir, false);
 
-    /* Send authoritative health to all clients */
-    send_health_update(target_slot);
-
-    /* Build and send Explosion to all clients.
-     * Impact position is the target ship's world-space position (cv4). */
-    u8 expl[32];
-    int elen = bc_build_explosion(expl, sizeof(expl),
-                                   target->ship.object_id,
-                                   target->ship.pos.x, target->ship.pos.y,
-                                   target->ship.pos.z, damage, 1.0f);
-    if (elen > 0) {
-        bc_send_to_all(expl, elen, true);
-    }
+    /* Send authoritative health to all clients.
+     * No server-generated Explosion — clients compute beam hit detection
+     * locally and generate their own visual Explosion events.  Sending
+     * Explosion from the server would cause double-damage (once from the
+     * client's local hit, once from the server's Explosion). */
+    send_health_update_immediate(target_slot);
 
     LOG_INFO("combat", "Server damage: %s -> %s, %.1f dmg (hull=%.1f)",
              peer_name(shooter_slot), peer_name(target_slot),
@@ -312,16 +326,10 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
     bc_combat_apply_damage(&target->ship, target_cls, damage, damage_radius,
                            impact_dir, (damage_radius > 0.0f));
 
-    /* Send authoritative health to all clients */
-    send_health_update(target_slot);
-
-    /* Send Explosion at target's world-space position */
-    u8 expl[32];
-    int elen = bc_build_explosion(expl, sizeof(expl),
-                                   target->ship.object_id,
-                                   target->ship.pos.x, target->ship.pos.y,
-                                   target->ship.pos.z, damage, damage_radius);
-    if (elen > 0) bc_send_to_all(expl, elen, true);
+    /* Send authoritative health to all clients.
+     * No server-generated Explosion — clients generate their own
+     * visual Explosion events from local torpedo hit detection. */
+    send_health_update_immediate(target_slot);
 
     LOG_INFO("combat", "Torpedo hit: slot %d -> %s, %.1f dmg (hull=%.1f)",
              shooter_slot, peer_name(target_slot),
@@ -820,74 +828,261 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
      * The host applies damage; relay to others for visual effects. */
     case BC_OP_COLLISION_EFFECT: {
         LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
+        /* Always relay for visual effects, even if damage is rejected */
         bc_relay_to_others(peer_slot, payload, payload_len, true);
 
         if (g_registry_loaded && g_collision_dmg) {
             bc_collision_event_t cev;
-            if (bc_parse_collision_effect(payload, payload_len, &cev)) {
-                int target_slot = find_peer_by_object(cev.target_object_id);
-                if (target_slot >= 0) {
-                    bc_peer_t *target = &g_peers.peers[target_slot];
-                    const bc_ship_class_t *tcls =
-                        bc_registry_get_ship(&g_registry, target->class_index);
+            if (!bc_parse_collision_effect(payload, payload_len, &cev)) {
+                LOG_WARN("game", "slot=%d failed to parse CollisionEffect", peer_slot);
+                break;
+            }
 
-                    if (tcls && target->ship.alive) {
-                        /* Bug 8: collision damage formula per spec */
-                        f32 dmg = bc_combat_collision_damage(
-                            cev.collision_force, tcls->mass, 1,
-                            1.0f, 0.0f);
+            /* Ownership: sender must control source or target */
+            i32 sender_oid = g_peers.peers[peer_slot].object_id;
+            bool sender_is_source = (sender_oid == cev.source_object_id);
+            bool sender_is_target = (sender_oid == cev.target_object_id);
+            if (!sender_is_source && !sender_is_target) {
+                LOG_WARN("combat", "slot=%d collision ownership fail "
+                         "(sender=%d src=%d tgt=%d)",
+                         peer_slot, sender_oid,
+                         cev.source_object_id, cev.target_object_id);
+                break;
+            }
 
-                        /* Determine impact direction for shield facing */
-                        bc_vec3_t impact_dir = {0.0f, 0.0f, 1.0f};
-                        if (cev.source_object_id != 0) {
-                            int src_slot = find_peer_by_object(cev.source_object_id);
-                            if (src_slot >= 0) {
-                                impact_dir = bc_vec3_normalize(bc_vec3_sub(
-                                    g_peers.peers[src_slot].ship.pos,
-                                    target->ship.pos));
-                            }
+            /* Dedup: if sender is source and target is another player,
+             * skip -- the target player will report their own collision */
+            if (sender_is_source && cev.source_object_id != 0) {
+                int other = find_peer_by_object(cev.target_object_id);
+                if (other >= 0 &&
+                    g_peers.peers[other].state >= PEER_IN_GAME) {
+                    LOG_DEBUG("combat",
+                              "slot=%d dedup: sender=source, target player exists",
+                              peer_slot);
+                    break;
+                }
+            }
+
+            /* Proximity: reject implausible ship-vs-ship collisions */
+            if (cev.source_object_id != 0) {
+                int src_slot = find_peer_by_object(cev.source_object_id);
+                int tgt_slot = find_peer_by_object(cev.target_object_id);
+                if (src_slot >= 0 && tgt_slot >= 0) {
+                    bc_vec3_t diff = bc_vec3_sub(
+                        g_peers.peers[src_slot].ship.pos,
+                        g_peers.peers[tgt_slot].ship.pos);
+                    f32 dist_sq = bc_vec3_dot(diff, diff);
+                    if (dist_sq > 2000.0f * 2000.0f) {
+                        LOG_WARN("combat",
+                                 "slot=%d collision proximity fail (dist=%.0f)",
+                                 peer_slot, sqrtf(dist_sq));
+                        break;
+                    }
+                }
+            }
+
+            int cc = cev.contact_count > 0 ? cev.contact_count : 1;
+
+            /* Apply damage to the target ship */
+            int target_slot = find_peer_by_object(cev.target_object_id);
+            if (target_slot >= 0) {
+                bc_peer_t *target = &g_peers.peers[target_slot];
+                const bc_ship_class_t *tcls =
+                    bc_registry_get_ship(&g_registry, target->class_index);
+
+                if (tcls && target->ship.alive) {
+                    f32 dmg_frac = bc_combat_collision_damage(
+                        cev.collision_force, tcls->mass, cc, 1.0f, 0.0f);
+                    /* Collision damage formula returns a fraction (0..0.5)
+                     * of hull HP, not absolute HP.  Convert to absolute. */
+                    f32 dmg = dmg_frac * tcls->hull_hp;
+
+                    /* Impact direction for shield facing */
+                    bc_vec3_t impact_dir = {0.0f, 0.0f, 1.0f};
+                    if (cev.source_object_id != 0) {
+                        int src_slot = find_peer_by_object(cev.source_object_id);
+                        if (src_slot >= 0) {
+                            impact_dir = bc_vec3_normalize(bc_vec3_sub(
+                                g_peers.peers[src_slot].ship.pos,
+                                target->ship.pos));
+                        }
+                    }
+
+                    bc_combat_apply_damage(&target->ship, tcls, dmg, 6000.0f,
+                                           impact_dir, true);
+
+                    /* Collision damage is communicated via health update
+                     * (flag 0x20), NOT via Explosion events.  The stock host
+                     * relays the original CollisionEffect (0x15) for visual
+                     * feedback (done above) and sends authoritative subsystem
+                     * conditions via the health round-robin.  Sending Explosion
+                     * here would cause the client to double-apply damage
+                     * (once locally from the Explosion, once from the health
+                     * update), causing shield/subsystem flickering. */
+                    send_health_update_immediate(target_slot);
+
+                    LOG_INFO("combat",
+                             "Collision: %s took %.1f damage (source=%s)",
+                             peer_name(target_slot), dmg,
+                             cev.source_object_id == 0 ? "environment" :
+                             object_owner_name(cev.source_object_id));
+
+                    if (!target->ship.alive) {
+                        u8 dest[8];
+                        int dlen = bc_build_destroy_obj(dest, sizeof(dest),
+                                                         target->ship.object_id);
+                        if (dlen > 0) bc_send_to_all(dest, dlen, true);
+                        target->has_ship = false;
+                        target->spawn_len = 0;
+                        if (!g_game_ended) {
+                            target->respawn_timer = 5.0f;
+                            target->respawn_class = target->class_index;
                         }
 
-                        /* Collision = area-effect, radius=6000 per spec */
-                        bc_combat_apply_damage(&target->ship, tcls, dmg, 6000.0f,
-                                               impact_dir, true);
+                        /* Kill credit: if another ship caused this,
+                         * credit them */
+                        int killer = -1;
+                        if (cev.source_object_id != 0)
+                            killer = find_peer_by_object(
+                                cev.source_object_id);
+                        if (killer >= 0) {
+                            bc_peer_t *k = &g_peers.peers[killer];
+                            k->score++;
+                            k->kills++;
+                            target->deaths++;
+                            u8 sc[64];
+                            int slen = bc_build_score_change(
+                                sc, sizeof(sc),
+                                k->ship.object_id,
+                                k->kills, k->score,
+                                target->ship.object_id,
+                                target->deaths, NULL, 0);
+                            if (slen > 0)
+                                bc_send_to_all(sc, slen, true);
+                            LOG_INFO("combat",
+                                     "%s destroyed in collision with %s",
+                                     peer_name(target_slot),
+                                     peer_name(killer));
 
-                        /* Send explosion at target's world-space position */
-                        u8 expl[32];
-                        int elen = bc_build_explosion(expl, sizeof(expl),
-                                                       target->ship.object_id,
-                                                       target->ship.pos.x,
-                                                       target->ship.pos.y,
-                                                       target->ship.pos.z,
-                                                       dmg, 1.0f);
-                        if (elen > 0) bc_send_to_all(expl, elen, true);
-
-                        /* Send authoritative health to all clients */
-                        send_health_update(target_slot);
-
-                        LOG_INFO("combat", "Collision: %s took %.1f damage (source=%s)",
-                                 peer_name(target_slot), dmg,
-                                 cev.source_object_id == 0 ? "environment" :
-                                 object_owner_name(cev.source_object_id));
-
-                        if (!target->ship.alive) {
-                            u8 dest[8];
-                            int dlen = bc_build_destroy_obj(dest, sizeof(dest),
-                                                             target->ship.object_id);
-                            if (dlen > 0) bc_send_to_all(dest, dlen, true);
-                            target->has_ship = false;
-                            target->spawn_len = 0;
-                            if (!g_game_ended) {
-                                target->respawn_timer = 5.0f;
-                                target->respawn_class = target->class_index;
+                            if (!g_game_ended && g_frag_limit > 0 &&
+                                k->score >= g_frag_limit) {
+                                u8 eg[8];
+                                int eglen = bc_build_end_game(
+                                    eg, sizeof(eg),
+                                    BC_END_REASON_FRAG_LIMIT);
+                                if (eglen > 0)
+                                    bc_send_to_all(eg, eglen, true);
+                                g_game_ended = true;
+                                LOG_INFO("game",
+                                         "Frag limit reached by %s "
+                                         "(%d kills)",
+                                         peer_name(killer), k->score);
                             }
-                            LOG_INFO("combat", "%s destroyed in collision",
+                        } else {
+                            target->deaths++;
+                            LOG_INFO("combat",
+                                     "%s destroyed in collision",
                                      peer_name(target_slot));
                         }
                     }
                 }
-            } else {
-                LOG_WARN("game", "slot=%d failed to parse CollisionEffect", peer_slot);
+            }
+
+            /* Ship-vs-ship: also damage the source ship */
+            if (cev.source_object_id != 0) {
+                int src_slot = find_peer_by_object(cev.source_object_id);
+                if (src_slot >= 0) {
+                    bc_peer_t *source = &g_peers.peers[src_slot];
+                    const bc_ship_class_t *scls =
+                        bc_registry_get_ship(&g_registry, source->class_index);
+
+                    if (scls && source->ship.alive) {
+                        f32 sdmg_frac = bc_combat_collision_damage(
+                            cev.collision_force, scls->mass, cc, 1.0f, 0.0f);
+                        f32 sdmg = sdmg_frac * scls->hull_hp;
+
+                        /* Flipped impact direction */
+                        bc_vec3_t src_impact = {0.0f, 0.0f, 1.0f};
+                        if (target_slot >= 0) {
+                            src_impact = bc_vec3_normalize(bc_vec3_sub(
+                                g_peers.peers[target_slot].ship.pos,
+                                source->ship.pos));
+                        }
+
+                        bc_combat_apply_damage(&source->ship, scls, sdmg,
+                                               6000.0f, src_impact, true);
+
+                        /* No Explosion for collision — see target path comment */
+                        send_health_update_immediate(src_slot);
+
+                        LOG_INFO("combat",
+                                 "Collision: %s also took %.1f damage",
+                                 peer_name(src_slot), sdmg);
+
+                        if (!source->ship.alive) {
+                            u8 dest2[8];
+                            int dlen2 = bc_build_destroy_obj(
+                                dest2, sizeof(dest2),
+                                source->ship.object_id);
+                            if (dlen2 > 0)
+                                bc_send_to_all(dest2, dlen2, true);
+                            source->has_ship = false;
+                            source->spawn_len = 0;
+                            if (!g_game_ended) {
+                                source->respawn_timer = 5.0f;
+                                source->respawn_class =
+                                    source->class_index;
+                            }
+
+                            /* Kill credit: target killed the source */
+                            if (target_slot >= 0 &&
+                                g_peers.peers[target_slot].has_ship) {
+                                bc_peer_t *k =
+                                    &g_peers.peers[target_slot];
+                                k->score++;
+                                k->kills++;
+                                source->deaths++;
+                                u8 sc2[64];
+                                int slen2 = bc_build_score_change(
+                                    sc2, sizeof(sc2),
+                                    k->ship.object_id,
+                                    k->kills, k->score,
+                                    source->ship.object_id,
+                                    source->deaths, NULL, 0);
+                                if (slen2 > 0)
+                                    bc_send_to_all(sc2, slen2, true);
+                                LOG_INFO("combat",
+                                         "%s destroyed in collision "
+                                         "with %s",
+                                         peer_name(src_slot),
+                                         peer_name(target_slot));
+
+                                if (!g_game_ended &&
+                                    g_frag_limit > 0 &&
+                                    k->score >= g_frag_limit) {
+                                    u8 eg2[8];
+                                    int eglen2 = bc_build_end_game(
+                                        eg2, sizeof(eg2),
+                                        BC_END_REASON_FRAG_LIMIT);
+                                    if (eglen2 > 0)
+                                        bc_send_to_all(eg2, eglen2,
+                                                       true);
+                                    g_game_ended = true;
+                                    LOG_INFO("game",
+                                             "Frag limit reached by "
+                                             "%s (%d kills)",
+                                             peer_name(target_slot),
+                                             k->score);
+                                }
+                            } else {
+                                source->deaths++;
+                                LOG_INFO("combat",
+                                         "%s destroyed in collision",
+                                         peer_name(src_slot));
+                            }
+                        }
+                    }
+                }
             }
         }
         break;

@@ -9,12 +9,16 @@
  * Uses the ship's serialization list (ser_list) with 10-byte budget round-robin.
  * start_idx is position in ser_list.entries[]. Writes subsystems starting there,
  * wrapping at list end, stopping after 10 bytes or a full cycle.
+ * is_own_ship: true when sending to the ship's owner (has_power_data=false,
+ *   no power_pct byte for Powered entries).  false for remote observers
+ *   (has_power_data=true, includes power_pct byte).
  * Returns bytes written to buf, or 0 if nothing to send.
  * *next_idx is set to the next round-robin position for the caller to persist. */
 int bc_ship_build_health_update(const bc_ship_state_t *ship,
                                  const bc_ship_class_t *cls,
                                  f32 game_time,
                                  u8 start_idx, u8 *next_idx,
+                                 bool is_own_ship,
                                  u8 *buf, int buf_size);
 
 /* Tick the reactor/power simulation: generate power, distribute to consumers,

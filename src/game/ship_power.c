@@ -18,6 +18,7 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
                                  const bc_ship_class_t *cls,
                                  f32 game_time,
                                  u8 start_idx, u8 *next_idx,
+                                 bool is_own_ship,
                                  u8 *buf, int buf_size)
 {
     const bc_ss_list_t *sl = &cls->ser_list;
@@ -57,11 +58,22 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
 
         /* Format-specific extras */
         if (e->format == BC_SS_FORMAT_POWERED) {
-            bc_buf_write_bit(&fb, true); /* has_power_data = true (remote) */
-            u8 pct = ship->power_pct[cursor];
-            if (!ship->subsys_enabled[cursor])
-                pct |= 0x80;
-            bc_buf_write_u8(&fb, pct);
+            /* Each powered entry gets its own bit-pack byte.
+             * Reset bit_count so write_bit starts a fresh group
+             * rather than sharing with a previous powered entry. */
+            fb.bit_count = 0;
+            if (is_own_ship) {
+                /* Owner's client has local power state; send false
+                 * (no power_pct byte follows). */
+                bc_buf_write_bit(&fb, false);
+            } else {
+                /* Remote observers need the power allocation data. */
+                bc_buf_write_bit(&fb, true);
+                u8 pct = ship->power_pct[cursor];
+                if (!ship->subsys_enabled[cursor])
+                    pct |= 0x80;
+                bc_buf_write_u8(&fb, pct);
+            }
         } else if (e->format == BC_SS_FORMAT_POWER) {
             /* Battery percentages: truncate(current / limit * 255) */
             u8 main_pct = (cls->main_battery_limit > 0.0f)

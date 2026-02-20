@@ -404,7 +404,10 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Main loop -- 100ms tick (~10 Hz, matches real BC server) */
+    /* Main loop -- 33ms tick (~30 Hz).
+     * Stock BC dedi runs an unbounded busy loop at thousands of FPS.
+     * 30 Hz is more than sufficient: network sends StateUpdates at ~10 Hz
+     * and most game timers fire at 1-second intervals. */
     u8 recv_buf[2048];
     u32 last_tick = GetTickCount();
     u32 tick_counter = 0;
@@ -433,15 +436,15 @@ int main(int argc, char **argv)
             }
         }
 
-        /* Tick at 100ms intervals */
+        /* Tick at ~33ms intervals (~30 Hz) */
         u32 now = GetTickCount();
-        if (now - last_tick >= 100) {
+        if (now - last_tick >= 33) {
             /* Advance game clock */
             g_game_time += (f32)(now - last_tick) / 1000.0f;
             tick_counter++;
 
-            /* Every 10 ticks (~1 second): retransmit, timeout, master heartbeat */
-            if (tick_counter % 10 == 0) {
+            /* Every 30 ticks (~1 second): retransmit, timeout, master heartbeat */
+            if (tick_counter % 30 == 0) {
                 /* Retransmit unACKed reliable messages (skip slot 0 = dedi) */
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *peer = &g_peers.peers[i];
@@ -550,9 +553,11 @@ int main(int argc, char **argv)
                 }
             }
 
-            /* Health broadcast: every 5 ticks (~500ms), send 0x20 StateUpdate.
-             * Uses hierarchical round-robin with 10-byte budget per tick. */
-            if (g_registry_loaded && (tick_counter % 5 == 0)) {
+            /* Health broadcast: every 15 ticks (~500ms), send 0x20 StateUpdate.
+             * Uses hierarchical round-robin with 10-byte budget per tick.
+             * Owner gets is_own_ship=true (no power_pct bytes in Powered
+             * entries), remote observers get is_own_ship=false (with power). */
+            if (g_registry_loaded && (tick_counter % 15 == 0)) {
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *p = &g_peers.peers[i];
                     if (!p->has_ship || !p->ship.alive) continue;
@@ -561,22 +566,36 @@ int main(int argc, char **argv)
                         bc_registry_get_ship(&g_registry, p->class_index);
                     if (!cls) continue;
 
-                    u8 hbuf[128];
+                    /* Build owner version (no power data in Powered entries) */
+                    u8 hbuf_own[128];
                     u8 next_idx;
-                    int hlen = bc_ship_build_health_update(
+                    int hlen_own = bc_ship_build_health_update(
                         &p->ship, cls, g_game_time,
-                        p->subsys_rr_idx, &next_idx, hbuf, sizeof(hbuf));
-                    if (hlen > 0) {
+                        p->subsys_rr_idx, &next_idx, true,
+                        hbuf_own, sizeof(hbuf_own));
+
+                    /* Build remote version (with power data) using same
+                     * start_idx so both cover the same entries. */
+                    u8 hbuf_rmt[128];
+                    u8 rmt_next;
+                    int hlen_rmt = bc_ship_build_health_update(
+                        &p->ship, cls, g_game_time,
+                        p->subsys_rr_idx, &rmt_next, false,
+                        hbuf_rmt, sizeof(hbuf_rmt));
+
+                    /* Advance cursor using the owner version (smaller budget,
+                     * may cover fewer entries -- that's fine, the remote
+                     * version just sends more data this tick). */
+                    if (hlen_own > 0)
                         p->subsys_rr_idx = next_idx;
-                        /* Send to ALL clients including the ship owner.
-                         * Stock BC dedicated server sends flag 0x20 to all
-                         * clients (verified from protocol traces).  The owner
-                         * needs it because collision damage is host-authoritative
-                         * and the client treats its own ship as "invulnerable"
-                         * to local collision processing. */
-                        for (int j = 1; j < BC_MAX_PLAYERS; j++) {
-                            if (g_peers.peers[j].state >= PEER_LOBBY)
-                                bc_queue_unreliable(j, hbuf, hlen);
+
+                    /* Send appropriate version to each client */
+                    for (int j = 1; j < BC_MAX_PLAYERS; j++) {
+                        if (g_peers.peers[j].state < PEER_LOBBY) continue;
+                        if (j == i && hlen_own > 0) {
+                            bc_queue_unreliable(j, hbuf_own, hlen_own);
+                        } else if (j != i && hlen_rmt > 0) {
+                            bc_queue_unreliable(j, hbuf_rmt, hlen_rmt);
                         }
                     }
                 }
@@ -634,10 +653,10 @@ int main(int argc, char **argv)
                 }
             }
 
-            /* Every 10 ticks (~1 second): send keepalive to all active peers.
+            /* Every 30 ticks (~1 second): send keepalive to all active peers.
              * Stock dedi echoes the client's identity data (22 bytes) back
              * instead of sending a minimal [0x00][0x02] keepalive. */
-            if (tick_counter % 10 == 0) {
+            if (tick_counter % 30 == 0) {
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *peer = &g_peers.peers[i];
                     if (peer->state < PEER_LOBBY) continue;
