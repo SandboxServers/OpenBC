@@ -465,6 +465,21 @@ If a client sends an opcode 0x06 to the host (script events), the host should:
 
 ---
 
+## Undocumented Event Codes
+
+### Event Code 268 (0x010C)
+
+An undocumented event code that accounts for approximately **45% of all PythonEvent
+messages** during combat sessions. Observed as both opcode 0x06 (server-to-client)
+and opcode 0x0D (client-to-server). This is the single most common event type during
+active weapon combat.
+
+The purpose of this event code is currently unknown. Implementations should reserve
+this event code in the event system. Full implementation is blocked until the event's
+purpose is identified through further analysis.
+
+---
+
 ## Related Documents
 
 - **[collision-damage-event-chain.md](collision-damage-event-chain.md)** — Complete collision → PythonEvent chain

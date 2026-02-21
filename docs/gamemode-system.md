@@ -177,7 +177,13 @@ Size: 4-8 bytes. The `endTime` field is the absolute game clock value at which t
 
 ### SCORE_CHANGE (type 0x36) — Server → All Clients
 
-Sent on every kill event.
+Sent on kill events.
+
+> **Known anomaly**: In stock dedicated server traces, SCORE_CHANGE is sent for collision
+> kills but NOT for weapon kills. A 33.5-minute session with 59 weapon kills produced
+> zero SCORE_CHANGE messages. This may be a stock server bug — the kill handler may not
+> be triggered for all death paths. Implementations should ensure SCORE_CHANGE is sent
+> for ALL kill types (collision, weapon, explosion, self-destruct).
 
 ```
 [byte:0x36]

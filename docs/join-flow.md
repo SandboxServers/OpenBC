@@ -152,8 +152,11 @@ The server responds with:
 
 1. **MISSION_INIT (0x35)**: Game configuration
    ```
-   [0x35][player_limit:u8][system_index:u8][time_limit:u8][end_time:i32 if time_limit != 0xFF][frag_limit:u8]
+   [0x35][current_player_count:u8][system_index:u8][time_limit:u8][end_time:i32 if time_limit != 0xFF][frag_limit:u8]
    ```
+   The first payload byte is `current_player_count` — the number of players currently
+   connected (dynamic, updates with each join), NOT a fixed player limit. Stock servers
+   send 0x01 for 2-player sessions and 0x03 for 3-player sessions.
 
 2. **Score (0x37)**: Current scores for all players (zeros for new game)
    ```

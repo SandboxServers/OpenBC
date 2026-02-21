@@ -122,12 +122,13 @@ On the receiving client, the PythonEvent handler (opcode 0x06):
 
 ## Why ~14 PythonEvents Per Collision
 
-Observed in stock 3-player combat sessions:
+Verified from stock 3-player combat packet captures (33.5-minute session, 84 collisions):
 
 - Two ships collide
 - Each ship has ~7 top-level subsystems in the damage volume (shields, hull sections, weapons, etc.)
 - Each damaged subsystem generates one SUBSYSTEM_HIT → one ADD_TO_REPAIR_LIST → one PythonEvent
 - **7 subsystems x 2 ships = ~14 PythonEvent messages**
+- Exact per-collision counts of **12-14 confirmed** from trace analysis
 
 The exact count varies with collision geometry (which subsystems overlap the damage volume) and whether subsystems are already in the repair queue (duplicates are rejected).
 
