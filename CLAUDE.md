@@ -1,5 +1,11 @@
 # OpenBC -- Open Bridge Commander
 
+## GIT RULES (MANDATORY)
+
+1. **ALWAYS check in with the user before pushing to main.** Never push to the main branch without explicit confirmation first.
+
+---
+
 ## CLEAN ROOM RULES (MANDATORY)
 
 This is a **clean room reimplementation** of the Bridge Commander multiplayer protocol. The following rules are absolute and must never be violated:
