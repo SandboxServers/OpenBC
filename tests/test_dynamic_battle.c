@@ -11,7 +11,7 @@
 #include <time.h>
 #include <stdio.h>
 
-#define REGISTRY_PATH "data\\vanilla-1.1.json"
+#define REGISTRY_PATH "data/vanilla-1.1.json"
 
 /* === Seeded RNG (xorshift32) for deterministic replay === */
 

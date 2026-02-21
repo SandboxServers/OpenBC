@@ -16,7 +16,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <windows.h>
+#ifdef _WIN32
+#  include <windows.h>
+#endif
 
 static void send_checksum_request(int peer_slot, int round)
 {
@@ -143,7 +145,7 @@ void bc_handle_peer_disconnect(int slot)
     for (int i = 0; i < g_stats.player_count; i++) {
         if (g_stats.players[i].disconnect_time == 0 &&
             g_stats.players[i].connect_time == g_peers.peers[slot].connect_time) {
-            g_stats.players[i].disconnect_time = GetTickCount();
+            g_stats.players[i].disconnect_time = bc_ms_now();
             break;
         }
     }
@@ -228,8 +230,8 @@ void bc_handle_connect(const bc_addr_t *from, int len)
             dst[b] = src[b];
     }
 
-    g_peers.peers[slot].last_recv_time = GetTickCount();
-    g_peers.peers[slot].connect_time = GetTickCount();
+    g_peers.peers[slot].last_recv_time = bc_ms_now();
+    g_peers.peers[slot].connect_time = bc_ms_now();
 
     LOG_INFO("net", "Player connected from %s -> slot %d (%d/%d)",
              addr_str, slot, g_peers.count - 1, g_info.maxplayers);
@@ -244,7 +246,7 @@ void bc_handle_connect(const bc_addr_t *from, int len)
         player_record_t *rec = &g_stats.players[g_stats.player_count++];
         memset(rec, 0, sizeof(*rec));
         snprintf(rec->name, sizeof(rec->name), "slot %d", slot);
-        rec->connect_time = GetTickCount();
+        rec->connect_time = bc_ms_now();
     }
 
     /* Send Connect response + first ChecksumReq batched in one packet.
@@ -281,7 +283,7 @@ void bc_handle_connect(const bc_addr_t *from, int len)
         if (cs_len > 0) {
             u16 seq = g_peers.peers[slot].reliable_seq_out++;
             bc_reliable_add(&g_peers.peers[slot].reliable_out,
-                            cs_payload, cs_len, seq, GetTickCount());
+                            cs_payload, cs_len, seq, bc_ms_now());
             int msg_total = 5 + cs_len;
             pkt[pos++] = BC_TRANSPORT_RELIABLE;
             pkt[pos++] = (u8)msg_total;

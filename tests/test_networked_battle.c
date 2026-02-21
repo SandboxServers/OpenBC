@@ -34,9 +34,9 @@
 
 #define NB_PORT          29900
 #define NB_TIMEOUT       1000
-#define NB_MANIFEST      "tests\\fixtures\\manifest.json"
-#define NB_GAME_DIR      "tests\\fixtures\\"
-#define NB_REGISTRY      "data\\vanilla-1.1.json"
+#define NB_MANIFEST      "tests/fixtures/manifest.json"
+#define NB_GAME_DIR      "tests/fixtures/"
+#define NB_REGISTRY      "data/vanilla-1.1.json"
 #define NB_TRACE_FILE    "battle_trace.bin"
 #define NB_MAX_PLAYERS   4
 #define NB_MAX_TICKS     600   /* 60 seconds at 10 Hz */

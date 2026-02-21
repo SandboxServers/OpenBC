@@ -4,9 +4,17 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
+#ifdef _WIN32
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#  include <windows.h>
+#else
+#  include <sys/socket.h>
+#  include <netinet/in.h>
+#  include <arpa/inet.h>
+#  include <netdb.h>
+#  include <unistd.h>
+#endif
 
 /* Default master servers: 333networks affiliates + OpenSpy */
 static const char *bc_default_masters[] = {
@@ -138,7 +146,7 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
     /* Send initial heartbeat to all enabled entries */
     for (int i = 0; i < ml->count; i++) {
         send_heartbeat_entry(&ml->entries[i], ml->game_port, sock, false);
-        ml->entries[i].last_beat = GetTickCount();
+        ml->entries[i].last_beat = bc_ms_now();
     }
 
     /* Poll for responses up to the probe timeout.
@@ -151,10 +159,10 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
      *
      * A master is "registered" when it responds to our heartbeat with
      * a \secure\ challenge and we successfully reply. */
-    u32 start = GetTickCount();
+    u32 start = bc_ms_now();
     int registered = 0;
 
-    while (GetTickCount() - start < BC_MASTER_PROBE_TIMEOUT_MS) {
+    while (bc_ms_now() - start < BC_MASTER_PROBE_TIMEOUT_MS) {
         u8 recv_buf[2048];
         bc_addr_t from;
         int received;
@@ -229,7 +237,11 @@ void bc_master_probe(bc_master_list_t *ml, bc_socket_t *sock,
         /* All registered -- no need to keep waiting */
         if (registered >= ml->count) break;
 
+#ifdef _WIN32
         Sleep(10);
+#else
+        usleep(10000);
+#endif
     }
 
     /* Log results for each master */

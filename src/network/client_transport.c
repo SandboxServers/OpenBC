@@ -5,7 +5,14 @@
 #include "openbc/checksum.h"
 #include <string.h>
 #include <stdio.h>
-#include <windows.h>
+#ifdef _WIN32
+#  include <windows.h>
+#  define bc_stricmp _stricmp
+#else
+#  include <strings.h>
+#  include <dirent.h>
+#  define bc_stricmp strcasecmp
+#endif
 
 int bc_client_build_connect(u8 *out, int out_size, u32 local_ip)
 {
@@ -263,48 +270,73 @@ static bool filter_match(const char *filename, const char *filter)
         size_t ext_len = strlen(ext);
         size_t name_len = strlen(filename);
         if (name_len < ext_len) return false;
-        return _stricmp(filename + name_len - ext_len, ext) == 0;
+        return bc_stricmp(filename + name_len - ext_len, ext) == 0;
     }
     /* Exact match (case-insensitive) */
-    return _stricmp(filename, filter) == 0;
+    return bc_stricmp(filename, filter) == 0;
 }
 
-/* Scan a single directory (non-recursive) for matching files. */
+/* Scan a single directory (non-recursive) for matching files.
+ * full_path must end with a path separator ('/' or '\\' on Windows). */
 static bool scan_single_dir(const char *full_path, const char *filter,
                              bc_client_file_hash_t *files, int *file_count,
                              int max_files)
 {
+    *file_count = 0;
+
+#ifdef _WIN32
     char search_path[260];
     snprintf(search_path, sizeof(search_path), "%s*", full_path);
 
     WIN32_FIND_DATAA fd;
     HANDLE hFind = FindFirstFileA(search_path, &fd);
-    if (hFind == INVALID_HANDLE_VALUE) {
-        *file_count = 0;
+    if (hFind == INVALID_HANDLE_VALUE)
         return true; /* Empty dir is OK */
-    }
 
-    *file_count = 0;
     do {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
         if (!filter_match(fd.cFileName, filter)) continue;
         if (*file_count >= max_files) break;
 
-        /* Compute name hash (StringHash of filename) */
         files[*file_count].name_hash = string_hash(fd.cFileName);
 
-        /* Compute content hash (FileHash of file data) */
         char file_path[260];
         snprintf(file_path, sizeof(file_path), "%s%s", full_path, fd.cFileName);
 
         bool ok;
         files[*file_count].content_hash = file_hash_from_path(file_path, &ok);
-        if (!ok) continue; /* Skip unreadable files */
+        if (!ok) continue;
 
         (*file_count)++;
     } while (FindNextFileA(hFind, &fd));
 
     FindClose(hFind);
+#else
+    DIR *dir = opendir(full_path); /* trailing '/' is accepted by opendir */
+    if (!dir)
+        return true; /* Empty/missing dir is OK */
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (ent->d_type == DT_DIR) continue;
+        if (!filter_match(ent->d_name, filter)) continue;
+        if (*file_count >= max_files) break;
+
+        files[*file_count].name_hash = string_hash(ent->d_name);
+
+        /* full_path already ends with '/', so just append filename */
+        char file_path[512];
+        snprintf(file_path, sizeof(file_path), "%s%s", full_path, ent->d_name);
+
+        bool ok;
+        files[*file_count].content_hash = file_hash_from_path(file_path, &ok);
+        if (!ok) continue;
+
+        (*file_count)++;
+    }
+
+    closedir(dir);
+#endif
     return true;
 }
 
@@ -342,7 +374,11 @@ bool bc_client_scan_directory(const char *base_dir, const char *sub_dir,
     size_t plen = strlen(full_path);
     if (plen > 0 && full_path[plen - 1] != '\\' && full_path[plen - 1] != '/') {
         if (plen + 1 < sizeof(full_path)) {
+#ifdef _WIN32
             full_path[plen] = '\\';
+#else
+            full_path[plen] = '/';
+#endif
             full_path[plen + 1] = '\0';
         }
     }
@@ -354,6 +390,7 @@ bool bc_client_scan_directory(const char *base_dir, const char *sub_dir,
 
     /* If recursive, scan subdirectories */
     if (recursive) {
+#ifdef _WIN32
         char search_path[260];
         snprintf(search_path, sizeof(search_path), "%s*", full_path);
 
@@ -383,6 +420,35 @@ bool bc_client_scan_directory(const char *base_dir, const char *sub_dir,
         } while (FindNextFileA(hFind, &fd));
 
         FindClose(hFind);
+#else
+        DIR *rdir = opendir(full_path);
+        if (!rdir) return true;
+
+        struct dirent *rent;
+        while ((rent = readdir(rdir)) != NULL) {
+            if (rent->d_type != DT_DIR) continue;
+            if (rent->d_name[0] == '.') continue; /* Skip . and .. */
+            if (scan->subdir_count >= 8) break;
+
+            bc_client_subdir_hash_t *sd = &scan->subdirs[scan->subdir_count];
+            sd->name_hash = string_hash(rent->d_name);
+
+            /* full_path ends with '/' */
+            char subdir_path[512];
+            snprintf(subdir_path, sizeof(subdir_path), "%s%s/",
+                     full_path, rent->d_name);
+
+            if (!scan_single_dir(subdir_path, filter,
+                                  sd->files, &sd->file_count, 128))
+                continue;
+
+            if (sd->file_count > 0) {
+                scan->subdir_count++;
+            }
+        }
+
+        closedir(rdir);
+#endif
     }
 
     return true;

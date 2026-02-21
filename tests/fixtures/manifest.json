@@ -17,7 +17,7 @@
         {
           "filename": "App.pyc",
           "name_hash": "0x373EB677",
-          "content_hash": "0x770186A9"
+          "content_hash": "0x09555159"
         }
       ],
       "subdirs": [
@@ -30,11 +30,6 @@
       "recursive": false,
       "dir_name_hash": "0x4DAFCB2F",
       "files": [
-        {
-          "filename": "Autoexec.pyc",
-          "name_hash": "0x8501E6A1",
-          "content_hash": "0x310C1950"
-        }
       ],
       "subdirs": [
       ]
@@ -49,7 +44,7 @@
         {
           "filename": "Galaxy.pyc",
           "name_hash": "0x8D0F8067",
-          "content_hash": "0x9BA7AE2A"
+          "content_hash": "0x1DA7A18F"
         }
       ],
       "subdirs": [
@@ -60,7 +55,7 @@
             {
               "filename": "BirdOfPrey.pyc",
               "name_hash": "0xE46791C4",
-              "content_hash": "0x9C46DD48"
+              "content_hash": "0x47C155EF"
             }
           ],
           "subdirs": [
@@ -75,11 +70,6 @@
       "recursive": false,
       "dir_name_hash": "0x3F7BF00A",
       "files": [
-        {
-          "filename": "MainMenu.pyc",
-          "name_hash": "0xFF1BB45F",
-          "content_hash": "0x9085B1D0"
-        }
       ],
       "subdirs": [
       ]

@@ -8,7 +8,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <windows.h>
+#ifdef _WIN32
+#  include <windows.h>
+#endif
 
 void bc_queue_reliable(int peer_slot, const u8 *payload, int payload_len)
 {
@@ -17,7 +19,7 @@ void bc_queue_reliable(int peer_slot, const u8 *payload, int payload_len)
 
     /* Track for retransmission */
     bc_reliable_add(&peer->reliable_out, payload, payload_len,
-                    seq, GetTickCount());
+                    seq, bc_ms_now());
 
     if (!bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq)) {
         bc_flush_peer(peer_slot);

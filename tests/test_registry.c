@@ -8,7 +8,7 @@
 #include <string.h>
 #include <math.h>
 
-#define REGISTRY_PATH "data\\vanilla-1.1.json"
+#define REGISTRY_PATH "data/vanilla-1.1.json"
 
 static bc_game_registry_t g_reg;
 
