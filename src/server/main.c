@@ -76,6 +76,7 @@ static void usage(const char *prog)
         "  --max <n>          Max players (default: 6)\n"
         "  --time-limit <n>   Time limit in minutes (default: none)\n"
         "  --frag-limit <n>   Frag/kill limit (default: none)\n"
+        "  --score-limit      Use score threshold (fragLimit*10000)\n"
         "  --collision        Enable collision damage (default)\n"
         "  --no-collision     Disable collision damage\n"
         "  --friendly-fire    Enable friendly fire\n"
@@ -104,6 +105,13 @@ static bc_log_level_t parse_log_level(const char *str)
     if (strcmp(str, "trace") == 0) return LOG_TRACE;
     fprintf(stderr, "Unknown log level: %s (using info)\n", str);
     return LOG_INFO;
+}
+
+static bool mode_is_team(const char *map_name)
+{
+    if (!map_name) return false;
+    return strstr(map_name, "Mission2") != NULL ||
+           strstr(map_name, "Mission3") != NULL;
 }
 
 int main(int argc, char **argv)
@@ -142,6 +150,10 @@ int main(int argc, char **argv)
             g_time_limit = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--frag-limit") == 0 && i + 1 < argc) {
             g_frag_limit = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--score-limit") == 0) {
+            g_use_score_limit = true;
+        } else if (strcmp(argv[i], "--kill-limit") == 0) {
+            g_use_score_limit = false;
         } else if (strcmp(argv[i], "--data") == 0 && i + 1 < argc) {
             data_path = argv[++i];
         } else if (strcmp(argv[i], "--manifest") == 0 && i + 1 < argc) {
@@ -180,6 +192,21 @@ int main(int argc, char **argv)
     /* Apply parsed settings to globals */
     g_map_name = map;
     g_max_players = max_players;
+    g_team_mode = mode_is_team(g_map_name);
+    g_accept_new_players = true;
+    g_game_ended = false;
+    g_game_time = 0.0f;
+    g_round_end_time = (g_time_limit > 0)
+                     ? ((f32)g_time_limit * 60.0f)
+                     : -1.0f;
+
+    memset(g_player_scores, 0, sizeof(g_player_scores));
+    memset(g_player_kills, 0, sizeof(g_player_kills));
+    memset(g_player_deaths, 0, sizeof(g_player_deaths));
+    memset(g_team_scores, 0, sizeof(g_team_scores));
+    memset(g_team_kills, 0, sizeof(g_team_kills));
+    memset(g_damage_ledger, 0, sizeof(g_damage_ledger));
+    for (int i = 0; i < BC_MAX_PLAYERS; i++) g_player_teams[i] = BC_TEAM_NONE;
 
     /* Generate default log file name if none specified and not disabled.
      * Format: openbc-YYYYMMDD-HHMMSS.log (one file per session). */
@@ -376,7 +403,13 @@ int main(int argc, char **argv)
     /* mapname = game mode display (e.g. "DM"), system = system key (e.g. "Multi1").
      * Verified from stock trace + live client: Type column shows mapname,
      * Game Info panel shows system. */
-    snprintf(g_info.mapname, sizeof(g_info.mapname), "DM");
+    if (g_team_mode && strstr(g_map_name, "Mission3") != NULL) {
+        snprintf(g_info.mapname, sizeof(g_info.mapname), "FactionDM");
+    } else if (g_team_mode) {
+        snprintf(g_info.mapname, sizeof(g_info.mapname), "TDM");
+    } else {
+        snprintf(g_info.mapname, sizeof(g_info.mapname), "DM");
+    }
     if (g_system_index >= 1 && g_system_index < SYSTEM_TABLE_SIZE &&
         g_system_table[g_system_index].key) {
         snprintf(g_info.system, sizeof(g_info.system), "%s",
@@ -427,6 +460,7 @@ int main(int argc, char **argv)
     printf("Collision damage: %s | Friendly fire: %s\n",
            g_collision_dmg ? "on" : "off",
            g_friendly_fire ? "on" : "off");
+    printf("Score mode: %s\n", g_use_score_limit ? "score-limit" : "frag-limit");
     if (g_manifest_loaded) {
         printf("Checksum validation: on (manifest loaded)\n");
     } else {
@@ -664,14 +698,14 @@ int main(int argc, char **argv)
             }
 
             /* Win condition: time limit */
-            if (g_registry_loaded && !g_game_ended && g_time_limit > 0) {
-                f32 limit_sec = (f32)g_time_limit * 60.0f;
-                if (g_game_time >= limit_sec) {
+            if (g_registry_loaded && !g_game_ended && g_round_end_time >= 0.0f) {
+                if (g_game_time >= g_round_end_time) {
                     u8 eg[8];
                     int eglen = bc_build_end_game(eg, sizeof(eg),
                                                    BC_END_REASON_TIME_UP);
                     if (eglen > 0) bc_send_to_all(eg, eglen, true);
                     g_game_ended = true;
+                    g_accept_new_players = false;
                     LOG_INFO("game", "Time limit reached (%.0f sec)", g_game_time);
                 }
             }
@@ -691,9 +725,13 @@ int main(int argc, char **argv)
                         bc_registry_get_ship(&g_registry, rp->respawn_class);
                     if (!rcls) continue;
 
+                    u8 team_id = g_player_teams[i];
+                    if (team_id == BC_TEAM_NONE) team_id = rp->ship.team_id;
+                    if (team_id == BC_TEAM_NONE) team_id = 0;
+
                     int gs = i > 0 ? i - 1 : 0;
                     bc_ship_init(&rp->ship, rcls, rp->respawn_class,
-                                 bc_make_ship_id(gs), (u8)i, rp->ship.team_id);
+                                 bc_make_ship_id(gs), (u8)i, team_id);
                     rp->ship.pos.x = (f32)(rand() % 4001) - 2000.0f;
                     rp->ship.pos.y = (f32)(rand() % 1001) - 500.0f;
                     rp->ship.pos.z = (f32)(rand() % 4001) - 2000.0f;

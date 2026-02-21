@@ -79,8 +79,9 @@ static void send_settings_and_gameinit(int peer_slot)
 
     /* --- Late-join data: existing ships, scores, DeletePlayerUI --- */
 
-    /* Send Score (0x37) for each active player -- stock format sends one
-     * message per player: [0x37][player_id:i32][kills:i32][deaths:i32][score:i32] */
+    /* Send join score sync.
+     * FFA: one SCORE (0x37) per active player.
+     * Team modes: one SCORE_INIT (0x3F) per active player + TEAM_SCORE (0x40) per team. */
     {
         int sent = 0;
         for (int i = 1; i < BC_MAX_PLAYERS; i++) {
@@ -92,20 +93,41 @@ static void send_settings_and_gameinit(int peer_slot)
                     continue;
                 }
                 u8 score_buf[32];
-                int slen = bc_build_score(score_buf, sizeof(score_buf),
+                int slen;
+                if (g_team_mode) {
+                    slen = bc_build_score_init(score_buf, sizeof(score_buf),
+                                                player_id,
+                                                g_player_kills[i],
+                                                g_player_deaths[i],
+                                                g_player_scores[i],
+                                                g_player_teams[i]);
+                } else {
+                    slen = bc_build_score(score_buf, sizeof(score_buf),
                                            player_id,
-                                           g_peers.peers[i].kills,
-                                           g_peers.peers[i].deaths,
-                                           g_peers.peers[i].score);
+                                           g_player_kills[i],
+                                           g_player_deaths[i],
+                                           g_player_scores[i]);
+                }
                 if (slen > 0) {
                     bc_queue_reliable(peer_slot, score_buf, slen);
                     sent++;
                 }
             }
         }
-        if (sent > 0) {
-            LOG_DEBUG("handshake", "slot=%d sending Score for %d players",
-                      peer_slot, sent);
+        if (sent > 0 || g_team_mode) {
+            LOG_DEBUG("handshake", "slot=%d sending %s sync for %d players",
+                      peer_slot, g_team_mode ? "team score" : "score", sent);
+        }
+
+        if (g_team_mode) {
+            for (int team = 0; team < 2; team++) {
+                u8 team_buf[16];
+                int tlen = bc_build_team_score(team_buf, sizeof(team_buf),
+                                                (u8)team,
+                                                g_team_kills[team],
+                                                g_team_scores[team]);
+                if (tlen > 0) bc_queue_reliable(peer_slot, team_buf, tlen);
+            }
         }
     }
 
@@ -145,6 +167,20 @@ static void send_settings_and_gameinit(int peer_slot)
 void bc_handle_peer_disconnect(int slot)
 {
     if (g_peers.peers[slot].state == PEER_EMPTY) return;
+
+    /* Preserve score/team entries for reconnect. */
+    g_player_scores[slot] = g_peers.peers[slot].score;
+    g_player_kills[slot] = g_peers.peers[slot].kills;
+    g_player_deaths[slot] = g_peers.peers[slot].deaths;
+    if (g_peers.peers[slot].has_ship)
+        g_player_teams[slot] = g_peers.peers[slot].ship.team_id;
+
+    /* Clear any pending damage ledger entries tied to this slot. */
+    memset(g_damage_ledger[slot], 0, sizeof(g_damage_ledger[slot]));
+    for (int t = 0; t < BC_MAX_PLAYERS; t++) {
+        g_damage_ledger[t][slot].shield_damage = 0.0f;
+        g_damage_ledger[t][slot].hull_damage = 0.0f;
+    }
 
     g_stats.disconnects++;
 
@@ -213,6 +249,15 @@ void bc_handle_connect(const bc_addr_t *from, int len)
         return;
     }
 
+    if (!g_accept_new_players) {
+        LOG_INFO("net", "Rejecting connect from %s (game ended)", addr_str);
+        u8 boot_payload[4];
+        int boot_len = bc_bootplayer_build(boot_payload, sizeof(boot_payload),
+                                            BC_BOOT_GENERIC);
+        if (boot_len > 0) bc_send_unreliable_direct(from, boot_payload, boot_len);
+        return;
+    }
+
     slot = bc_peers_add(&g_peers, from);
     if (slot < 0) {
         LOG_WARN("net", "Server full, sending BootPlayer to %s", addr_str);
@@ -239,6 +284,9 @@ void bc_handle_connect(const bc_addr_t *from, int len)
 
     g_peers.peers[slot].last_recv_time = bc_ms_now();
     g_peers.peers[slot].connect_time = bc_ms_now();
+    g_peers.peers[slot].score = g_player_scores[slot];
+    g_peers.peers[slot].kills = g_player_kills[slot];
+    g_peers.peers[slot].deaths = g_player_deaths[slot];
 
     LOG_INFO("net", "Player connected from %s -> slot %d (%d/%d)",
              addr_str, slot, g_peers.count - 1, g_info.maxplayers);

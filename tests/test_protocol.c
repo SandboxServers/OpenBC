@@ -730,7 +730,7 @@ TEST(gameinit_build_too_small)
 TEST(mission_init_no_limits)
 {
     u8 buf[32];
-    int len = bc_mission_init_build(buf, sizeof(buf), 3, 6, -1, -1);
+    int len = bc_mission_init_build(buf, sizeof(buf), 3, 6, -1, 0, -1);
     ASSERT(len > 0);
 
     bc_buffer_t b;
@@ -763,7 +763,7 @@ TEST(mission_init_no_limits)
 TEST(mission_init_with_limits)
 {
     u8 buf[32];
-    int len = bc_mission_init_build(buf, sizeof(buf), 8, 4, 10, 25);
+    int len = bc_mission_init_build(buf, sizeof(buf), 8, 4, 10, 1234, 25);
     ASSERT(len > 0);
 
     bc_buffer_t b;
@@ -788,7 +788,7 @@ TEST(mission_init_with_limits)
     /* end_time i32 follows when time_limit != 255 */
     i32 end_time;
     ASSERT(bc_buf_read_i32(&b, &end_time));
-    ASSERT_EQ_INT(end_time, 0);  /* placeholder for now */
+    ASSERT_EQ_INT(end_time, 1234);
 
     u8 frag_limit;
     ASSERT(bc_buf_read_u8(&b, &frag_limit));
@@ -801,7 +801,7 @@ TEST(mission_init_with_limits)
 TEST(mission_init_too_small)
 {
     u8 buf[2];
-    int len = bc_mission_init_build(buf, sizeof(buf), 1, 6, -1, -1);
+    int len = bc_mission_init_build(buf, sizeof(buf), 1, 6, -1, 0, -1);
     ASSERT_EQ_INT(len, -1);
 }
 

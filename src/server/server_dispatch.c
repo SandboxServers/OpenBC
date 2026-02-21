@@ -251,6 +251,236 @@ static void generate_damage_events(int target_slot,
     }
 }
 
+static f32 total_shields(const bc_ship_state_t *ship)
+{
+    f32 sum = 0.0f;
+    for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) sum += ship->shield_hp[i];
+    return sum;
+}
+
+static bool same_team_slots(int a_slot, int b_slot)
+{
+    if (a_slot <= 0 || b_slot <= 0) return false;
+    if (a_slot >= BC_MAX_PLAYERS || b_slot >= BC_MAX_PLAYERS) return false;
+    u8 a = g_player_teams[a_slot];
+    u8 b = g_player_teams[b_slot];
+    if (a == BC_TEAM_NONE || b == BC_TEAM_NONE) return false;
+    return a == b;
+}
+
+static f32 class_damage_modifier(const bc_ship_class_t *attacker_cls,
+                                 const bc_ship_class_t *target_cls)
+{
+    (void)attacker_cls;
+    (void)target_cls;
+    /* Stock flyable ships are all class 1 (modifier 1.0). */
+    return 1.0f;
+}
+
+static void sync_peer_score_slot(int slot)
+{
+    if (slot < 0 || slot >= BC_MAX_PLAYERS) return;
+    if (g_peers.peers[slot].state == PEER_EMPTY) return;
+    g_peers.peers[slot].score = g_player_scores[slot];
+    g_peers.peers[slot].kills = g_player_kills[slot];
+    g_peers.peers[slot].deaths = g_player_deaths[slot];
+}
+
+static void clear_target_damage_ledger(int target_slot)
+{
+    if (target_slot < 0 || target_slot >= BC_MAX_PLAYERS) return;
+    memset(g_damage_ledger[target_slot], 0, sizeof(g_damage_ledger[target_slot]));
+}
+
+static void record_damage_ledger(int attacker_slot, int target_slot,
+                                 const bc_ship_class_t *attacker_cls,
+                                 const bc_ship_class_t *target_cls,
+                                 f32 shield_damage, f32 hull_damage)
+{
+    if (attacker_slot <= 0 || attacker_slot >= BC_MAX_PLAYERS) return;
+    if (target_slot <= 0 || target_slot >= BC_MAX_PLAYERS) return;
+    if (shield_damage <= 0.0f && hull_damage <= 0.0f) return;
+
+    f32 mod = class_damage_modifier(attacker_cls, target_cls);
+    shield_damage *= mod;
+    hull_damage *= mod;
+
+    if (g_team_mode && same_team_slots(attacker_slot, target_slot)) {
+        shield_damage = -shield_damage;
+        hull_damage = -hull_damage;
+    }
+
+    g_damage_ledger[target_slot][attacker_slot].shield_damage += shield_damage;
+    g_damage_ledger[target_slot][attacker_slot].hull_damage += hull_damage;
+}
+
+static void end_game_locked(i32 reason, const char *why)
+{
+    if (g_game_ended) return;
+    u8 eg[8];
+    int eglen = bc_build_end_game(eg, sizeof(eg), reason);
+    if (eglen > 0) bc_send_to_all(eg, eglen, true);
+    g_game_ended = true;
+    g_accept_new_players = false;
+    LOG_INFO("game", "EndGame: reason=%d (%s)", (int)reason, why ? why : "?");
+}
+
+static void broadcast_team_scores(void)
+{
+    if (!g_team_mode) return;
+    for (int t = 0; t < 2; t++) {
+        u8 pkt[16];
+        int len = bc_build_team_score(pkt, sizeof(pkt), (u8)t,
+                                       g_team_kills[t], g_team_scores[t]);
+        if (len > 0) bc_send_to_all(pkt, len, true);
+    }
+}
+
+static void check_limit_after_kill(void)
+{
+    if (g_game_ended || g_frag_limit <= 0) return;
+
+    i32 threshold = g_use_score_limit
+                  ? (i32)(g_frag_limit * 10000)
+                  : (i32)g_frag_limit;
+    bool reached = false;
+
+    if (g_team_mode) {
+        for (int t = 0; t < 2; t++) {
+            i32 value = g_use_score_limit ? g_team_scores[t] : g_team_kills[t];
+            if (value >= threshold) {
+                reached = true;
+                break;
+            }
+        }
+    } else {
+        for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+            i32 value = g_use_score_limit ? g_player_scores[i] : g_player_kills[i];
+            if (value >= threshold) {
+                reached = true;
+                break;
+            }
+        }
+    }
+
+    if (reached) {
+        end_game_locked(BC_END_REASON_SCORE_LIMIT,
+                        g_use_score_limit ? "score_limit" : "frag_limit");
+    }
+}
+
+static void process_ship_kill(int killer_slot, int victim_slot)
+{
+    if (g_game_ended) return;
+    if (victim_slot <= 0 || victim_slot >= BC_MAX_PLAYERS) return;
+
+    i32 victim_player_id = bc_player_id_from_peer_slot(victim_slot);
+    if (!bc_is_valid_player_id(victim_player_id)) return;
+
+    bool has_killer = (killer_slot > 0 && killer_slot < BC_MAX_PLAYERS);
+    i32 killer_player_id = 0;
+    if (has_killer) {
+        killer_player_id = bc_player_id_from_peer_slot(killer_slot);
+        if (!bc_is_valid_player_id(killer_player_id)) {
+            has_killer = false;
+            killer_player_id = 0;
+        }
+    }
+
+    g_player_deaths[victim_slot]++;
+    sync_peer_score_slot(victim_slot);
+
+    if (has_killer) {
+        bool award_frag = true;
+        if (g_team_mode && same_team_slots(killer_slot, victim_slot))
+            award_frag = false;
+        if (award_frag) {
+            g_player_kills[killer_slot]++;
+            u8 team = g_player_teams[killer_slot];
+            if (g_team_mode && team < 2) g_team_kills[team]++;
+        }
+    }
+
+    bc_score_entry_t extra[BC_MAX_PLAYERS];
+    int extra_count = 0;
+
+    for (int attacker = 1; attacker < BC_MAX_PLAYERS; attacker++) {
+        f32 total_damage = g_damage_ledger[victim_slot][attacker].shield_damage +
+                           g_damage_ledger[victim_slot][attacker].hull_damage;
+        if (fabsf(total_damage) < 0.001f) continue;
+
+        i32 delta = (i32)(total_damage / 10.0f);
+        if (delta == 0) continue;
+
+        g_player_scores[attacker] += delta;
+        sync_peer_score_slot(attacker);
+
+        if (g_team_mode) {
+            u8 team = g_player_teams[attacker];
+            if (team < 2) g_team_scores[team] += delta;
+        }
+
+        if (!has_killer || attacker != killer_slot) {
+            i32 player_id = bc_player_id_from_peer_slot(attacker);
+            if (bc_is_valid_player_id(player_id) &&
+                extra_count < BC_MAX_PLAYERS) {
+                extra[extra_count].player_id = player_id;
+                extra[extra_count].score = g_player_scores[attacker];
+                extra_count++;
+            }
+        }
+    }
+
+    i32 killer_kills = has_killer ? g_player_kills[killer_slot] : 0;
+    i32 killer_score = has_killer ? g_player_scores[killer_slot] : 0;
+    i32 victim_deaths = g_player_deaths[victim_slot];
+
+    if (has_killer) sync_peer_score_slot(killer_slot);
+    sync_peer_score_slot(victim_slot);
+
+    u8 sc[128];
+    int slen = bc_build_score_change(sc, sizeof(sc),
+                                      has_killer ? killer_player_id : 0,
+                                      killer_kills, killer_score,
+                                      victim_player_id, victim_deaths,
+                                      extra, extra_count);
+    if (slen > 0) bc_send_to_all(sc, slen, true);
+
+    if (g_team_mode) broadcast_team_scores();
+    clear_target_damage_ledger(victim_slot);
+    check_limit_after_kill();
+}
+
+static void reset_round_for_restart(void)
+{
+    memset(g_player_scores, 0, sizeof(g_player_scores));
+    memset(g_player_kills, 0, sizeof(g_player_kills));
+    memset(g_player_deaths, 0, sizeof(g_player_deaths));
+    memset(g_team_scores, 0, sizeof(g_team_scores));
+    memset(g_team_kills, 0, sizeof(g_team_kills));
+    memset(g_damage_ledger, 0, sizeof(g_damage_ledger));
+    for (int i = 0; i < BC_MAX_PLAYERS; i++) g_player_teams[i] = BC_TEAM_NONE;
+
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+        g_peers.peers[i].score = 0;
+        g_peers.peers[i].kills = 0;
+        g_peers.peers[i].deaths = 0;
+        g_peers.peers[i].respawn_timer = 0.0f;
+        g_peers.peers[i].respawn_class = -1;
+        g_peers.peers[i].has_ship = false;
+        g_peers.peers[i].spawn_len = 0;
+        g_peers.peers[i].class_index = -1;
+    }
+
+    bc_torpedo_mgr_init(&g_torpedoes);
+
+    g_game_ended = false;
+    g_accept_new_players = true;
+    g_round_end_time = (g_time_limit > 0)
+                     ? (g_game_time + (f32)g_time_limit * 60.0f)
+                     : -1.0f;
+}
+
 /* Apply beam damage: compute, send Explosion, check kill. */
 static void apply_beam_damage(int shooter_slot, int target_slot)
 {
@@ -282,13 +512,26 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
     bc_vec3_t impact_dir = bc_vec3_normalize(
         bc_vec3_sub(target->ship.pos, shooter->ship.pos));
 
-    /* Snapshot HP before damage for PythonEvent generation */
+    /* Snapshot HP before damage for PythonEvent generation + score ledger */
     f32 hp_snap[BC_MAX_SUBSYSTEMS];
     memcpy(hp_snap, target->ship.subsystem_hp, sizeof(hp_snap));
+    f32 shield_before = total_shields(&target->ship);
+    f32 hull_before = target->ship.hull_hp;
 
     /* Apply damage server-side (phaser = directed, no blast radius) */
     bc_combat_apply_damage(&target->ship, target_cls, damage, 0.0f,
                            impact_dir, false, 1.0f);
+
+    f32 shield_after = total_shields(&target->ship);
+    f32 hull_after = target->ship.hull_hp;
+    f32 shield_delta = shield_before - shield_after;
+    f32 hull_delta = hull_before - hull_after;
+    if (shield_delta < 0.0f) shield_delta = 0.0f;
+    if (hull_delta < 0.0f) hull_delta = 0.0f;
+
+    record_damage_ledger(shooter_slot, target_slot,
+                         shooter_cls, target_cls,
+                         shield_delta, hull_delta);
 
     /* Generate ADD_TO_REPAIR_LIST PythonEvents for newly-damaged subsystems */
     generate_damage_events(target_slot, hp_snap, target_cls);
@@ -326,29 +569,7 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
                                          target->ship.object_id);
         if (dlen > 0) bc_send_to_all(dest, dlen, true);
 
-        /* Update scores */
-        shooter->score++;
-        shooter->kills++;
-        target->deaths++;
-
-        i32 killer_player_id = bc_player_id_from_peer_slot(shooter_slot);
-        i32 victim_player_id = bc_player_id_from_peer_slot(target_slot);
-        if (!bc_is_valid_player_id(killer_player_id) ||
-            !bc_is_valid_player_id(victim_player_id)) {
-            LOG_WARN("combat", "Invalid ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
-                     shooter_slot, (int)killer_player_id,
-                     target_slot, (int)victim_player_id);
-            return;
-        }
-
-        u8 sc[64];
-        int slen = bc_build_score_change(sc, sizeof(sc),
-                                          killer_player_id,
-                                          shooter->kills, shooter->score,
-                                          victim_player_id,
-                                          target->deaths,
-                                          NULL, 0);
-        if (slen > 0) bc_send_to_all(sc, slen, true);
+        process_ship_kill(shooter_slot, target_slot);
 
         /* Clear victim ship state */
         target->has_ship = false;
@@ -358,15 +579,6 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
             target->respawn_class = target->class_index;
         }
 
-        /* Check frag limit */
-        if (!g_game_ended && g_frag_limit > 0 && shooter->score >= g_frag_limit) {
-            u8 eg[8];
-            int eglen = bc_build_end_game(eg, sizeof(eg), BC_END_REASON_FRAG_LIMIT);
-            if (eglen > 0) bc_send_to_all(eg, eglen, true);
-            g_game_ended = true;
-            LOG_INFO("game", "Frag limit reached by %s (%d kills)",
-                     peer_name(shooter_slot), shooter->score);
-        }
     }
 }
 
@@ -387,19 +599,34 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
 
     const bc_ship_class_t *target_cls =
         bc_registry_get_ship(&g_registry, target->class_index);
-    if (!target_cls) return;
+    const bc_ship_class_t *shooter_cls =
+        bc_registry_get_ship(&g_registry, shooter->class_index);
+    if (!target_cls || !shooter_cls) return;
 
     /* Impact direction from torpedo position to target */
     bc_vec3_t impact_dir = bc_vec3_normalize(
         bc_vec3_sub(target->ship.pos, impact_pos));
 
-    /* Snapshot HP before damage for PythonEvent generation */
+    /* Snapshot HP before damage for PythonEvent generation + score ledger */
     f32 hp_snap[BC_MAX_SUBSYSTEMS];
     memcpy(hp_snap, target->ship.subsystem_hp, sizeof(hp_snap));
+    f32 shield_before = total_shields(&target->ship);
+    f32 hull_before = target->ship.hull_hp;
 
     /* Torpedoes are area-effect with a blast radius */
     bc_combat_apply_damage(&target->ship, target_cls, damage, damage_radius,
                            impact_dir, (damage_radius > 0.0f), 1.0f);
+
+    f32 shield_after = total_shields(&target->ship);
+    f32 hull_after = target->ship.hull_hp;
+    f32 shield_delta = shield_before - shield_after;
+    f32 hull_delta = hull_before - hull_after;
+    if (shield_delta < 0.0f) shield_delta = 0.0f;
+    if (hull_delta < 0.0f) hull_delta = 0.0f;
+
+    record_damage_ledger(shooter_slot, target_slot,
+                         shooter_cls, target_cls,
+                         shield_delta, hull_delta);
 
     /* Generate ADD_TO_REPAIR_LIST PythonEvents for newly-damaged subsystems */
     generate_damage_events(target_slot, hp_snap, target_cls);
@@ -434,28 +661,7 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
                                          target->ship.object_id);
         if (dlen > 0) bc_send_to_all(dest, dlen, true);
 
-        shooter->score++;
-        shooter->kills++;
-        target->deaths++;
-
-        i32 killer_player_id = bc_player_id_from_peer_slot(shooter_slot);
-        i32 victim_player_id = bc_player_id_from_peer_slot(target_slot);
-        if (!bc_is_valid_player_id(killer_player_id) ||
-            !bc_is_valid_player_id(victim_player_id)) {
-            LOG_WARN("combat", "Invalid ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
-                     shooter_slot, (int)killer_player_id,
-                     target_slot, (int)victim_player_id);
-            return;
-        }
-
-        u8 sc[64];
-        int slen = bc_build_score_change(sc, sizeof(sc),
-                                          killer_player_id,
-                                          shooter->kills, shooter->score,
-                                          victim_player_id,
-                                          target->deaths,
-                                          NULL, 0);
-        if (slen > 0) bc_send_to_all(sc, slen, true);
+        process_ship_kill(shooter_slot, target_slot);
 
         target->has_ship = false;
         target->spawn_len = 0;
@@ -464,14 +670,6 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
             target->respawn_class = target->class_index;
         }
 
-        if (!g_game_ended && g_frag_limit > 0 && shooter->score >= g_frag_limit) {
-            u8 eg[8];
-            int eglen = bc_build_end_game(eg, sizeof(eg), BC_END_REASON_FRAG_LIMIT);
-            if (eglen > 0) bc_send_to_all(eg, eglen, true);
-            g_game_ended = true;
-            LOG_INFO("game", "Frag limit reached by %s (%d kills)",
-                     peer_name(shooter_slot), shooter->score);
-        }
     }
 }
 
@@ -859,6 +1057,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                     const bc_ship_class_t *cls =
                         bc_registry_get_ship(&g_registry, cidx);
                     u8 team_id = hdr.has_team ? hdr.team_id : 0;
+                    if (hdr.has_team && team_id < 2) {
+                        g_player_teams[peer_slot] = team_id;
+                    }
                     bc_ship_init(&peer->ship, cls, cidx,
                                   bhdr.object_id,
                                   (u8)peer_slot, team_id);
@@ -903,20 +1104,53 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- NewPlayerInGame (C->S, triggers MissionInit) --- */
     case BC_OP_NEW_PLAYER_IN_GAME: {
         LOG_INFO("handshake", "slot=%d sent NewPlayerInGame", peer_slot);
+        peer->state = PEER_IN_GAME;
         /* Relay to all other peers so they know about the new player */
         bc_relay_to_others(peer_slot, payload, payload_len, true);
         /* Respond with MissionInit (0x35) -- tells client which star system
          * to load and what the match rules are. */
         u8 mi[32];
+        i32 end_time = (g_round_end_time >= 0.0f) ? (i32)g_round_end_time : 0;
         int mi_len = bc_mission_init_build(mi, sizeof(mi),
                                             g_system_index, g_max_players,
-                                            g_time_limit, g_frag_limit);
+                                            g_time_limit, end_time, g_frag_limit);
         if (mi_len > 0) {
             LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
                       peer_slot, g_system_index);
             bc_queue_reliable(peer_slot, mi, mi_len);
             bc_flush_peer(peer_slot);
         }
+        break;
+    }
+
+    /* --- Team assignment (team modes): [0x41][player_id:i32][team_id:u8] --- */
+    case BC_MSG_TEAM_MESSAGE: {
+        if (payload_len >= 6) {
+            i32 player_id = (i32)((u32)payload[1] |
+                                  ((u32)payload[2] << 8) |
+                                  ((u32)payload[3] << 16) |
+                                  ((u32)payload[4] << 24));
+            u8 team_id = payload[5];
+            int team_slot = (int)player_id - 1;
+            if (team_slot > 0 && team_slot < BC_MAX_PLAYERS && team_id < 2) {
+                g_player_teams[team_slot] = team_id;
+                if (g_peers.peers[team_slot].has_ship)
+                    g_peers.peers[team_slot].ship.team_id = team_id;
+                LOG_INFO("game", "team assign: slot=%d team=%d",
+                         team_slot, team_id);
+            }
+        }
+        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+    }
+
+    /* --- Restart game: server-authoritative reset + broadcast --- */
+    case BC_MSG_RESTART: {
+        LOG_INFO("game", "slot=%d requested restart", peer_slot);
+        u8 rpkt[4];
+        int rlen = bc_build_restart_game(rpkt, sizeof(rpkt));
+        if (rlen > 0) bc_send_to_all(rpkt, rlen, true);
+        reset_round_for_restart();
         break;
     }
 
@@ -1084,49 +1318,13 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             killer = find_peer_by_object(
                                 cev.source_object_id);
                         if (killer >= 0) {
-                            bc_peer_t *k = &g_peers.peers[killer];
-                            k->score++;
-                            k->kills++;
-                            target->deaths++;
-                            i32 killer_player_id = bc_player_id_from_peer_slot(killer);
-                            i32 victim_player_id = bc_player_id_from_peer_slot(target_slot);
-                            if (!bc_is_valid_player_id(killer_player_id) ||
-                                !bc_is_valid_player_id(victim_player_id)) {
-                                LOG_WARN("combat", "Invalid collision ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
-                                         killer, (int)killer_player_id,
-                                         target_slot, (int)victim_player_id);
-                                break;
-                            }
-                            u8 sc[64];
-                            int slen = bc_build_score_change(
-                                sc, sizeof(sc),
-                                killer_player_id,
-                                k->kills, k->score,
-                                victim_player_id,
-                                target->deaths, NULL, 0);
-                            if (slen > 0)
-                                bc_send_to_all(sc, slen, true);
+                            process_ship_kill(killer, target_slot);
                             LOG_INFO("combat",
                                      "%s destroyed in collision with %s",
                                      peer_name(target_slot),
                                      peer_name(killer));
-
-                            if (!g_game_ended && g_frag_limit > 0 &&
-                                k->score >= g_frag_limit) {
-                                u8 eg[8];
-                                int eglen = bc_build_end_game(
-                                    eg, sizeof(eg),
-                                    BC_END_REASON_FRAG_LIMIT);
-                                if (eglen > 0)
-                                    bc_send_to_all(eg, eglen, true);
-                                g_game_ended = true;
-                                LOG_INFO("game",
-                                         "Frag limit reached by %s "
-                                         "(%d kills)",
-                                         peer_name(killer), k->score);
-                            }
                         } else {
-                            target->deaths++;
+                            process_ship_kill(-1, target_slot);
                             LOG_INFO("combat",
                                      "%s destroyed in collision",
                                      peer_name(target_slot));
@@ -1219,56 +1417,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             /* Kill credit: target killed the source */
                             if (target_slot >= 0 &&
                                 g_peers.peers[target_slot].has_ship) {
-                                bc_peer_t *k =
-                                    &g_peers.peers[target_slot];
-                                k->score++;
-                                k->kills++;
-                                source->deaths++;
-                                i32 killer_player_id =
-                                    bc_player_id_from_peer_slot(target_slot);
-                                i32 victim_player_id =
-                                    bc_player_id_from_peer_slot(src_slot);
-                                if (!bc_is_valid_player_id(killer_player_id) ||
-                                    !bc_is_valid_player_id(victim_player_id)) {
-                                    LOG_WARN("combat", "Invalid collision ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
-                                             target_slot, (int)killer_player_id,
-                                             src_slot, (int)victim_player_id);
-                                    break;
-                                }
-                                u8 sc2[64];
-                                int slen2 = bc_build_score_change(
-                                    sc2, sizeof(sc2),
-                                    killer_player_id,
-                                    k->kills, k->score,
-                                    victim_player_id,
-                                    source->deaths, NULL, 0);
-                                if (slen2 > 0)
-                                    bc_send_to_all(sc2, slen2, true);
+                                process_ship_kill(target_slot, src_slot);
                                 LOG_INFO("combat",
                                          "%s destroyed in collision "
                                          "with %s",
                                          peer_name(src_slot),
                                          peer_name(target_slot));
-
-                                if (!g_game_ended &&
-                                    g_frag_limit > 0 &&
-                                    k->score >= g_frag_limit) {
-                                    u8 eg2[8];
-                                    int eglen2 = bc_build_end_game(
-                                        eg2, sizeof(eg2),
-                                        BC_END_REASON_FRAG_LIMIT);
-                                    if (eglen2 > 0)
-                                        bc_send_to_all(eg2, eglen2,
-                                                       true);
-                                    g_game_ended = true;
-                                    LOG_INFO("game",
-                                             "Frag limit reached by "
-                                             "%s (%d kills)",
-                                             peer_name(target_slot),
-                                             k->score);
-                                }
                             } else {
-                                source->deaths++;
+                                process_ship_kill(-1, src_slot);
                                 LOG_INFO("combat",
                                          "%s destroyed in collision",
                                          peer_name(src_slot));

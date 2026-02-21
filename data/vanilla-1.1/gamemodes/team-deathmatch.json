@@ -1,0 +1,8 @@
+{
+  "id": "mission2",
+  "name": "Team Deathmatch",
+  "script": "Multiplayer.Episode.Mission2.Mission2",
+  "teams": true,
+  "team_names": ["Team 1", "Team 2"],
+  "scoring": "team"
+}

@@ -108,7 +108,7 @@ int bc_gameinit_build(u8 *buf, int buf_size)
 
 int bc_mission_init_build(u8 *buf, int buf_size,
                           int system_index, int player_limit,
-                          int time_limit, int frag_limit)
+                          int time_limit, i32 end_time, int frag_limit)
 {
     /* Wire format (from Mission1.py InitNetwork):
      * [opcode:u8][player_limit:u8][system_index:u8]
@@ -126,10 +126,7 @@ int bc_mission_init_build(u8 *buf, int buf_size,
         if (!bc_buf_write_u8(&b, 0xFF)) return -1;
     } else {
         if (!bc_buf_write_u8(&b, (u8)(time_limit & 0xFF))) return -1;
-        /* end_time: absolute game clock when match ends.
-         * For now we use 0 -- the client only reads this if time_limit != 255,
-         * and a proper timer requires game clock integration. */
-        if (!bc_buf_write_i32(&b, 0)) return -1;
+        if (!bc_buf_write_i32(&b, end_time)) return -1;
     }
 
     if (frag_limit < 0) {
