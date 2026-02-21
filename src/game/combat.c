@@ -272,7 +272,8 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
                             const bc_ship_class_t *cls,
                             f32 damage, f32 damage_radius,
                             bc_vec3_t impact_dir,
-                            bool area_effect)
+                            bool area_effect,
+                            f32 shield_scale)
 {
     if (!target->alive || damage <= 0.0f) return;
 
@@ -287,9 +288,10 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
         f32 total_absorbed = 0.0f;
         for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
             f32 absorbed = per_facing;
-            if (absorbed > target->shield_hp[i])
-                absorbed = target->shield_hp[i];
-            target->shield_hp[i] -= absorbed;
+            f32 facing_capacity = target->shield_hp[i] * shield_scale;
+            if (absorbed > facing_capacity)
+                absorbed = facing_capacity;
+            target->shield_hp[i] -= absorbed / shield_scale;
             total_absorbed += absorbed;
         }
         overflow = damage - total_absorbed;
@@ -297,11 +299,12 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
         /* Directed: single facing absorbs */
         int facing = bc_combat_shield_facing(target, impact_dir);
         if (target->shield_hp[facing] > 0.0f) {
-            if (damage <= target->shield_hp[facing]) {
-                target->shield_hp[facing] -= damage;
+            f32 shield_capacity = target->shield_hp[facing] * shield_scale;
+            if (damage <= shield_capacity) {
+                target->shield_hp[facing] -= damage / shield_scale;
                 return; /* fully absorbed */
             }
-            overflow = damage - target->shield_hp[facing];
+            overflow = damage - shield_capacity;
             target->shield_hp[facing] = 0.0f;
         } else {
             overflow = damage;
@@ -356,17 +359,28 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
     }
 }
 
-/* Bug 8: collision damage formula per spec */
-f32 bc_combat_collision_damage(f32 collision_energy, f32 ship_mass,
-                               int contact_count,
-                               f32 collision_scale, f32 collision_offset)
+/* Path 1 — Direct collision (multi-contact, fractional).
+ * Output: 0.1 to 0.5 (fraction of radius). */
+f32 bc_combat_collision_damage_path1(f32 collision_energy, f32 ship_mass,
+                                      int contact_count)
 {
     if (ship_mass <= 0.0f || contact_count <= 0) return 0.0f;
     f32 raw = (collision_energy / ship_mass) / (f32)contact_count;
-    f32 scaled = raw * collision_scale + collision_offset;
+    f32 scaled = raw * 0.1f + 0.1f;
     if (scaled > 0.5f) scaled = 0.5f;
     if (scaled < 0.0f) scaled = 0.0f;
     return scaled;
+}
+
+/* Path 2 — Collision effect handler (shield-first, absolute HP).
+ * Dead zone: raw <= 0.01 ignored. Output: 500.0+ absolute HP. */
+f32 bc_combat_collision_damage_path2(f32 collision_energy, f32 ship_mass,
+                                      int contact_count)
+{
+    if (ship_mass <= 0.0f || contact_count <= 0) return 0.0f;
+    f32 raw = (collision_energy / ship_mass) / (f32)contact_count;
+    if (raw <= 0.01f) return 0.0f;   /* dead zone */
+    return raw * 900.0f + 500.0f;
 }
 
 /* --- Shield recharge --- */

@@ -27,6 +27,18 @@
 #  include <windows.h>
 #endif
 
+/* Global auto-increment counter for subsystem object IDs (PythonEvent).
+ * Each subsystem on every ship gets a sequential ID from this counter.
+ *
+ * Must match the client's auto-increment counter value at the time it
+ * creates subsystem objects.  The client's counter starts at 1 but
+ * advances through scene objects created during map loading (skybox,
+ * asteroids, etc.) before any ship subsystems are constructed.
+ *
+ * Calibrated from stock dedi trace: repair subsystem has ID 0x1E (30)
+ * and is the 15th subsystem assigned (counter + 14), so counter = 16. */
+i32 g_script_obj_counter = 16;
+
 /* --- GameSpy query handler --- */
 
 void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
@@ -210,6 +222,34 @@ static void send_health_update_immediate(int target_slot)
     /* NOTE: subsys_rr_idx is NOT updated -- periodic tick owns the cursor */
 }
 
+/* Snapshot pre-damage HP, compare after, generate ADD_TO_REPAIR_LIST PythonEvents
+ * for each newly-damaged subsystem.  This drives the client's repair queue UI,
+ * damage VFX/SFX, and subsystem damage indicators. */
+static void generate_damage_events(int target_slot,
+                                    const f32 *hp_before,
+                                    const bc_ship_class_t *cls)
+{
+    bc_peer_t *target = &g_peers.peers[target_slot];
+    bc_ship_state_t *ship = &target->ship;
+
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        if (ship->subsystem_hp[i] < hp_before[i] &&
+            ship->subsystem_hp[i] < cls->subsystems[i].max_condition) {
+            /* Subsystem took damage — try to add to repair queue */
+            if (bc_repair_add(ship, (u8)i)) {
+                /* New addition (not duplicate) — send ADD_TO_REPAIR_LIST */
+                u8 evt[17];
+                int len = bc_build_python_subsystem_event(
+                    evt, sizeof(evt),
+                    BC_EVENT_ADD_TO_REPAIR,
+                    ship->subsys_obj_id[i],
+                    ship->repair_subsys_obj_id);
+                if (len > 0) bc_send_to_all(evt, len, true);
+            }
+        }
+    }
+}
+
 /* Apply beam damage: compute, send Explosion, check kill. */
 static void apply_beam_damage(int shooter_slot, int target_slot)
 {
@@ -241,9 +281,16 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
     bc_vec3_t impact_dir = bc_vec3_normalize(
         bc_vec3_sub(target->ship.pos, shooter->ship.pos));
 
+    /* Snapshot HP before damage for PythonEvent generation */
+    f32 hp_snap[BC_MAX_SUBSYSTEMS];
+    memcpy(hp_snap, target->ship.subsystem_hp, sizeof(hp_snap));
+
     /* Apply damage server-side (phaser = directed, no blast radius) */
     bc_combat_apply_damage(&target->ship, target_cls, damage, 0.0f,
-                           impact_dir, false);
+                           impact_dir, false, 1.0f);
+
+    /* Generate ADD_TO_REPAIR_LIST PythonEvents for newly-damaged subsystems */
+    generate_damage_events(target_slot, hp_snap, target_cls);
 
     /* Send authoritative health to all clients.
      * No server-generated Explosion — clients compute beam hit detection
@@ -260,6 +307,17 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
     if (!target->ship.alive) {
         LOG_INFO("combat", "%s destroyed by %s",
                  peer_name(target_slot), peer_name(shooter_slot));
+
+        /* Send OBJECT_EXPLODING PythonEvent */
+        {
+            u8 expl[25];
+            int elen = bc_build_python_exploding_event(
+                expl, sizeof(expl),
+                target->ship.object_id,
+                shooter->ship.object_id,
+                1.0f);
+            if (elen > 0) bc_send_to_all(expl, elen, true);
+        }
 
         /* Send DestroyObject to all */
         u8 dest[8];
@@ -324,9 +382,16 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
     bc_vec3_t impact_dir = bc_vec3_normalize(
         bc_vec3_sub(target->ship.pos, impact_pos));
 
+    /* Snapshot HP before damage for PythonEvent generation */
+    f32 hp_snap[BC_MAX_SUBSYSTEMS];
+    memcpy(hp_snap, target->ship.subsystem_hp, sizeof(hp_snap));
+
     /* Torpedoes are area-effect with a blast radius */
     bc_combat_apply_damage(&target->ship, target_cls, damage, damage_radius,
-                           impact_dir, (damage_radius > 0.0f));
+                           impact_dir, (damage_radius > 0.0f), 1.0f);
+
+    /* Generate ADD_TO_REPAIR_LIST PythonEvents for newly-damaged subsystems */
+    generate_damage_events(target_slot, hp_snap, target_cls);
 
     /* Send authoritative health to all clients.
      * No server-generated Explosion — clients generate their own
@@ -341,6 +406,17 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
     if (!target->ship.alive) {
         LOG_INFO("combat", "%s destroyed by torpedo from %s",
                  peer_name(target_slot), peer_name(shooter_slot));
+
+        /* Send OBJECT_EXPLODING PythonEvent */
+        {
+            u8 expl[25];
+            int elen = bc_build_python_exploding_event(
+                expl, sizeof(expl),
+                target->ship.object_id,
+                shooter->ship.object_id,
+                1.0f);
+            if (elen > 0) bc_send_to_all(expl, elen, true);
+        }
 
         u8 dest[8];
         int dlen = bc_build_destroy_obj(dest, sizeof(dest),
@@ -775,8 +851,12 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                     memset(peer->last_torpedo_time, 0, sizeof(peer->last_torpedo_time));
                     peer->fire_violations = 0;
                     peer->violation_window_start = 0;
-                    LOG_INFO("game", "slot=%d ship initialized: %s (species=%d, hull=%.0f)",
-                             peer_slot, cls->name, bhdr.species_id, cls->hull_hp);
+                    bc_ship_assign_subsystem_ids(&peer->ship, cls,
+                                                  &g_script_obj_counter);
+                    LOG_INFO("game", "slot=%d ship initialized: %s (species=%d, hull=%.0f, repair_obj=0x%X, next_counter=%d)",
+                             peer_slot, cls->name, bhdr.species_id, cls->hull_hp,
+                             peer->ship.repair_subsys_obj_id,
+                             g_script_obj_counter);
                 } else {
                     LOG_WARN("game", "slot=%d unknown species_id %d, no ship state",
                              peer_slot, bhdr.species_id);
@@ -893,11 +973,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                     bc_registry_get_ship(&g_registry, target->class_index);
 
                 if (tcls && target->ship.alive) {
-                    f32 dmg_frac = bc_combat_collision_damage(
-                        cev.collision_force, tcls->mass, cc, 1.0f, 0.0f);
-                    /* Collision damage formula returns a fraction (0..0.5)
-                     * of hull HP, not absolute HP.  Convert to absolute. */
-                    f32 dmg = dmg_frac * tcls->hull_hp;
+                    f32 dmg = bc_combat_collision_damage_path2(
+                        cev.collision_force, tcls->mass, cc);
+                    if (dmg <= 0.0f) break;  /* dead zone — no damage */
 
                     /* Impact direction for shield facing */
                     bc_vec3_t impact_dir = {0.0f, 0.0f, 1.0f};
@@ -910,8 +988,26 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                         }
                     }
 
-                    bc_combat_apply_damage(&target->ship, tcls, dmg, 6000.0f,
-                                           impact_dir, true);
+                    /* Scale impact to ship surface for subsystem localization.
+                     * Shield facing uses component comparison (scale-invariant). */
+                    bc_vec3_t scaled_impact = {
+                        impact_dir.x * tcls->bounding_extent,
+                        impact_dir.y * tcls->bounding_extent,
+                        impact_dir.z * tcls->bounding_extent,
+                    };
+                    f32 collision_radius = tcls->bounding_extent * 0.5f;
+
+                    /* Snapshot HP before damage for PythonEvent generation */
+                    f32 thp_snap[BC_MAX_SUBSYSTEMS];
+                    memcpy(thp_snap, target->ship.subsystem_hp,
+                           sizeof(thp_snap));
+
+                    bc_combat_apply_damage(&target->ship, tcls, dmg,
+                                           collision_radius, scaled_impact,
+                                           false, 1.0f);
+
+                    /* Generate ADD_TO_REPAIR_LIST PythonEvents */
+                    generate_damage_events(target_slot, thp_snap, tcls);
 
                     /* Collision damage is communicated via health update
                      * (flag 0x20), NOT via Explosion events.  The stock host
@@ -930,6 +1026,25 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                              object_owner_name(cev.source_object_id));
 
                     if (!target->ship.alive) {
+                        /* Send OBJECT_EXPLODING PythonEvent */
+                        {
+                            i32 killer_id = 0;
+                            if (cev.source_object_id != 0) {
+                                int ks = find_peer_by_object(
+                                    cev.source_object_id);
+                                if (ks >= 0)
+                                    killer_id =
+                                        g_peers.peers[ks].ship.object_id;
+                            }
+                            u8 expl[25];
+                            int elen = bc_build_python_exploding_event(
+                                expl, sizeof(expl),
+                                target->ship.object_id,
+                                killer_id, 1.0f);
+                            if (elen > 0)
+                                bc_send_to_all(expl, elen, true);
+                        }
+
                         u8 dest[8];
                         int dlen = bc_build_destroy_obj(dest, sizeof(dest),
                                                          target->ship.object_id);
@@ -999,9 +1114,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                         bc_registry_get_ship(&g_registry, source->class_index);
 
                     if (scls && source->ship.alive) {
-                        f32 sdmg_frac = bc_combat_collision_damage(
-                            cev.collision_force, scls->mass, cc, 1.0f, 0.0f);
-                        f32 sdmg = sdmg_frac * scls->hull_hp;
+                        f32 sdmg = bc_combat_collision_damage_path2(
+                            cev.collision_force, scls->mass, cc);
+                        if (sdmg <= 0.0f) break;  /* dead zone */
 
                         /* Flipped impact direction */
                         bc_vec3_t src_impact = {0.0f, 0.0f, 1.0f};
@@ -1011,8 +1126,25 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 source->ship.pos));
                         }
 
+                        /* Scale impact to ship surface for subsystem localization */
+                        bc_vec3_t src_scaled = {
+                            src_impact.x * scls->bounding_extent,
+                            src_impact.y * scls->bounding_extent,
+                            src_impact.z * scls->bounding_extent,
+                        };
+                        f32 src_coll_radius = scls->bounding_extent * 0.5f;
+
+                        /* Snapshot HP for PythonEvent generation */
+                        f32 shp_snap[BC_MAX_SUBSYSTEMS];
+                        memcpy(shp_snap, source->ship.subsystem_hp,
+                               sizeof(shp_snap));
+
                         bc_combat_apply_damage(&source->ship, scls, sdmg,
-                                               6000.0f, src_impact, true);
+                                               src_coll_radius, src_scaled,
+                                               false, 1.0f);
+
+                        /* Generate ADD_TO_REPAIR_LIST PythonEvents */
+                        generate_damage_events(src_slot, shp_snap, scls);
 
                         /* No Explosion for collision — see target path comment */
                         send_health_update_immediate(src_slot);
@@ -1022,6 +1154,24 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                  peer_name(src_slot), sdmg);
 
                         if (!source->ship.alive) {
+                            /* Send OBJECT_EXPLODING PythonEvent */
+                            {
+                                i32 killer_id = 0;
+                                if (target_slot >= 0 &&
+                                    g_peers.peers[target_slot].has_ship)
+                                    killer_id =
+                                        g_peers.peers[target_slot]
+                                            .ship.object_id;
+                                u8 expl2[25];
+                                int elen2 =
+                                    bc_build_python_exploding_event(
+                                        expl2, sizeof(expl2),
+                                        source->ship.object_id,
+                                        killer_id, 1.0f);
+                                if (elen2 > 0)
+                                    bc_send_to_all(expl2, elen2, true);
+                            }
+
                             u8 dest2[8];
                             int dlen2 = bc_build_destroy_obj(
                                 dest2, sizeof(dest2),
@@ -1237,9 +1387,18 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
          * reliable immediately, batched with its next outgoing message.
          * This also drives the client's retransmit logic.
          * Only ACK messages with the reliable flag (0x80) -- type 0x32
-         * with flags=0x00 is unreliable data (no seq, no ACK needed). */
+         * with flags=0x00 is unreliable data (no seq, no ACK needed).
+         * Fragment messages need a 5-byte ACK with frag_idx so the
+         * client drains the correct retransmit queue entry. */
         if (tmsg->type == BC_TRANSPORT_RELIABLE && (tmsg->flags & 0x80)) {
-            bc_outbox_add_ack(&g_peers.peers[slot].outbox, tmsg->seq, 0x00);
+            if ((tmsg->flags & BC_RELIABLE_FLAG_FRAGMENT) &&
+                tmsg->payload_len >= 1) {
+                u8 frag_idx = tmsg->payload[0];
+                bc_outbox_add_fragment_ack(&g_peers.peers[slot].outbox,
+                                            tmsg->seq, frag_idx);
+            } else {
+                bc_outbox_add_ack(&g_peers.peers[slot].outbox, tmsg->seq, 0x00);
+            }
         }
 
         /* Keepalive (type 0x00): client sends these throughout the session.

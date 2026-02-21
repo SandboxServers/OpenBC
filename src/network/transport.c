@@ -248,6 +248,20 @@ bool bc_outbox_add_ack(bc_outbox_t *outbox, u16 seq, u8 flags)
     return true;
 }
 
+bool bc_outbox_add_fragment_ack(bc_outbox_t *outbox, u16 seq, u8 frag_idx)
+{
+    /* Format: [0x01][counter][0x00][0x01][frag_idx] -- 5 bytes */
+    if (outbox->pos + 5 > BC_MAX_PACKET_SIZE) return false;
+
+    outbox->buf[outbox->pos++] = BC_TRANSPORT_ACK;
+    outbox->buf[outbox->pos++] = (u8)(seq >> 8);  /* counter = high byte of wire seq */
+    outbox->buf[outbox->pos++] = 0x00;
+    outbox->buf[outbox->pos++] = 0x01;            /* is_fragmented flag */
+    outbox->buf[outbox->pos++] = frag_idx;
+    outbox->msg_count++;
+    return true;
+}
+
 bool bc_outbox_add_keepalive(bc_outbox_t *outbox)
 {
     /* Format: [type=0x00][totalLen=0x02] -- minimal keepalive */
@@ -255,6 +269,24 @@ bool bc_outbox_add_keepalive(bc_outbox_t *outbox)
 
     outbox->buf[outbox->pos++] = BC_TRANSPORT_KEEPALIVE;
     outbox->buf[outbox->pos++] = 0x02;
+    outbox->msg_count++;
+    return true;
+}
+
+bool bc_outbox_add_keepalive_data(bc_outbox_t *outbox, const u8 *payload, int len)
+{
+    /* Format: [type=0x00][totalLen][payload...]
+     * Stock dedi echoes the client's identity data (22 bytes) back as a
+     * type 0x00 keepalive, NOT as a 0x32 game data frame.  Using 0x32
+     * would make the client parse the identity data as a game opcode. */
+    int total_len = 2 + len;  /* type + totalLen + payload */
+    if (outbox->pos + total_len > BC_MAX_PACKET_SIZE) return false;
+    if (total_len > 255) return false;
+
+    outbox->buf[outbox->pos++] = BC_TRANSPORT_KEEPALIVE;
+    outbox->buf[outbox->pos++] = (u8)total_len;
+    memcpy(outbox->buf + outbox->pos, payload, (size_t)len);
+    outbox->pos += len;
     outbox->msg_count++;
     return true;
 }

@@ -37,17 +37,27 @@ int bc_peers_add(bc_peer_mgr_t *mgr, const bc_addr_t *addr)
              * the value is already zero.  For the addr field specifically,
              * we use a volatile-qualified pointer to force the store. */
             memset(&mgr->peers[i], 0, sizeof(bc_peer_t));
-            mgr->peers[i].state = PEER_CONNECTING;
 
-            /* Volatile write barrier prevents the compiler from
-             * eliminating this store after the memset. */
+            /* Volatile write barriers prevent i686-w64-mingw32-gcc -O2
+             * from eliminating stores after memset.  The compiler drops
+             * non-volatile writes to large structs; adding fields to
+             * bc_ship_state_t (embedded in bc_peer_t) can retrigger this. */
+            {
+                volatile int *sp = (volatile int *)&mgr->peers[i].state;
+                *sp = PEER_CONNECTING;
+            }
+
             volatile u8 *dst = (volatile u8 *)&mgr->peers[i].addr;
             const u8 *src = (const u8 *)addr;
             for (size_t b = 0; b < sizeof(bc_addr_t); b++)
                 dst[b] = src[b];
 
-            mgr->peers[i].object_id = -1;
-            mgr->peers[i].class_index = -1;
+            {
+                volatile i32 *oid = (volatile i32 *)&mgr->peers[i].object_id;
+                *oid = -1;
+                volatile i32 *cid = (volatile i32 *)&mgr->peers[i].class_index;
+                *cid = -1;
+            }
             bc_outbox_init(&mgr->peers[i].outbox);
             mgr->count++;
             return i;
@@ -67,8 +77,12 @@ void bc_peers_remove(bc_peer_mgr_t *mgr, int slot)
     volatile u8 *dst = (volatile u8 *)&mgr->peers[slot];
     for (size_t b = 0; b < sizeof(bc_peer_t); b++)
         dst[b] = 0;
-    mgr->peers[slot].object_id = -1;
-    mgr->peers[slot].class_index = -1;
+    {
+        volatile i32 *oid = (volatile i32 *)&mgr->peers[slot].object_id;
+        *oid = -1;
+        volatile i32 *cid = (volatile i32 *)&mgr->peers[slot].class_index;
+        *cid = -1;
+    }
     mgr->count--;
 }
 

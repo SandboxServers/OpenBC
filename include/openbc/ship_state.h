@@ -56,7 +56,7 @@ typedef struct {
     i32        tractor_target_id; /* -1 = none */
 
     /* Power allocation (indexed by ser_list entry index) */
-    u8         power_pct[BC_SS_MAX_ENTRIES];     /* 0-100, Powered entries only */
+    u8         power_pct[BC_SS_MAX_ENTRIES];     /* 0-125, Powered entries only */
     bool       subsys_enabled[BC_SS_MAX_ENTRIES]; /* on/off state per entry */
     u8         phaser_level;                      /* 0=LOW, 1=MED, 2=HIGH */
 
@@ -74,6 +74,11 @@ typedef struct {
     bool       alive;
     u8         repair_queue[BC_MAX_SUBSYSTEMS];
     int        repair_count;
+
+    /* PythonEvent subsystem object IDs (sequential counter, NOT player-base IDs).
+     * Assigned by bc_ship_assign_subsystem_ids() after bc_ship_init(). */
+    i32        subsys_obj_id[BC_MAX_SUBSYSTEMS];
+    i32        repair_subsys_obj_id;  /* the repair subsystem's object ID (-1 if none) */
 } bc_ship_state_t;
 
 /* Initialize a ship state from registry class data.
@@ -84,6 +89,13 @@ void bc_ship_init(bc_ship_state_t *ship,
                   i32 object_id,
                   u8 owner_slot,
                   u8 team_id);
+
+/* Assign sequential object IDs to each subsystem in serialization list order.
+ * Must be called after bc_ship_init(). counter is a global auto-increment
+ * that persists across all ship creations. */
+void bc_ship_assign_subsystem_ids(bc_ship_state_t *ship,
+                                   const bc_ship_class_t *cls,
+                                   i32 *counter);
 
 /* Serialize ship state into an ObjectCreateTeam ship blob.
  * Returns bytes written, or -1 on error. */

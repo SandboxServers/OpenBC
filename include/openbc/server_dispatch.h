@@ -23,6 +23,10 @@ f32 bc_powered_efficiency(const bc_ship_state_t *ship,
                           const bc_ship_class_t *cls,
                           const char *child_type);
 
+/* Global auto-increment counter for subsystem object IDs (PythonEvent).
+ * Defined in server_dispatch.c, used by main.c for respawn. */
+extern i32 g_script_obj_counter;
+
 /* Torpedo callbacks for bc_torpedo_tick() -- defined in server_dispatch.c,
  * called from the main loop's simulation tick. */
 void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,

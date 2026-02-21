@@ -1,5 +1,6 @@
 #include "openbc/ship_data.h"
 #include "openbc/json_parse.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -215,6 +216,17 @@ static bool load_ship(bc_ship_class_t *ship, const json_value_t *obj)
         for (size_t i = 0; i < n; i++) {
             load_subsystem(&ship->subsystems[i], json_array_get(subs, i));
         }
+    }
+
+    /* Compute bounding extent from subsystem positions */
+    {
+        f32 max_dist = 0.0f;
+        for (int i = 0; i < ship->subsystem_count; i++) {
+            bc_vec3_t p = ship->subsystems[i].position;
+            f32 d = sqrtf(p.x*p.x + p.y*p.y + p.z*p.z);
+            if (d > max_dist) max_dist = d;
+        }
+        ship->bounding_extent = max_dist > 0.0f ? max_dist : 1.0f;
     }
 
     /* Serialization list (must be after subsystems are loaded) */

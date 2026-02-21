@@ -199,7 +199,7 @@ static void ai_update(int idx, f32 dt)
                             bc_vec3_t impact = bc_vec3_normalize(
                                 bc_vec3_sub(tgt->ship.pos, p->ship.pos));
                             bc_combat_apply_damage(&tgt->ship, tgt->cls, dmg, 0.0f,
-                                                   impact, false);
+                                                   impact, false, 1.0f);
                             p->damage_dealt += dmg;
                             tgt->damage_taken += dmg;
                         }
@@ -238,7 +238,7 @@ static void ai_update(int idx, f32 dt)
                             }
                         }
                         bc_combat_apply_damage(&tgt->ship, tgt->cls, dmg, dmg_radius,
-                                               impact, (dmg_radius > 0.0f));
+                                               impact, (dmg_radius > 0.0f), 1.0f);
                         p->damage_dealt += dmg;
                         tgt->damage_taken += dmg;
                     }
@@ -619,7 +619,7 @@ TEST(galaxy_vs_shuttle_asymmetric)
                             bc_vec3_t imp = {0, 1, 0};
                             bc_combat_apply_damage(&shuttle, shuttle_cls,
                                                     galaxy_cls->subsystems[s].max_damage,
-                                                    0.0f, imp, false);
+                                                    0.0f, imp, false, 1.0f);
                             break;
                         }
                         cnt++;
@@ -637,7 +637,7 @@ TEST(galaxy_vs_shuttle_asymmetric)
                 /* Photon torpedo damage = 500, area-effect */
                 bc_vec3_t imp = {0, 1, 0};
                 bc_combat_apply_damage(&shuttle, shuttle_cls, 500.0f, 500.0f,
-                                        imp, true);
+                                        imp, true, 1.0f);
             }
         }
 
@@ -654,7 +654,7 @@ TEST(galaxy_vs_shuttle_asymmetric)
                             bc_vec3_t imp = {0, -1, 0};
                             bc_combat_apply_damage(&galaxy, galaxy_cls,
                                                     shuttle_cls->subsystems[s].max_damage,
-                                                    0.0f, imp, false);
+                                                    0.0f, imp, false, 1.0f);
                             break;
                         }
                         cnt++;

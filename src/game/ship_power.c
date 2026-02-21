@@ -56,25 +56,30 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
                 e->child_max_condition[c]));
         }
 
-        /* Format-specific extras */
+        /* Format-specific extras.
+         * Consecutive Powered entries share their has_power_data bits
+         * in a single [count:3][values:5] byte.  Only reset bit_count
+         * when transitioning OUT of the Powered format (Base or Power). */
         if (e->format == BC_SS_FORMAT_POWERED) {
-            /* Each powered entry gets its own bit-pack byte.
-             * Reset bit_count so write_bit starts a fresh group
-             * rather than sharing with a previous powered entry. */
-            fb.bit_count = 0;
             if (is_own_ship) {
                 /* Owner's client has local power state; send false
                  * (no power_pct byte follows). */
                 bc_buf_write_bit(&fb, false);
             } else {
-                /* Remote observers need the power allocation data. */
+                /* Remote observers need the power allocation data.
+                 * Sign-bit encoding: positive = ON, negative = OFF.
+                 * Disabled subsystem at pct%: write -(i8)pct so the
+                 * client recovers both the slider position and the
+                 * off state.  See power-system.md §Sign Bit. */
                 bc_buf_write_bit(&fb, true);
                 u8 pct = ship->power_pct[cursor];
                 if (!ship->subsys_enabled[cursor])
-                    pct |= 0x80;
+                    pct = (u8)(-(i8)pct);
                 bc_buf_write_u8(&fb, pct);
             }
         } else if (e->format == BC_SS_FORMAT_POWER) {
+            /* Non-Powered entry: flush any accumulated Powered bits */
+            fb.bit_count = 0;
             /* Battery percentages: truncate(current / limit * 255) */
             u8 main_pct = (cls->main_battery_limit > 0.0f)
                 ? (u8)(ship->main_battery / cls->main_battery_limit * 255.0f)
@@ -84,8 +89,10 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
                 : 0;
             bc_buf_write_u8(&fb, main_pct);
             bc_buf_write_u8(&fb, backup_pct);
+        } else {
+            /* BC_SS_FORMAT_BASE: flush any accumulated Powered bits */
+            fb.bit_count = 0;
         }
-        /* BC_SS_FORMAT_BASE: nothing extra */
 
         /* Advance cursor */
         cursor++;
@@ -156,7 +163,14 @@ void bc_ship_power_tick(bc_ship_state_t *ship,
             ship->backup_conduit_remaining = ship->backup_battery;
     }
 
-    /* --- Per-frame consumer draw --- */
+    /* --- Per-frame efficiency estimate (no drain) ---
+     * Stock BC dedi doesn't run a power simulation -- batteries always
+     * report 0xFF (100%).  We compute efficiency from conduit capacity
+     * vs demand so server-side mechanics (movement, weapons) can use it,
+     * but we never deduct from battery/conduit state. */
+    f32 main_avail  = ship->main_conduit_remaining;
+    f32 backup_avail = ship->backup_conduit_remaining;
+
     for (int i = 0; i < sl->count; i++) {
         const bc_ss_entry_t *e = &sl->entries[i];
         if (e->format != BC_SS_FORMAT_POWERED) {
@@ -175,26 +189,32 @@ void bc_ship_power_tick(bc_ship_state_t *ship,
             continue;
         }
 
-        /* Mode 0: main-first, fallback to backup */
-        f32 from_main = demand;
-        if (from_main > ship->main_conduit_remaining)
-            from_main = ship->main_conduit_remaining;
-        ship->main_conduit_remaining -= from_main;
-        ship->main_battery -= from_main;
-        if (ship->main_battery < 0.0f) ship->main_battery = 0.0f;
-
-        f32 remaining = demand - from_main;
-        f32 from_backup = 0.0f;
-        if (remaining > 0.0f) {
-            from_backup = remaining;
-            if (from_backup > ship->backup_conduit_remaining)
-                from_backup = ship->backup_conduit_remaining;
-            ship->backup_conduit_remaining -= from_backup;
-            ship->backup_battery -= from_backup;
-            if (ship->backup_battery < 0.0f) ship->backup_battery = 0.0f;
+        /* Draw from conduits according to power mode:
+         *   0 = main-first (fallback to backup)
+         *   1 = backup-first (fallback to main)
+         *   2 = backup-only (never touches main) */
+        f32 from_primary = 0.0f, from_secondary = 0.0f;
+        f32 *primary, *secondary;
+        if (e->power_mode == BC_POWER_MODE_BACKUP_FIRST) {
+            primary = &backup_avail;
+            secondary = &main_avail;
+        } else if (e->power_mode == BC_POWER_MODE_BACKUP_ONLY) {
+            primary = &backup_avail;
+            secondary = NULL;
+        } else { /* BC_POWER_MODE_MAIN_FIRST (default) */
+            primary = &main_avail;
+            secondary = &backup_avail;
         }
 
-        f32 received = from_main + from_backup;
-        ship->efficiency[i] = received / demand;
+        from_primary = (demand < *primary) ? demand : *primary;
+        *primary -= from_primary;
+
+        f32 remaining = demand - from_primary;
+        if (remaining > 0.0f && secondary) {
+            from_secondary = (remaining < *secondary) ? remaining : *secondary;
+            *secondary -= from_secondary;
+        }
+
+        ship->efficiency[i] = (from_primary + from_secondary) / demand;
     }
 }

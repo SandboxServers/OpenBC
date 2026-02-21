@@ -176,6 +176,47 @@ int bc_build_end_game(u8 *buf, int buf_size, i32 reason)
     return (int)b.pos;
 }
 
+int bc_build_python_subsystem_event(u8 *buf, int buf_size,
+                                     i32 event_type,
+                                     i32 source_obj_id,
+                                     i32 dest_obj_id)
+{
+    /* Wire: [0x06][factory=0x101:i32][event_type:i32][source:i32][dest:i32]
+     * 17 bytes total. */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_PYTHON_EVENT)) return -1;
+    if (!bc_buf_write_i32(&b, BC_FACTORY_SUBSYSTEM_EVENT)) return -1;
+    if (!bc_buf_write_i32(&b, event_type)) return -1;
+    if (!bc_buf_write_i32(&b, source_obj_id)) return -1;
+    if (!bc_buf_write_i32(&b, dest_obj_id)) return -1;
+
+    return (int)b.pos;
+}
+
+int bc_build_python_exploding_event(u8 *buf, int buf_size,
+                                     i32 source_obj_id,
+                                     i32 firing_player_id,
+                                     f32 lifetime)
+{
+    /* Wire: [0x06][factory=0x8129:i32][event_type=0x4E:i32]
+     *   [source:i32][dest=-1:i32][killer_id:i32][lifetime:f32]
+     * 25 bytes total. */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_PYTHON_EVENT)) return -1;
+    if (!bc_buf_write_i32(&b, BC_FACTORY_OBJECT_EXPLODING)) return -1;
+    if (!bc_buf_write_i32(&b, BC_EVENT_OBJECT_EXPLODING)) return -1;
+    if (!bc_buf_write_i32(&b, source_obj_id)) return -1;
+    if (!bc_buf_write_i32(&b, (i32)-1)) return -1;  /* dest = sentinel */
+    if (!bc_buf_write_i32(&b, firing_player_id)) return -1;
+    if (!bc_buf_write_f32(&b, lifetime)) return -1;
+
+    return (int)b.pos;
+}
+
 int bc_build_state_update(u8 *buf, int buf_size,
                            i32 object_id, f32 game_time, u8 dirty_flags,
                            const u8 *field_data, int field_data_len)

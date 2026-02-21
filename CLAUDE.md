@@ -62,9 +62,9 @@ Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Language | C (core) + Python 3 (tooling) | Performance-critical server; Python for build tools |
-| Build | Make | Simple, proven, cross-compiles from WSL2 |
+| Build | Make | Simple, proven; native on Linux/macOS, cross-compiles to Win32 via MinGW |
 | Data | JSON (machine-generated) | Ship/projectile registry, hash manifests |
-| Networking | Raw UDP (Winsock) | Wire-compatible with stock BC clients |
+| Networking | Raw UDP (Winsock / BSD sockets) | Wire-compatible with stock BC clients |
 
 ## Development Phases
 

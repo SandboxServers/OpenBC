@@ -401,7 +401,7 @@ TEST(shield_absorbs_damage)
 
     /* Hit from the front (impact_dir = -fwd, i.e. toward the ship's front) */
     bc_vec3_t impact = {0, 1, 0}; /* toward the ship's forward */
-    bc_combat_apply_damage(&ship, cls, 100.0f, 0.0f, impact, false);
+    bc_combat_apply_damage(&ship, cls, 100.0f, 0.0f, impact, false, 1.0f);
 
     /* Shield should have absorbed it */
     ASSERT(ship.shield_hp[BC_SHIELD_FRONT] < front_before);
@@ -419,7 +419,7 @@ TEST(overflow_penetrates_hull)
     f32 hull_before = ship.hull_hp;
 
     bc_vec3_t impact = {0, 1, 0};
-    bc_combat_apply_damage(&ship, cls, 100.0f, 0.0f, impact, false);
+    bc_combat_apply_damage(&ship, cls, 100.0f, 0.0f, impact, false, 1.0f);
 
     /* Shield gone, hull damaged by overflow */
     ASSERT(ship.shield_hp[BC_SHIELD_FRONT] < 0.01f);
@@ -438,7 +438,7 @@ TEST(hull_zero_means_death)
     for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) ship.shield_hp[i] = 0;
 
     bc_vec3_t impact = {0, 1, 0};
-    bc_combat_apply_damage(&ship, cls, 99999.0f, 0.0f, impact, false);
+    bc_combat_apply_damage(&ship, cls, 99999.0f, 0.0f, impact, false, 1.0f);
     ASSERT(!ship.alive);
     ASSERT(ship.hull_hp < 0.01f);
 }

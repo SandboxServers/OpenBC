@@ -108,8 +108,18 @@ bool bc_outbox_add_reliable(bc_outbox_t *outbox, const u8 *payload, int len, u16
 /* Queue an ACK for a received reliable message. Returns true on success. */
 bool bc_outbox_add_ack(bc_outbox_t *outbox, u16 seq, u8 flags);
 
+/* Queue a fragment ACK: [0x01][seqHi][0x00][0x01][frag_idx]
+ * The is_fragmented flag (0x01) and frag_idx byte tell the client
+ * which specific fragment was received, draining its retransmit queue. */
+bool bc_outbox_add_fragment_ack(bc_outbox_t *outbox, u16 seq, u8 frag_idx);
+
 /* Queue a keepalive message (type 0x00, 2 bytes). Returns true on success. */
 bool bc_outbox_add_keepalive(bc_outbox_t *outbox);
+
+/* Queue a keepalive with identity data: [0x00][totalLen][payload...]
+ * Used to echo the client's cached identity data (22 bytes) back.
+ * Must use type 0x00, NOT 0x32 game data. */
+bool bc_outbox_add_keepalive_data(bc_outbox_t *outbox, const u8 *payload, int len);
 
 /* Flush accumulated messages to a buffer (for testing without sockets).
  * Sets buf[0]=BC_DIR_SERVER, buf[1]=msg_count, copies to out.

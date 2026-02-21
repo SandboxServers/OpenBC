@@ -224,22 +224,32 @@ For generic physics objects (asteroids, debris):
 
 When a collision is confirmed, the system computes collision energy and feeds it into the damage pipeline (see [combat-system.md](combat-system.md)):
 
-### Per-Contact Damage Formula
+### Per-Contact Damage Formulas
 
+Two distinct scaling paths apply collision damage (see [combat-system.md](combat-system.md) for full details):
+
+**Path 1 — Direct collision (hull + subsystem array)**:
 ```
 raw_damage = (collision_force / ship_mass) / contact_count
-scaled_damage = raw_damage * collision_scale + collision_offset
+scaled_damage = raw_damage * 0.1 + 0.1
 clamped_damage = min(scaled_damage, 0.5)    // hard cap per contact
 damage_radius = 6000.0                       // fixed radius for all collision damage
+```
+
+**Path 2 — Collision effect handler (shield-first, per-subsystem)**:
+```
+raw_damage = (collision_force / ship_mass) / contact_count
+if (raw_damage > 0.01):                      // dead zone filter
+    scaled_damage = raw_damage * 900.0 + 500.0
+    // feeds into shield absorption, then per-subsystem damage
 ```
 
 Where:
 - **collision_force**: Impulse magnitude from the physics response (depends on relative velocity and mass)
 - **ship_mass**: From the ship's property definition
 - **contact_count**: Number of contact points in the collision
-- **collision_scale / collision_offset**: Tuning constants
 
-Each contact point is transformed into the ship's local coordinate space and fed to the central damage function with the clamped damage and fixed radius.
+Path 1 produces fractional values (0.1–0.5) applied relative to a 6000.0 radius. Path 2 produces absolute HP damage (500+) fed through shield absorption first. Both paths fire per contact point, each transformed into the ship's local coordinate space.
 
 ### Force Computation
 
