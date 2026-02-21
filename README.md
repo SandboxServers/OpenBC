@@ -31,31 +31,46 @@ What works today:
 - Stock BC 1.1 clients connect and play multiplayer matches
 - Full handshake: GameSpy discovery, 4-round checksum validation, settings delivery
 - Ship creation, weapons fire, damage, repairs, cloaking, warp -- all relayed
-- Server-authoritative damage: collision, weapon, and explosion pipelines
+- Server-authoritative damage: collision, beam, torpedo, and explosion pipelines
+- Collision damage with dual scaling paths, dead zone, ownership validation, and deduplication
+- Power system: reactor/battery/conduit simulation, 10Hz subsystem health broadcast, sign-bit encoding for on/off state
+- PythonEvent generation: subsystem damage repair queue events, ship explosion events, score tracking
+- Respawn system with configurable timer and frag/time limit win conditions
 - Chat (global and team), lobby and in-game
 - GameSpy LAN browser and internet master server registration
-- Reliable delivery with retransmit and sequencing
+- Reliable delivery with retransmit, sequencing, and fragment reassembly
 - Ship data registry: 16 ships, 15 projectile types loaded from JSON
 - Server-side movement and combat simulation (cloaking, tractor beams, repair)
 - Dynamic AI battles with seeded RNG
 - Manifest auto-detection, session summary at shutdown, graceful shutdown handling
+- Cross-platform: builds natively on Linux and macOS, cross-compiles to Win32 via MinGW
 - 11 test suites, 226 tests, 1,184 assertions (including networked battle integration)
 
 **Important caveat:** "Complete" means the server-side logic is implemented and tested against our own test harness. It does not mean every feature has been validated end-to-end with a stock BC client. The wire protocol for connection, checksums, lobby, chat, relay, and basic gameplay is proven against real clients. Server-authoritative features like damage simulation generate correct wire-format packets, but whether the stock client accepts and renders all of them is still being verified.
 
 ## Quick Start
 
-Prerequisites: `i686-w64-mingw32-gcc` cross-compiler, Make.
+**Linux / macOS (native):**
 
 ```
-make all     # builds openbc-hash.exe and openbc-server.exe
+make all     # builds openbc-hash and openbc-server
 make test    # runs all 11 test suites
+./build/openbc-server [options]
 ```
+
+**Windows (cross-compile from WSL2 or Linux):**
+
+```
+make all PLATFORM=Windows   # builds openbc-hash.exe and openbc-server.exe
+make test PLATFORM=Windows  # runs all 11 test suites (WSL2 runs .exe natively)
+```
+
+Prerequisites: a C11 compiler (`cc` on Linux/macOS, `i686-w64-mingw32-gcc` for Windows cross-compile), and Make.
 
 Run the server:
 
 ```
-./build/openbc-server.exe [options]
+./build/openbc-server [options]
 
 Options:
   -p <port>          Listen port (default: 22101)
@@ -138,8 +153,8 @@ docs/          Design documents and protocol reference
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Language | C11 | Performance, portability, no runtime dependencies |
-| Build | Make | Simple, proven, cross-compiles from WSL2 to Win32 |
-| Networking | Raw UDP (Winsock) | Wire-compatible with stock BC clients |
+| Build | Make | Simple, proven; native on Linux/macOS, cross-compiles to Win32 via MinGW |
+| Networking | Raw UDP (Winsock / BSD sockets) | Wire-compatible with stock BC clients; builds natively on all platforms |
 | Data | JSON (machine-generated) | Ship/projectile registry, hash manifests |
 | Discovery | GameSpy protocol | LAN browser + 333networks-compatible master server |
 
@@ -193,7 +208,12 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 
 **Game Systems:**
 - [Combat System](docs/combat-system.md) -- Damage pipeline, shields, cloaking, tractor beams, repair
+- [Power & Reactor System](docs/power-system.md) -- Reactor, batteries, conduits, consumer draw, power wire format
+- [Repair System](docs/repair-system.md) -- Repair queue, priority toggle, PythonEvent wire format
 - [Ship Subsystems](docs/ship-subsystems.md) -- Fixed subsystem index table, HP values, StateUpdate serialization
+- [Collision Detection](docs/collision-detection-system.md) -- Collision damage scaling, dual damage paths
+- [Collision Shield Interaction](docs/collision-shield-interaction.md) -- Shield absorption during collisions
+- [PythonEvent Wire Format](docs/pythonevent-wire-format.md) -- Factory IDs, event types, subsystem and explosion events
 
 **Testing & Tools:**
 - [Test Suite](tests/README.md) -- 11 test suites, test frameworks, adding new tests
@@ -204,6 +224,7 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 Contributions are welcome. The most useful things right now:
 
 - **Testing**: Connect stock BC 1.1 clients, report connection issues or protocol mismatches
+- **Cross-platform testing**: Build and test on macOS, different Linux distributions
 - **Protocol analysis**: Packet captures, behavioral observation, documentation
 - **Data files**: Ship stats, map definitions, game rule sets
 - **Code review**: Protocol correctness, edge cases, platform compatibility
