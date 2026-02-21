@@ -108,6 +108,13 @@ int bc_build_end_game(u8 *buf, int buf_size, i32 reason);
 #define BC_EVENT_REPAIR_CANNOT      0x00800075
 #define BC_EVENT_OBJECT_EXPLODING   0x0080004E
 
+/* Reserved: undocumented event code 268 (0x010C).
+ * Accounts for ~45% of all PythonEvent messages during combat sessions.
+ * Observed in both 0x06 (server→client) and 0x0D (client→server) directions.
+ * Purpose is currently unknown. Reserved here to prevent accidental reuse.
+ * Implementation blocked pending identification of the event's purpose. */
+#define BC_EVENT_UNKNOWN_268        0x0000010C
+
 /* SubsystemEvent: [0x06][factory=0x101:i32][event_type:i32][source:i32][dest:i32]
  * 17 bytes total. Used for ADD_TO_REPAIR_LIST, REPAIR_COMPLETED, etc. */
 int bc_build_python_subsystem_event(u8 *buf, int buf_size,

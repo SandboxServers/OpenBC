@@ -320,11 +320,21 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
-        /* Send DestroyObject to all */
-        u8 dest[8];
-        int dlen = bc_build_destroy_obj(dest, sizeof(dest),
-                                         target->ship.object_id);
-        if (dlen > 0) bc_send_to_all(dest, dlen, true);
+        /* Send Explosion (0x29) -- visual effect for the kill.
+         * Stock BC does NOT send DestroyObject (0x14) for ship deaths;
+         * the old ship is implicitly replaced when the respawn ObjCreateTeam
+         * arrives. Verified: 0 DestroyObject messages across 59 ship deaths
+         * in a 33.5-minute combat session. */
+        {
+            u8 boom[16];
+            int blen = bc_build_explosion(boom, sizeof(boom),
+                                           target->ship.object_id,
+                                           target->ship.pos.x,
+                                           target->ship.pos.y,
+                                           target->ship.pos.z,
+                                           damage, 300.0f);
+            if (blen > 0) bc_send_to_all(boom, blen, true);
+        }
 
         /* Update scores */
         shooter->score++;
@@ -429,10 +439,18 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
-        u8 dest[8];
-        int dlen = bc_build_destroy_obj(dest, sizeof(dest),
-                                         target->ship.object_id);
-        if (dlen > 0) bc_send_to_all(dest, dlen, true);
+        /* Send Explosion (0x29) -- visual effect for the kill.
+         * Stock BC does NOT send DestroyObject (0x14) for ship deaths. */
+        {
+            u8 boom[16];
+            int blen = bc_build_explosion(boom, sizeof(boom),
+                                           target->ship.object_id,
+                                           impact_pos.x,
+                                           impact_pos.y,
+                                           impact_pos.z,
+                                           damage, damage_radius > 0.0f ? damage_radius : 300.0f);
+            if (blen > 0) bc_send_to_all(boom, blen, true);
+        }
 
         shooter->score++;
         shooter->kills++;
@@ -659,13 +677,18 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             LOG_INFO("combat", "%s fired torpedo (no lock)",
                      object_owner_name(ev.shooter_id));
 
+        /* Relay torpedo visual to all others (strict N-1:1 ratio, no filtering).
+         * Stock BC relays all weapon fire unconditionally. Anti-cheat checks
+         * only gate server-side damage computation, not the visual relay. */
+        bc_relay_to_others(peer_slot, payload, payload_len, true);
+
         if (g_registry_loaded && peer->has_ship) {
             const bc_ship_class_t *cls =
                 bc_registry_get_ship(&g_registry, peer->class_index);
 
-            /* Anti-cheat: cannot fire while cloaked */
+            /* Anti-cheat: cannot fire while cloaked -- skip damage only */
             if (cls && !bc_cloak_can_fire(&peer->ship)) {
-                LOG_WARN("cheat", "slot=%d torpedo fire while cloaked, dropped",
+                LOG_WARN("cheat", "slot=%d torpedo fire while cloaked, damage skipped",
                          peer_slot);
                 break;
             }
@@ -673,9 +696,6 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             /* TODO: fire rate limiting -- disabled pending proper tuning.
              * Sovereign torpedoes fire every ~0.5s which tripped the old 2.0s limit. */
         }
-
-        /* Relay torpedo visual to all others */
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
 
         /* Spawn server-side torpedo tracker for damage computation */
         if (g_registry_loaded && peer->has_ship) {
@@ -714,20 +734,25 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             LOG_INFO("combat", "%s fired beam (no target)",
                      object_owner_name(ev.shooter_id));
 
+        /* Relay beam visual to all others (strict N-1:1 ratio, no filtering).
+         * Stock BC relays all weapon fire unconditionally. Anti-cheat checks
+         * only gate server-side damage computation, not the visual relay. */
+        bc_relay_to_others(peer_slot, payload, payload_len, true);
+
         if (g_registry_loaded && peer->has_ship) {
             const bc_ship_class_t *cls =
                 bc_registry_get_ship(&g_registry, peer->class_index);
 
-            /* Anti-cheat: cannot fire while cloaked */
+            /* Anti-cheat: cannot fire while cloaked -- skip damage only */
             if (cls && !bc_cloak_can_fire(&peer->ship)) {
-                LOG_WARN("cheat", "slot=%d beam fire while cloaked, dropped",
+                LOG_WARN("cheat", "slot=%d beam fire while cloaked, damage skipped",
                          peer_slot);
                 break;
             }
 
             /* TODO: beam fire rate limiting -- disabled pending proper tuning. */
 
-            /* Anti-cheat: range plausibility */
+            /* Anti-cheat: range plausibility -- skip damage only */
             if (ev.has_target && cls) {
                 int target_slot = find_peer_by_object(ev.target_id);
                 if (target_slot >= 0) {
@@ -745,16 +770,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                     if (max_range > 0.0f && dist > max_range + target_speed * 0.5f) {
                         LOG_WARN("cheat", "slot=%d beam out of range (%.0f > %.0f)",
                                  peer_slot, dist, max_range);
-                        /* Relay visual but skip damage */
-                        bc_relay_to_others(peer_slot, payload, payload_len, true);
-                        break;
+                        break;  /* visual already relayed above; skip damage */
                     }
                 }
             }
         }
-
-        /* Relay beam visual to all others */
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
 
         /* Server-side damage computation */
         if (g_registry_loaded && peer->has_ship && ev.has_target) {
@@ -804,9 +824,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
                 /* Strip server-authoritative flag 0x20 (subsystem health).
                  * 0x80 (weapon state) is CLIENT-authoritative and must be relayed.
-                 * Verified: client always sends 0x80, server always sends 0x20. */
+                 * The SUBSYSTEMS/WEAPONS flag split is ~96% direction-correlated
+                 * (not 100%): in stock BC, the host's own ship can send 0x80 in
+                 * the server→client direction. On our dedicated server there is no
+                 * host-player ship, so dropping pure 0x20 packets from clients
+                 * is still correct. */
                 if (su.dirty == 0x20) {
-                    /* Pure subsystem health update -- server-authoritative, drop */
+                    /* Pure subsystem health update from client -- drop it.
+                     * The server is authoritative for subsystem health. */
                     LOG_DEBUG("cheat", "slot=%d StateUpdate 0x20 suppressed",
                               peer_slot);
                     break;
@@ -903,13 +928,20 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- NewPlayerInGame (C->S, triggers MissionInit) --- */
     case BC_OP_NEW_PLAYER_IN_GAME: {
         LOG_INFO("handshake", "slot=%d sent NewPlayerInGame", peer_slot);
-        /* Relay to all other peers so they know about the new player */
+        /* Relay to all other peers (pending verification: stock behavior unclear).
+         * Stock 0x2A flows client->server; whether the server relays it to
+         * other clients has not been confirmed from traces. Kept for now. */
         bc_relay_to_others(peer_slot, payload, payload_len, true);
         /* Respond with MissionInit (0x35) -- tells client which star system
-         * to load and what the match rules are. */
+         * to load and what the match rules are.
+         * Byte[1] is current_player_count (dynamic), not player_limit. */
         u8 mi[32];
+        int connected = 0;
+        for (int ci = 1; ci < BC_MAX_PLAYERS; ci++) {
+            if (g_peers.peers[ci].state >= PEER_LOBBY) connected++;
+        }
         int mi_len = bc_mission_init_build(mi, sizeof(mi),
-                                            g_system_index, g_max_players,
+                                            g_system_index, connected,
                                             g_time_limit, g_frag_limit);
         if (mi_len > 0) {
             LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
@@ -1066,10 +1098,22 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 bc_send_to_all(expl, elen, true);
                         }
 
-                        u8 dest[8];
-                        int dlen = bc_build_destroy_obj(dest, sizeof(dest),
-                                                         target->ship.object_id);
-                        if (dlen > 0) bc_send_to_all(dest, dlen, true);
+                        /* Send Explosion (0x29) -- visual kill effect.
+                         * Stock BC does NOT send DestroyObject (0x14) for
+                         * ship deaths. The old ship is implicitly replaced
+                         * when the respawn ObjCreateTeam arrives. */
+                        {
+                            u8 boom[16];
+                            int blen = bc_build_explosion(
+                                boom, sizeof(boom),
+                                target->ship.object_id,
+                                target->ship.pos.x,
+                                target->ship.pos.y,
+                                target->ship.pos.z,
+                                dmg, collision_radius);
+                            if (blen > 0)
+                                bc_send_to_all(boom, blen, true);
+                        }
                         target->has_ship = false;
                         target->spawn_len = 0;
                         if (!g_game_ended) {
@@ -1202,12 +1246,21 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                     bc_send_to_all(expl2, elen2, true);
                             }
 
-                            u8 dest2[8];
-                            int dlen2 = bc_build_destroy_obj(
-                                dest2, sizeof(dest2),
-                                source->ship.object_id);
-                            if (dlen2 > 0)
-                                bc_send_to_all(dest2, dlen2, true);
+                            /* Send Explosion (0x29) -- visual kill effect.
+                             * Stock BC does NOT send DestroyObject (0x14)
+                             * for ship deaths. */
+                            {
+                                u8 boom2[16];
+                                int blen2 = bc_build_explosion(
+                                    boom2, sizeof(boom2),
+                                    source->ship.object_id,
+                                    source->ship.pos.x,
+                                    source->ship.pos.y,
+                                    source->ship.pos.z,
+                                    sdmg, src_coll_radius);
+                                if (blen2 > 0)
+                                    bc_send_to_all(boom2, blen2, true);
+                            }
                             source->has_ship = false;
                             source->spawn_len = 0;
                             if (!g_game_ended) {
