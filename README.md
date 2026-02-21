@@ -2,7 +2,7 @@
 
 A clean-room, open-source reimplementation of Star Trek: Bridge Commander (2002).
 
-Phase 1 server in active development. Stock BC 1.1 clients connect and play.
+Phase 1 server complete. Stock BC 1.1 clients connect and play.
 
 ## What Is OpenBC?
 
@@ -127,7 +127,7 @@ Connect a stock BC 1.1 client by pointing it to the server IP via the LAN browse
   └───────────┘                          └───────────────┘
 ```
 
-UDP packets arrive, get deciphered (AlbyRules XOR), decoded (TGBufferStream wire format), and dispatched to the appropriate opcode handler. Game state is relayed to all connected peers. Hash manifests validate client file integrity without the server needing any game files.
+UDP packets arrive, get deciphered (AlbyRules stream cipher), decoded (TGBufferStream wire format), and dispatched to the appropriate opcode handler. Game state is relayed to all connected peers. Hash manifests validate client file integrity without the server needing any game files.
 
 ```
 src/
@@ -184,8 +184,8 @@ The original Bridge Commander had a thriving mod community that pushed the game 
 
 - **Data packs** -- Ship stats, weapons, projectiles, maps, and game rules are JSON. Add a ship by adding a file, not by hacking a script.
 - **Custom opcodes** -- The network layer supports registering new message types. Mods that need custom client-server communication get a proper channel for it.
-- **UI and menus** -- The client UI is built on a modular document system. Mods can add new panels, replace existing screens, or reskin the entire interface.
-- **Game logic hooks** -- Extensibility points for game rules, damage formulas, victory conditions, and event handling. Change how the game plays without forking the engine.
+- **UI and menus** *(Phase 2)* -- The planned client UI will be built on a modular document system. Mods will be able to add new panels, replace existing screens, or reskin the entire interface.
+- **Game logic hooks** *(Phase 2)* -- Planned extensibility points for game rules, damage formulas, victory conditions, and event handling.
 - **Hash manifests** -- The manifest system validates any mod combination without the server needing the actual files. `openbc-hash` generates manifests from a BC install or mod pack directory.
 
 The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla-1.1.json`, extracted from BC's readable scripts by `tools/scrape_bc.py`. The goal is that any mod that existed for Bridge Commander can reimplement itself in OpenBC through supported extension points, without having to pick up a crowbar.
@@ -233,6 +233,10 @@ Contributions are welcome. The most useful things right now:
 - **Protocol analysis**: Packet captures, behavioral observation, documentation
 - **Data files**: Ship stats, map definitions, game rule sets
 - **Code review**: Protocol correctness, edge cases, platform compatibility
+
+**Clean room requirement:** This is a clean-room reimplementation. All protocol knowledge must come from observable wire behavior (packet captures, behavioral observation) and the docs in `docs/` -- never from decompiled or original source code. Do not reference disassembly output, binary addresses, or decompiled pseudocode in issues, PRs, or comments. See `CLAUDE.md` for the full clean room rules and legal basis.
+
+**Code style:** Builds must pass with zero warnings under `-Wall -Wextra -Wpedantic`. Run `make test` before submitting.
 
 Open an issue to discuss before starting large changes.
 
