@@ -105,8 +105,8 @@ The multiplayer game object registers a handler for ADD_TO_REPAIR_LIST events (a
 4. Sends it to the **"NoMe"** routing group (all peers except the host itself)
 
 The HostEventHandler also handles two other event types using the same pattern:
-- **REPAIR_COMPLETE** — when a subsystem finishes repairing
-- **REPAIR_CANCELLED** — when a repair is cancelled
+- **REPAIR_COMPLETE** — when a subsystem's condition reaches maximum (repair finished)
+- **REPAIR_CANNOT_BE_COMPLETED** — when a subsystem is destroyed while in the repair queue (condition reaches 0.0)
 
 All three produce opcode 0x06 messages with identical framing; only the serialized event type differs.
 

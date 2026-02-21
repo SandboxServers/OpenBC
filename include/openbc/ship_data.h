@@ -67,6 +67,11 @@ typedef struct {
 /* Serialization list entry: one top-level subsystem in the flag 0x20 round-robin.
  * Each entry has a format (Base/Powered/Power), an hp_index into subsystem_hp[],
  * and optionally children that are serialized recursively. */
+/* Power draw modes for powered subsystems */
+#define BC_POWER_MODE_MAIN_FIRST   0  /* Draw from main conduit, fallback to backup */
+#define BC_POWER_MODE_BACKUP_FIRST 1  /* Draw from backup conduit, fallback to main */
+#define BC_POWER_MODE_BACKUP_ONLY  2  /* Draw only from backup conduit */
+
 typedef struct {
     u8  format;                               /* BC_SS_FORMAT_BASE/POWERED/POWER */
     int hp_index;                             /* index into subsystem_hp[] */
@@ -75,6 +80,7 @@ typedef struct {
     int child_hp_index[BC_SS_MAX_CHILDREN];   /* children's indices into subsystem_hp[] */
     f32 child_max_condition[BC_SS_MAX_CHILDREN];
     f32 normal_power;                         /* power draw units/sec at 100% */
+    u8  power_mode;                           /* BC_POWER_MODE_* (0=main-first default) */
 } bc_ss_entry_t;
 
 /* Complete serialization list for a ship class. Determines wire format order
@@ -109,6 +115,7 @@ typedef struct {
     i32     num_repair_teams;
     f32     damage_radius_multiplier;  /* 1.0 = normal, 0.0 = immune */
     f32     damage_falloff_multiplier; /* 1.0 = normal */
+    f32     bounding_extent;           /* max distance from origin to any subsystem center */
     int     subsystem_count;
     bc_subsystem_def_t subsystems[BC_MAX_SUBSYSTEMS];
 

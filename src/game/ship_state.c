@@ -89,6 +89,31 @@ void bc_ship_init(bc_ship_state_t *ship,
     ship->power_tick_accum = 0.0f;
 }
 
+void bc_ship_assign_subsystem_ids(bc_ship_state_t *ship,
+                                   const bc_ship_class_t *cls,
+                                   i32 *counter)
+{
+    /* Assign IDs in ser_list order (matches hardpoint script LoadPropertySet order) */
+    const bc_ss_list_t *sl = &cls->ser_list;
+    for (int i = 0; i < sl->count; i++) {
+        ship->subsys_obj_id[sl->entries[i].hp_index] = (*counter)++;
+        for (int c = 0; c < sl->entries[i].child_count; c++) {
+            int cidx = sl->entries[i].child_hp_index[c];
+            if (cidx >= 0 && cidx < BC_MAX_SUBSYSTEMS)
+                ship->subsys_obj_id[cidx] = (*counter)++;
+        }
+    }
+
+    /* Find and record the repair subsystem's object ID */
+    ship->repair_subsys_obj_id = -1;
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        if (strcmp(cls->subsystems[i].type, "repair") == 0) {
+            ship->repair_subsys_obj_id = ship->subsys_obj_id[i];
+            break;
+        }
+    }
+}
+
 int bc_ship_serialize(const bc_ship_state_t *ship,
                       const bc_ship_class_t *cls,
                       u8 *buf, int buf_size)

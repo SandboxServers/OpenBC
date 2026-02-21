@@ -94,6 +94,33 @@ int bc_build_score_change(u8 *buf, int buf_size,
 #define BC_END_REASON_SCORE_LIMIT   3
 int bc_build_end_game(u8 *buf, int buf_size, i32 reason);
 
+/* --- PythonEvent (0x06) builders --- */
+
+/* PythonEvent factory IDs */
+#define BC_FACTORY_SUBSYSTEM_EVENT  0x00000101
+#define BC_FACTORY_OBJECT_EXPLODING 0x00008129
+
+/* PythonEvent type constants */
+#define BC_EVENT_ADD_TO_REPAIR      0x008000DF
+#define BC_EVENT_REPAIR_COMPLETED   0x00800074
+#define BC_EVENT_REPAIR_CANNOT      0x00800075
+#define BC_EVENT_OBJECT_EXPLODING   0x0080004E
+
+/* SubsystemEvent: [0x06][factory=0x101:i32][event_type:i32][source:i32][dest:i32]
+ * 17 bytes total. Used for ADD_TO_REPAIR_LIST, REPAIR_COMPLETED, etc. */
+int bc_build_python_subsystem_event(u8 *buf, int buf_size,
+                                     i32 event_type,
+                                     i32 source_obj_id,
+                                     i32 dest_obj_id);
+
+/* ObjectExplodingEvent: [0x06][factory=0x8129:i32][event_type=0x4E:i32]
+ *   [source:i32][dest=-1:i32][killer_id:i32][lifetime:f32]
+ * 25 bytes total. */
+int bc_build_python_exploding_event(u8 *buf, int buf_size,
+                                     i32 source_obj_id,
+                                     i32 firing_player_id,
+                                     f32 lifetime);
+
 /* --- Tier 2: Generic builders --- */
 
 /* StateUpdate: [0x1C][obj:i32][time:f32][dirty:u8][field_data...] */

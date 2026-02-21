@@ -76,20 +76,24 @@ int bc_combat_find_hit_subsystems(const bc_ship_class_t *cls,
  * impact_dir = normalized direction from attacker to target.
  * area_effect: true = damage/6 per shield facing, false = single facing.
  * damage_radius: used for subsystem AABB overlap test (scaled by target's
- * damage_radius_multiplier; if multiplier is 0.0, subsystem damage skipped). */
+ * damage_radius_multiplier; if multiplier is 0.0, subsystem damage skipped).
+ * shield_scale: multiplier on shield absorption capacity (1.0 = normal,
+ * 1.5 = collision shields absorb 50% more before overflow). */
 void bc_combat_apply_damage(bc_ship_state_t *target,
                             const bc_ship_class_t *cls,
                             f32 damage, f32 damage_radius,
                             bc_vec3_t impact_dir,
-                            bool area_effect);
+                            bool area_effect,
+                            f32 shield_scale);
 
-/* Compute collision damage from raw collision energy.
- * raw = (energy / mass) / contact_count
- * scaled = raw * scale + offset
- * Returns min(scaled, 0.5). */
-f32 bc_combat_collision_damage(f32 collision_energy, f32 ship_mass,
-                               int contact_count,
-                               f32 collision_scale, f32 collision_offset);
+/* Path 1 — Direct collision: raw * 0.1 + 0.1, cap 0.5 (fractional). */
+f32 bc_combat_collision_damage_path1(f32 collision_energy, f32 ship_mass,
+                                      int contact_count);
+
+/* Path 2 — Collision effect handler: raw * 900 + 500 (absolute HP).
+ * Dead zone at raw <= 0.01. Used by server collision handler. */
+f32 bc_combat_collision_damage_path2(f32 collision_energy, f32 ship_mass,
+                                      int contact_count);
 
 /* --- Shield recharge --- */
 

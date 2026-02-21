@@ -19,6 +19,7 @@ else
 endif
 
 CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2 $(POSIX_DEFS)
+DEPFLAGS  = -MMD -MP -MF $(@:.o=.d)
 LDFLAGS  :=
 LDLIBS   := -lm
 
@@ -96,7 +97,10 @@ $(BUILD)/tests/test_%$(EXE): tests/test_%.c $(LIB_OBJ)
 # --- Generic object compilation ---
 $(BUILD)/%.o: %.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
+
+# Include auto-generated header dependencies
+-include $(wildcard $(BUILD)/src/**/*.d $(BUILD)/tools/*.d)
 
 # --- Copy data files into build directory ---
 $(BUILD)/data: data

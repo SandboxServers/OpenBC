@@ -338,7 +338,6 @@ int main(int argc, char **argv)
         bc_log_shutdown();
         return 1;
     }
-
     /* Open LAN query socket on port 6500 (GameSpy standard).
      * BC clients broadcast queries here for LAN server discovery.
      * Non-fatal if port is in use (e.g., another server instance). */
@@ -616,11 +615,11 @@ int main(int argc, char **argv)
                 }
             }
 
-            /* Health broadcast: every 15 ticks (~500ms), send 0x20 StateUpdate.
-             * Uses hierarchical round-robin with 10-byte budget per tick.
-             * Owner gets is_own_ship=true (no power_pct bytes in Powered
-             * entries), remote observers get is_own_ship=false (with power). */
-            if (g_registry_loaded && (tick_counter % 15 == 0)) {
+            /* Health broadcast: every 3 ticks (~100ms = 10 Hz), send 0x20 StateUpdate.
+             * Stock dedi sends at ~10 Hz.  Uses hierarchical round-robin with
+             * 10-byte budget per tick.  Owner gets is_own_ship=true (no power_pct
+             * bytes in Powered entries), remote observers get is_own_ship=false. */
+            if (g_registry_loaded && (tick_counter % 3 == 0)) {
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *p = &g_peers.peers[i];
                     if (!p->has_ship || !p->ship.alive) continue;
@@ -701,6 +700,8 @@ int main(int argc, char **argv)
                     rp->class_index = rp->respawn_class;
                     rp->has_ship = true;
                     rp->subsys_rr_idx = 0;
+                    bc_ship_assign_subsystem_ids(&rp->ship, rcls,
+                                                  &g_script_obj_counter);
 
                     u8 cpkt[1024];
                     int clen = bc_ship_build_create_packet(&rp->ship, rcls,
@@ -724,9 +725,9 @@ int main(int argc, char **argv)
                     bc_peer_t *peer = &g_peers.peers[i];
                     if (peer->state < PEER_LOBBY) continue;
                     if (peer->keepalive_len > 0) {
-                        bc_outbox_add_unreliable(&peer->outbox,
-                                                  peer->keepalive_data,
-                                                  peer->keepalive_len);
+                        bc_outbox_add_keepalive_data(&peer->outbox,
+                                                      peer->keepalive_data,
+                                                      peer->keepalive_len);
                     } else {
                         bc_outbox_add_keepalive(&peer->outbox);
                     }

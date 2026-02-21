@@ -32,15 +32,29 @@ Both conditions are always true for properly initialized ships. They protect aga
 - **Weapon damage**: Each client computes weapon hits independently (receiver-local hit detection)
 - **Subsystem health**: Server-authoritative. Sent in StateUpdate flag 0x20
 
-### Collision Damage Formula
+### Collision Damage Formulas
 
-Per-contact damage from a collision:
+Two distinct per-contact scaling paths exist, used in different contexts:
+
+**Path 1 — Direct collision (multi-contact)**:
 ```
 raw = (collision_energy / ship_mass) / contact_count
-scaled = raw * collision_scale + collision_offset
+scaled = raw * 0.1 + 0.1
 damage = min(scaled, 0.5)    // hard cap at 0.5 per contact
 radius = 6000.0              // fixed
 ```
+Output range: 0.1 to 0.5 (fractional of radius). Feeds into `DoDamage` which distributes across hull and subsystem arrays.
+
+**Path 2 — Collision effect handler (per-contact, shield-first)**:
+```
+raw = (collision_energy / ship_mass) / contact_count
+if (raw > 0.01):                          // dead zone — very gentle collisions ignored
+    scaled = raw * 900.0 + 500.0          // absolute HP damage
+    shield_absorption(ship, direction, &scaled, shield_scale=1.5)
+```
+Output range: 500.0+ (absolute HP). Feeds into the shield absorption distributor first, then per-subsystem damage. Each subsystem receives the full per-contact damage; overflow (overkill) is accumulated and returned as remainder.
+
+Path 2 produces much larger absolute values (verified: avg ~6000, max ~13000 per subsystem hit in live traces). The `900× + 500` amplifier converts small energy ratios into significant subsystem damage.
 
 ### Weapon Damage Scaling
 
@@ -389,10 +403,21 @@ Key characteristics:
 - **Auto-remove on full repair** — removed when HP reaches max_condition
 - **Repair only runs on host/standalone** — gated on host or non-multiplayer
 
+### Priority Toggle
+
+Clicking a subsystem in the Engineering panel triggers a binary toggle:
+- **Active repair slot** (being repaired) → demote to **tail** of queue
+- **Waiting area** (not being repaired) → promote to **head** of queue
+
+No "move up one position" — always jumps to front or back.
+
 ### Wire Protocol
 
-- **AddToRepairList (0x0B)**: Host → All (adds subsystem to queue)
-- **RepairListPriority (0x11)**: Client → Host (reorder queue)
+- **PythonEvent (0x06)**: Host → All (auto-notifications: add/complete/cannot-complete)
+- **AddToRepairList (0x0B)**: Client → Host → All (manual repair request, GenericEventForward relay)
+- **RepairListPriority (0x11)**: Client → Host → All (priority toggle, GenericEventForward relay)
+
+See [repair-system.md](repair-system.md) for complete behavioral spec including wire formats, priority toggle algorithm, collision→repair chain, and Engineering panel UI areas.
 
 ---
 
