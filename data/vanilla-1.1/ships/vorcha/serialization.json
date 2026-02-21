@@ -2,17 +2,20 @@
   {
     "format": "base",
     "name": "Hull",
-    "max_condition": 12000
+    "max_condition": 12000,
+    "power_mode": 0
   },
   {
     "format": "base",
     "name": "Shield Generator",
-    "max_condition": 10000
+    "max_condition": 10000,
+    "power_mode": 0
   },
   {
     "format": "power",
     "name": "Warp Core",
-    "max_condition": 7000
+    "max_condition": 7000,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -23,7 +26,8 @@
       {
         "name": "Disruptor"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -37,7 +41,8 @@
       {
         "name": "Star Cannon"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -54,7 +59,8 @@
       {
         "name": "Aft Torpedo"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -70,7 +76,8 @@
         "name": "Starboard Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -86,25 +93,29 @@
         "name": "Starboard Warp",
         "max_condition": 4000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Cloaking Device",
     "max_condition": 6000,
-    "normal_power": 700
+    "normal_power": 700,
+    "power_mode": 2
   },
   {
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 6000,
-    "normal_power": 100
+    "normal_power": 100,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Repair System",
     "max_condition": 7000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -118,6 +129,7 @@
       {
         "name": "Forward Tractor"
       }
-    ]
+    ],
+    "power_mode": 1
   }
 ]

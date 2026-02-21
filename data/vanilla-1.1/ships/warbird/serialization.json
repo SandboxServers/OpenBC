@@ -2,17 +2,20 @@
   {
     "format": "base",
     "name": "Hull",
-    "max_condition": 14000
+    "max_condition": 14000,
+    "power_mode": 0
   },
   {
     "format": "base",
     "name": "Shield Generator",
-    "max_condition": 10000
+    "max_condition": 10000,
+    "power_mode": 0
   },
   {
     "format": "power",
     "name": "Power Plant",
-    "max_condition": 8000
+    "max_condition": 8000,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -23,7 +26,8 @@
       {
         "name": "Disruptor"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -43,7 +47,8 @@
       {
         "name": "Port Cannon 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -57,7 +62,8 @@
       {
         "name": "Aft Torpedo"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -73,7 +79,8 @@
         "name": "Starboard Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -89,30 +96,35 @@
         "name": "Starboard Warp",
         "max_condition": 4000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Cloaking Device",
     "max_condition": 7000,
-    "normal_power": 1000
+    "normal_power": 1000,
+    "power_mode": 2
   },
   {
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 8000,
-    "normal_power": 200
+    "normal_power": 200,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Engineering",
     "max_condition": 8000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   },
   {
     "format": "base",
     "name": "Bridge",
-    "max_condition": 10000
+    "max_condition": 10000,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -126,6 +138,7 @@
       {
         "name": "Forward Tractor"
       }
-    ]
+    ],
+    "power_mode": 1
   }
 ]

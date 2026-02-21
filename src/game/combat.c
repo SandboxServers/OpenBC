@@ -33,6 +33,27 @@ static int find_torpedo_subsys(const bc_ship_class_t *cls, int tube_idx)
     return -1;
 }
 
+/* Find first subsystem by type string, or -1 if not found. */
+static int find_subsys_by_type(const bc_ship_class_t *cls, const char *type)
+{
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        if (strcmp(cls->subsystems[i].type, type) == 0)
+            return i;
+    }
+    return -1;
+}
+
+/* Find serialization list entry by HP slot index, or -1. */
+static int find_ser_entry_by_hp_index(const bc_ship_class_t *cls, int hp_index)
+{
+    const bc_ss_list_t *sl = &cls->ser_list;
+    for (int i = 0; i < sl->count; i++) {
+        if (sl->entries[i].hp_index == hp_index)
+            return i;
+    }
+    return -1;
+}
+
 /* --- Charge / Cooldown ticks --- */
 
 void bc_combat_charge_tick(bc_ship_state_t *ship,
@@ -393,6 +414,97 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
     if (!ship->alive || dt <= 0.0f) return;
     if (ship->cloak_state != BC_CLOAK_DECLOAKED) return;
 
+    /* Special recovery path: if shield subsystem is destroyed/disabled,
+     * recharge surviving facings using backup battery directly. */
+    int shield_ss = find_subsys_by_type(cls, "shield");
+    bool shield_alive = true;
+    bool shield_enabled = true;
+    if (shield_ss >= 0) {
+        shield_alive = ship->subsystem_hp[shield_ss] > 0.0f;
+
+        int shield_entry = find_ser_entry_by_hp_index(cls, shield_ss);
+        if (shield_entry >= 0 && shield_entry < BC_SS_MAX_ENTRIES)
+            shield_enabled = ship->subsys_enabled[shield_entry];
+    }
+
+    if (!shield_alive || !shield_enabled) {
+        bool can_recharge[BC_MAX_SHIELD_FACINGS];
+        bool is_full[BC_MAX_SHIELD_FACINGS];
+        f32 requested = 0.0f;
+        f32 total_before = 0.0f;
+        f32 overflow = 0.0f;
+
+        for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+            total_before += ship->shield_hp[i];
+            can_recharge[i] = (ship->shield_hp[i] > 0.0f &&
+                               ship->shield_hp[i] < cls->shield_hp[i]);
+            if (can_recharge[i]) {
+                requested += cls->shield_recharge[i] * power_level * dt;
+            }
+        }
+
+        if (requested <= 0.0f || ship->backup_battery <= 0.0f) return;
+
+        f32 scale = 1.0f;
+        if (requested > ship->backup_battery)
+            scale = ship->backup_battery / requested;
+
+        for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+            if (!can_recharge[i]) {
+                is_full[i] = true;
+                continue;
+            }
+
+            f32 gain = cls->shield_recharge[i] * power_level * dt * scale;
+            f32 new_hp = ship->shield_hp[i] + gain;
+            if (new_hp >= cls->shield_hp[i]) {
+                overflow += new_hp - cls->shield_hp[i];
+                ship->shield_hp[i] = cls->shield_hp[i];
+                is_full[i] = true;
+            } else {
+                ship->shield_hp[i] = new_hp;
+                is_full[i] = false;
+            }
+        }
+
+        /* Reuse normal overflow redistribution, but only for facings that
+         * were eligible in the recovery path. */
+        if (overflow > 0.0f) {
+            f32 total_capacity = 0.0f;
+            for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+                if (can_recharge[i] && !is_full[i]) {
+                    total_capacity += cls->shield_hp[i] - ship->shield_hp[i];
+                }
+            }
+            if (total_capacity > 0.0f) {
+                f32 to_distribute = overflow;
+                if (to_distribute > total_capacity) to_distribute = total_capacity;
+                for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+                    if (!can_recharge[i] || is_full[i]) continue;
+                    f32 room = cls->shield_hp[i] - ship->shield_hp[i];
+                    f32 share = to_distribute * (room / total_capacity);
+                    ship->shield_hp[i] += share;
+                    if (ship->shield_hp[i] > cls->shield_hp[i])
+                        ship->shield_hp[i] = cls->shield_hp[i];
+                }
+            }
+        }
+
+        /* Net draw = shield HP gained. Any capped-out excess is returned. */
+        f32 total_after = 0.0f;
+        for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
+            total_after += ship->shield_hp[i];
+        }
+
+        f32 consumed = total_after - total_before;
+        if (consumed < 0.0f) consumed = 0.0f;
+        if (consumed > ship->backup_battery) consumed = ship->backup_battery;
+        ship->backup_battery -= consumed;
+        if (ship->backup_battery < 0.0f)
+            ship->backup_battery = 0.0f;
+        return;
+    }
+
     /* Pass 1: compute raw gain, cap at max, accumulate overflow */
     f32 overflow = 0.0f;
     f32 raw_gain[BC_MAX_SHIELD_FACINGS];
@@ -439,11 +551,7 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
 /* Find the cloaking subsystem index, or -1 */
 static int find_cloak_subsys(const bc_ship_class_t *cls)
 {
-    for (int i = 0; i < cls->subsystem_count; i++) {
-        if (strcmp(cls->subsystems[i].type, "cloak") == 0)
-            return i;
-    }
-    return -1;
+    return find_subsys_by_type(cls, "cloak");
 }
 
 /* Bug 9: cloak preserves shield HP (does NOT zero them) */

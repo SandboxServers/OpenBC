@@ -722,23 +722,27 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 9000
+          "max_condition": 9000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 9000
+          "max_condition": 9000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 6000,
-          "normal_power": 150
+          "normal_power": 150,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 6000
+          "max_condition": 6000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -754,7 +758,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -786,7 +791,8 @@
             {
               "name": "Dorsal Phaser 4"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -802,7 +808,8 @@
               "name": "Starboard Warp",
               "max_condition": 3500.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -828,13 +835,15 @@
             {
               "name": "Aft Torp 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Engineering",
           "max_condition": 7000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -848,12 +857,14 @@
             {
               "name": "Aft Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         },
         {
           "format": "base",
           "name": "Bridge",
-          "max_condition": 9000
+          "max_condition": 9000,
+          "power_mode": 0
         }
       ]
     },
@@ -1528,23 +1539,27 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 13000
+          "max_condition": 13000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 6000,
-          "normal_power": 50
+          "normal_power": 50,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 6000
+          "max_condition": 6000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -1560,7 +1575,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -1592,7 +1608,8 @@
             {
               "name": "Aft Phaser 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -1608,7 +1625,8 @@
               "name": "Starboard Warp",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -1628,18 +1646,21 @@
             {
               "name": "Aft Torpedo 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Engineering",
           "max_condition": 7000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Bridge",
-          "max_condition": 9000
+          "max_condition": 9000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -1653,7 +1674,8 @@
             {
               "name": "Aft Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         }
       ]
     },
@@ -2460,23 +2482,27 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 12000
+          "max_condition": 12000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 7000
+          "max_condition": 7000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 8000,
-          "normal_power": 100
+          "normal_power": 100,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -2502,7 +2528,8 @@
             {
               "name": "Aft Torpedo 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -2534,7 +2561,8 @@
             {
               "name": "Ventral Phaser 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -2554,7 +2582,8 @@
               "name": "Center Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -2570,7 +2599,8 @@
               "name": "Starboard Warp",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -2590,18 +2620,21 @@
             {
               "name": "Forward Tractor 2"
             }
-          ]
+          ],
+          "power_mode": 1
         },
         {
           "format": "base",
           "name": "Bridge",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Engineering",
           "max_condition": 8000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         }
       ]
     },
@@ -3326,23 +3359,27 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 8000,
-          "normal_power": 100
+          "normal_power": 100,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 7000
+          "max_condition": 7000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -3358,7 +3395,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -3390,7 +3428,8 @@
             {
               "name": "Ventral Phaser 4"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -3406,7 +3445,8 @@
               "name": "Starboard Warp",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -3432,13 +3472,15 @@
             {
               "name": "Aft Torp 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair",
           "max_condition": 8000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -3452,12 +3494,14 @@
             {
               "name": "Forward Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         },
         {
           "format": "base",
           "name": "Bridge",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         }
       ]
     },
@@ -4264,23 +4308,27 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 12000
+          "max_condition": 12000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 8000,
-          "normal_power": 150
+          "normal_power": 150,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 7000
+          "max_condition": 7000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4296,7 +4344,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4322,18 +4371,21 @@
             {
               "name": "Aft Torpedo 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair",
           "max_condition": 8000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Bridge",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4365,7 +4417,8 @@
             {
               "name": "Ventral Phaser 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4385,7 +4438,8 @@
             {
               "name": "Forward Tractor 2"
             }
-          ]
+          ],
+          "power_mode": 1
         },
         {
           "format": "powered",
@@ -4401,7 +4455,8 @@
               "name": "Starboard Warp",
               "max_condition": 4500.0
             }
-          ]
+          ],
+          "power_mode": 0
         }
       ]
     },
@@ -4681,17 +4736,20 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 4000
+          "max_condition": 4000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 4000
+          "max_condition": 4000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 3000
+          "max_condition": 3000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4705,7 +4763,8 @@
             {
               "name": "Star Cannon"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4716,7 +4775,8 @@
             {
               "name": "Fwd Torpedo"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4728,7 +4788,8 @@
               "name": "Impulse Engine",
               "max_condition": 2000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -4744,25 +4805,29 @@
               "name": "Starboard Warp",
               "max_condition": 2000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Cloaking Device",
           "max_condition": 3000,
-          "normal_power": 380
+          "normal_power": 380,
+          "power_mode": 2
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 3000,
-          "normal_power": 50
+          "normal_power": 50,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Engineering",
           "max_condition": 4000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         }
       ]
     },
@@ -5214,17 +5279,20 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 12000
+          "max_condition": 12000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 7000
+          "max_condition": 7000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5235,7 +5303,8 @@
             {
               "name": "Disruptor"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5249,7 +5318,8 @@
             {
               "name": "Star Cannon"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5266,7 +5336,8 @@
             {
               "name": "Aft Torpedo"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5282,7 +5353,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5298,25 +5370,29 @@
               "name": "Starboard Warp",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Cloaking Device",
           "max_condition": 6000,
-          "normal_power": 700
+          "normal_power": 700,
+          "power_mode": 2
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 6000,
-          "normal_power": 100
+          "normal_power": 100,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair System",
           "max_condition": 7000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5330,7 +5406,8 @@
             {
               "name": "Forward Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         }
       ]
     },
@@ -5852,17 +5929,20 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 14000
+          "max_condition": 14000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Power Plant",
-          "max_condition": 8000
+          "max_condition": 8000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5873,7 +5953,8 @@
             {
               "name": "Disruptor"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5893,7 +5974,8 @@
             {
               "name": "Port Cannon 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5907,7 +5989,8 @@
             {
               "name": "Aft Torpedo"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5923,7 +6006,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5939,30 +6023,35 @@
               "name": "Starboard Warp",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Cloaking Device",
           "max_condition": 7000,
-          "normal_power": 1000
+          "normal_power": 1000,
+          "power_mode": 2
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 8000,
-          "normal_power": 200
+          "normal_power": 200,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Engineering",
           "max_condition": 8000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Bridge",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -5976,7 +6065,8 @@
             {
               "name": "Forward Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         }
       ]
     },
@@ -6336,17 +6426,20 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 8000
+          "max_condition": 8000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 8000
+          "max_condition": 8000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 5000
+          "max_condition": 5000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6357,7 +6450,8 @@
             {
               "name": "Ventral Phaser"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6373,7 +6467,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6389,7 +6484,8 @@
               "name": "Port Warp",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6403,19 +6499,22 @@
             {
               "name": "Aft Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 6000,
-          "normal_power": 100
+          "normal_power": 100,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair Subsystem",
           "max_condition": 6000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6429,7 +6528,8 @@
             {
               "name": "Star Emitter"
             }
-          ]
+          ],
+          "power_mode": 0
         }
       ]
     },
@@ -6772,17 +6872,20 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 8000
+          "max_condition": 8000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 8000
+          "max_condition": 8000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 5000
+          "max_condition": 5000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6802,7 +6905,8 @@
             {
               "name": "Aft Beam"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6813,7 +6917,8 @@
             {
               "name": "Forward Torpedo"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6829,7 +6934,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -6841,19 +6947,22 @@
               "name": "Warp Engine 1",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair Subsystem",
           "max_condition": 5000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 5000,
-          "normal_power": 50
+          "normal_power": 50,
+          "power_mode": 0
         }
       ]
     },
@@ -7303,17 +7412,20 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 9000
+          "max_condition": 9000,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 9000
+          "max_condition": 9000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 6000
+          "max_condition": 6000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -7333,7 +7445,8 @@
             {
               "name": "Aft Beam"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -7347,7 +7460,8 @@
             {
               "name": "Aft Torpedo"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -7371,7 +7485,8 @@
               "name": "Impulse 4",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -7383,19 +7498,22 @@
               "name": "Warp Engine 1",
               "max_condition": 5000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 6000,
-          "normal_power": 50
+          "normal_power": 50,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair Subsystem",
           "max_condition": 6000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -7409,7 +7527,8 @@
             {
               "name": "Dorsal Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         }
       ]
     },
@@ -8044,12 +8163,14 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 12000
+          "max_condition": 12000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 7000
+          "max_condition": 7000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8066,24 +8187,28 @@
             {
               "name": "Aft Torpedo"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair System",
           "max_condition": 7000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 7000,
-          "normal_power": 100
+          "normal_power": 100,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8099,7 +8224,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8119,7 +8245,8 @@
               "name": "Center Warp",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8148,7 +8275,8 @@
             {
               "name": "Dorsal Beam 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8159,7 +8287,8 @@
             {
               "name": "Cannon"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8173,7 +8302,8 @@
             {
               "name": "Aft Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         }
       ]
     },
@@ -8718,12 +8848,14 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 16000
+          "max_condition": 16000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 8000
+          "max_condition": 8000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8739,7 +8871,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8755,7 +8888,8 @@
               "name": "Starboard Warp",
               "max_condition": 4000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8787,7 +8921,8 @@
             {
               "name": "Forward Beam 4"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -8801,30 +8936,35 @@
             {
               "name": "Torpedo Tube 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair System",
           "max_condition": 8000,
-          "normal_power": 50
+          "normal_power": 50,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 12000
+          "max_condition": 12000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 8000,
-          "normal_power": 200
+          "normal_power": 200,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Cloaking Device",
           "max_condition": 7000,
-          "normal_power": 1300
+          "normal_power": 1300,
+          "power_mode": 2
         }
       ]
     },
@@ -9344,12 +9484,14 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 10000
+          "max_condition": 10000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 6000
+          "max_condition": 6000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9360,24 +9502,28 @@
             {
               "name": "Torpedo"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair System",
           "max_condition": 6000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 8000
+          "max_condition": 8000,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 6000,
-          "normal_power": 100
+          "normal_power": 100,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9393,7 +9539,8 @@
               "name": "Starboard Impulse",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9409,7 +9556,8 @@
               "name": "Starboard Warp",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9441,13 +9589,15 @@
             {
               "name": "Aft Beam 2"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Cloaking Device",
           "max_condition": 5000,
-          "normal_power": 700
+          "normal_power": 700,
+          "power_mode": 2
         }
       ]
     },
@@ -9703,7 +9853,8 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 3500
+          "max_condition": 3500,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9719,23 +9870,27 @@
               "name": "Starboard Impulse",
               "max_condition": 1000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 1500
+          "max_condition": 1500,
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 2000,
-          "normal_power": 50
+          "normal_power": 50,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 3500
+          "max_condition": 3500,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9746,13 +9901,15 @@
             {
               "name": "Phaser"
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Repair",
           "max_condition": 3000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9768,7 +9925,8 @@
               "name": "Starboard Warp",
               "max_condition": 1000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9779,7 +9937,8 @@
             {
               "name": "Forward Tractor"
             }
-          ]
+          ],
+          "power_mode": 1
         }
       ]
     },
@@ -9978,7 +10137,8 @@
         {
           "format": "base",
           "name": "Hull",
-          "max_condition": 5000
+          "max_condition": 5000,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -9994,7 +10154,8 @@
               "name": "Starboard Impulse",
               "max_condition": 2000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -10006,13 +10167,15 @@
               "name": "Warp Drive",
               "max_condition": 3000.0
             }
-          ]
+          ],
+          "power_mode": 0
         },
         {
           "format": "powered",
           "name": "Engineering",
           "max_condition": 3000,
-          "normal_power": 1
+          "normal_power": 1,
+          "power_mode": 0
         },
         {
           "format": "powered",
@@ -10023,23 +10186,27 @@
             {
               "name": "Tractor Beam"
             }
-          ]
+          ],
+          "power_mode": 1
         },
         {
           "format": "powered",
           "name": "Sensor Array",
           "max_condition": 3000,
-          "normal_power": 50
+          "normal_power": 50,
+          "power_mode": 0
         },
         {
           "format": "base",
           "name": "Shield Generator",
-          "max_condition": 4000
+          "max_condition": 4000,
+          "power_mode": 0
         },
         {
           "format": "power",
           "name": "Warp Core",
-          "max_condition": 3000
+          "max_condition": 3000,
+          "power_mode": 0
         }
       ]
     }

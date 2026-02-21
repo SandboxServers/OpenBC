@@ -13,6 +13,35 @@
 
 static bc_game_registry_t g_reg;
 
+/* Find first serialization entry (top-level or child) containing subsystem type. */
+static int find_ser_entry_for_type(const bc_ship_class_t *cls, const char *type)
+{
+    const bc_ss_list_t *sl = &cls->ser_list;
+    for (int i = 0; i < sl->count; i++) {
+        const bc_ss_entry_t *e = &sl->entries[i];
+        if (e->hp_index >= 0 && e->hp_index < cls->subsystem_count &&
+            strcmp(cls->subsystems[e->hp_index].type, type) == 0) {
+            return i;
+        }
+        for (int c = 0; c < e->child_count; c++) {
+            int ci = e->child_hp_index[c];
+            if (ci >= 0 && ci < cls->subsystem_count &&
+                strcmp(cls->subsystems[ci].type, type) == 0) {
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+static int find_subsystem_by_type(const bc_ship_class_t *cls, const char *type)
+{
+    for (int i = 0; i < cls->subsystem_count; i++) {
+        if (strcmp(cls->subsystems[i].type, type) == 0) return i;
+    }
+    return -1;
+}
+
 /* === Load registry (directory format) === */
 
 TEST(load_registry)
@@ -33,6 +62,35 @@ TEST(load_registry_power)
     ASSERT(akira->backup_battery_limit > 0.0f);
     ASSERT(akira->main_conduit_capacity > 0.0f);
     ASSERT(akira->backup_conduit_capacity > 0.0f);
+}
+
+TEST(load_registry_power_modes)
+{
+    /* Directory load: tractor should be backup-first, cloak backup-only. */
+    const bc_ship_class_t *galaxy = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(galaxy != NULL);
+    int tractor = find_ser_entry_for_type(galaxy, "tractor_beam");
+    ASSERT(tractor >= 0);
+    ASSERT_EQ(galaxy->ser_list.entries[tractor].power_mode, BC_POWER_MODE_BACKUP_FIRST);
+
+    int phaser = find_ser_entry_for_type(galaxy, "phaser");
+    ASSERT(phaser >= 0);
+    ASSERT_EQ(galaxy->ser_list.entries[phaser].power_mode, BC_POWER_MODE_MAIN_FIRST);
+
+    const bc_ship_class_t *bop = bc_registry_find_ship(&g_reg, 6);
+    ASSERT(bop != NULL);
+    int cloak = find_ser_entry_for_type(bop, "cloak");
+    ASSERT(cloak >= 0);
+    ASSERT_EQ(bop->ser_list.entries[cloak].power_mode, BC_POWER_MODE_BACKUP_ONLY);
+
+    /* Monolith load should carry the same power_mode values. */
+    bc_game_registry_t reg;
+    ASSERT(bc_registry_load(&reg, REGISTRY_PATH));
+    const bc_ship_class_t *bop_m = bc_registry_find_ship(&reg, 6);
+    ASSERT(bop_m != NULL);
+    int cloak_m = find_ser_entry_for_type(bop_m, "cloak");
+    ASSERT(cloak_m >= 0);
+    ASSERT_EQ(bop_m->ser_list.entries[cloak_m].power_mode, BC_POWER_MODE_BACKUP_ONLY);
 }
 
 /* === Load registry (monolith format) === */
@@ -484,6 +542,33 @@ TEST(shield_recharge_tick)
     ASSERT(ship.shield_hp[0] <= cls->shield_hp[0]); /* not over max */
 }
 
+TEST(shield_dead_recharge_uses_backup_battery)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    int shield_ss = find_subsystem_by_type(cls, "shield");
+    ASSERT(shield_ss >= 0);
+    ship.subsystem_hp[shield_ss] = 0.0f; /* dead shield generator */
+
+    ship.shield_hp[BC_SHIELD_FRONT] = cls->shield_hp[BC_SHIELD_FRONT] - 100.0f;
+    ship.shield_hp[BC_SHIELD_REAR] = 0.0f; /* depleted facing should not recover */
+    ship.backup_battery = 50.0f;
+
+    f32 backup_before = ship.backup_battery;
+    f32 front_before = ship.shield_hp[BC_SHIELD_FRONT];
+    f32 rear_before = ship.shield_hp[BC_SHIELD_REAR];
+
+    bc_combat_shield_tick(&ship, cls, 1.0f, 1.0f);
+
+    ASSERT(ship.shield_hp[BC_SHIELD_FRONT] > front_before);
+    ASSERT(fabsf(ship.shield_hp[BC_SHIELD_REAR] - rear_before) < 0.01f);
+    ASSERT(ship.backup_battery < backup_before);
+}
+
 TEST(charge_tick_recharges)
 {
     const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
@@ -752,6 +837,7 @@ TEST(repair_no_duplicates)
 TEST_MAIN_BEGIN()
     RUN(load_registry);
     RUN(load_registry_power);
+    RUN(load_registry_power_modes);
     RUN(load_registry_monolith);
     RUN(galaxy_stats);
     RUN(shuttle_stats);
@@ -781,6 +867,7 @@ TEST_MAIN_BEGIN()
     RUN(overflow_penetrates_hull);
     RUN(hull_zero_means_death);
     RUN(shield_recharge_tick);
+    RUN(shield_dead_recharge_uses_backup_battery);
     RUN(charge_tick_recharges);
     RUN(cloak_full_cycle);
     RUN(non_cloaker_cannot_cloak);

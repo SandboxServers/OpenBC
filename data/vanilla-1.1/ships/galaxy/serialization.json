@@ -2,23 +2,27 @@
   {
     "format": "base",
     "name": "Hull",
-    "max_condition": 12000
+    "max_condition": 12000,
+    "power_mode": 0
   },
   {
     "format": "power",
     "name": "Warp Core",
-    "max_condition": 7000
+    "max_condition": 7000,
+    "power_mode": 0
   },
   {
     "format": "base",
     "name": "Shield Generator",
-    "max_condition": 10000
+    "max_condition": 10000,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 8000,
-    "normal_power": 100
+    "normal_power": 100,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -44,7 +48,8 @@
       {
         "name": "Aft Torpedo 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -76,7 +81,8 @@
       {
         "name": "Ventral Phaser 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -96,7 +102,8 @@
         "name": "Center Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -112,7 +119,8 @@
         "name": "Starboard Warp",
         "max_condition": 4000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -132,17 +140,20 @@
       {
         "name": "Forward Tractor 2"
       }
-    ]
+    ],
+    "power_mode": 1
   },
   {
     "format": "base",
     "name": "Bridge",
-    "max_condition": 10000
+    "max_condition": 10000,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Engineering",
     "max_condition": 8000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   }
 ]

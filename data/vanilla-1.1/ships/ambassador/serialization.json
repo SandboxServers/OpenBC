@@ -2,23 +2,27 @@
   {
     "format": "base",
     "name": "Hull",
-    "max_condition": 13000
+    "max_condition": 13000,
+    "power_mode": 0
   },
   {
     "format": "base",
     "name": "Shield Generator",
-    "max_condition": 10000
+    "max_condition": 10000,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 6000,
-    "normal_power": 50
+    "normal_power": 50,
+    "power_mode": 0
   },
   {
     "format": "power",
     "name": "Warp Core",
-    "max_condition": 6000
+    "max_condition": 6000,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -34,7 +38,8 @@
         "name": "Starboard Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -66,7 +71,8 @@
       {
         "name": "Aft Phaser 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -82,7 +88,8 @@
         "name": "Starboard Warp",
         "max_condition": 4000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -102,18 +109,21 @@
       {
         "name": "Aft Torpedo 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Engineering",
     "max_condition": 7000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   },
   {
     "format": "base",
     "name": "Bridge",
-    "max_condition": 9000
+    "max_condition": 9000,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -127,6 +137,7 @@
       {
         "name": "Aft Tractor"
       }
-    ]
+    ],
+    "power_mode": 1
   }
 ]
