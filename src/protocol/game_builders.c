@@ -196,6 +196,27 @@ int bc_build_python_subsystem_event(u8 *buf, int buf_size,
     return (int)b.pos;
 }
 
+int bc_build_python_obj_ptr_event(u8 *buf, int buf_size,
+                                   i32 event_type,
+                                   i32 source_obj_id,
+                                   i32 dest_obj_id,
+                                   i32 obj_ptr)
+{
+    /* Wire: [0x06][factory=0x010C:i32][event_type:i32][source:i32][dest:i32][obj_ptr:i32]
+     * 21 bytes total. obj_ptr is a third network object reference (e.g. the weapon). */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_PYTHON_EVENT)) return -1;
+    if (!bc_buf_write_i32(&b, BC_FACTORY_OBJ_PTR_EVENT)) return -1;
+    if (!bc_buf_write_i32(&b, event_type)) return -1;
+    if (!bc_buf_write_i32(&b, source_obj_id)) return -1;
+    if (!bc_buf_write_i32(&b, dest_obj_id)) return -1;
+    if (!bc_buf_write_i32(&b, obj_ptr)) return -1;
+
+    return (int)b.pos;
+}
+
 int bc_build_python_exploding_event(u8 *buf, int buf_size,
                                      i32 source_obj_id,
                                      i32 firing_player_id,
