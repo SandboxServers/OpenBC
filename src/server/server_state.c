@@ -64,6 +64,7 @@ u8  g_player_teams[BC_MAX_PLAYERS];
 i32 g_team_scores[2];
 i32 g_team_kills[2];
 bc_damage_ledger_entry_t g_damage_ledger[BC_MAX_PLAYERS][BC_MAX_PLAYERS];
+bc_reconnect_score_t g_reconnect_scores[BC_MAX_PLAYERS];
 
 /* Manifest / checksum validation */
 bc_manifest_t g_manifest;

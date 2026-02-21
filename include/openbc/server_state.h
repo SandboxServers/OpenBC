@@ -88,6 +88,16 @@ typedef struct {
     f32 hull_damage;
 } bc_damage_ledger_entry_t;
 
+typedef struct {
+    bool valid;
+    char name[32];
+    i32 score;
+    i32 kills;
+    i32 deaths;
+    u8  team_id;
+    int old_slot;
+} bc_reconnect_score_t;
+
 extern i32 g_player_scores[BC_MAX_PLAYERS];
 extern i32 g_player_kills[BC_MAX_PLAYERS];
 extern i32 g_player_deaths[BC_MAX_PLAYERS];
@@ -96,6 +106,7 @@ extern i32 g_team_scores[2];
 extern i32 g_team_kills[2];
 extern bc_damage_ledger_entry_t
     g_damage_ledger[BC_MAX_PLAYERS][BC_MAX_PLAYERS];
+extern bc_reconnect_score_t g_reconnect_scores[BC_MAX_PLAYERS];
 
 extern bc_manifest_t    g_manifest;
 extern bool             g_manifest_loaded;

@@ -13,6 +13,7 @@
 #include "openbc/cipher.h"
 #include "openbc/gamespy.h"
 #include "openbc/manifest.h"
+#include "openbc/json_parse.h"
 #include "openbc/reliable.h"
 #include "openbc/master.h"
 #include "openbc/ship_state.h"
@@ -77,6 +78,7 @@ static void usage(const char *prog)
         "  --time-limit <n>   Time limit in minutes (default: none)\n"
         "  --frag-limit <n>   Frag/kill limit (default: none)\n"
         "  --score-limit      Use score threshold (fragLimit*10000)\n"
+        "  --kill-limit       Use kill threshold for --frag-limit\n"
         "  --collision        Enable collision damage (default)\n"
         "  --no-collision     Disable collision damage\n"
         "  --friendly-fire    Enable friendly fire\n"
@@ -107,8 +109,52 @@ static bc_log_level_t parse_log_level(const char *str)
     return LOG_INFO;
 }
 
+static bool read_small_text_file(const char *path, char *out, size_t out_size)
+{
+    if (!path || !out || out_size < 2) return false;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return false;
+    size_t n = fread(out, 1, out_size - 1, fp);
+    fclose(fp);
+    out[n] = '\0';
+    return n > 0;
+}
+
+static bool mode_is_team_from_file(const char *path, const char *map_name,
+                                   bool *out_team_mode)
+{
+    char json_text[2048];
+    if (!read_small_text_file(path, json_text, sizeof(json_text))) return false;
+
+    json_value_t *root = json_parse(json_text);
+    if (!root) return false;
+
+    bool found = false;
+    const char *script = json_string(json_get(root, "script"));
+    if (script && map_name && strcmp(script, map_name) == 0) {
+        if (out_team_mode) *out_team_mode = json_bool(json_get(root, "teams"));
+        found = true;
+    }
+
+    json_free(root);
+    return found;
+}
+
 static bool mode_is_team(const char *map_name)
 {
+    static const char *gamemode_files[] = {
+        "data/vanilla-1.1/gamemodes/deathmatch.json",
+        "data/vanilla-1.1/gamemodes/team-deathmatch.json",
+        "data/vanilla-1.1/gamemodes/faction-deathmatch.json"
+    };
+
+    bool team_mode = false;
+    for (size_t i = 0; i < sizeof(gamemode_files) / sizeof(gamemode_files[0]); i++) {
+        if (mode_is_team_from_file(gamemode_files[i], map_name, &team_mode))
+            return team_mode;
+    }
+
+    /* Fallback for custom/non-standard packs that don't ship gamemode JSON. */
     if (!map_name) return false;
     return strstr(map_name, "Mission2") != NULL ||
            strstr(map_name, "Mission3") != NULL;
@@ -206,6 +252,7 @@ int main(int argc, char **argv)
     memset(g_team_scores, 0, sizeof(g_team_scores));
     memset(g_team_kills, 0, sizeof(g_team_kills));
     memset(g_damage_ledger, 0, sizeof(g_damage_ledger));
+    memset(g_reconnect_scores, 0, sizeof(g_reconnect_scores));
     for (int i = 0; i < BC_MAX_PLAYERS; i++) g_player_teams[i] = BC_TEAM_NONE;
 
     /* Generate default log file name if none specified and not disabled.

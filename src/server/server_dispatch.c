@@ -364,7 +364,9 @@ static void check_limit_after_kill(void)
     }
 
     if (reached) {
-        end_game_locked(BC_END_REASON_SCORE_LIMIT,
+        end_game_locked(g_use_score_limit
+                      ? BC_END_REASON_SCORE_LIMIT
+                      : BC_END_REASON_FRAG_LIMIT,
                         g_use_score_limit ? "score_limit" : "frag_limit");
     }
 }
@@ -438,6 +440,7 @@ static void process_ship_kill(int killer_slot, int victim_slot)
     if (has_killer) sync_peer_score_slot(killer_slot);
     sync_peer_score_slot(victim_slot);
 
+    /* killer_id=0 is valid for environmental/self-destruct kills. */
     u8 sc[128];
     int slen = bc_build_score_change(sc, sizeof(sc),
                                       has_killer ? killer_player_id : 0,
@@ -459,6 +462,7 @@ static void reset_round_for_restart(void)
     memset(g_team_scores, 0, sizeof(g_team_scores));
     memset(g_team_kills, 0, sizeof(g_team_kills));
     memset(g_damage_ledger, 0, sizeof(g_damage_ledger));
+    memset(g_reconnect_scores, 0, sizeof(g_reconnect_scores));
     for (int i = 0; i < BC_MAX_PLAYERS; i++) g_player_teams[i] = BC_TEAM_NONE;
 
     for (int i = 1; i < BC_MAX_PLAYERS; i++) {
@@ -1147,6 +1151,20 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- Restart game: server-authoritative reset + broadcast --- */
     case BC_MSG_RESTART: {
         LOG_INFO("game", "slot=%d requested restart", peer_slot);
+
+        /* Explicitly destroy active ships before reset so all clients
+         * clear world objects even if they missed local state transitions. */
+        for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+            bc_peer_t *rp = &g_peers.peers[i];
+            if (!rp->has_ship) continue;
+            i32 obj_id = rp->ship.object_id;
+            if (obj_id <= 0) obj_id = rp->object_id;
+            if (obj_id <= 0) continue;
+            u8 dpkt[8];
+            int dlen = bc_build_destroy_obj(dpkt, sizeof(dpkt), obj_id);
+            if (dlen > 0) bc_send_to_all(dpkt, dlen, true);
+        }
+
         u8 rpkt[4];
         int rlen = bc_build_restart_game(rpkt, sizeof(rpkt));
         if (rlen > 0) bc_send_to_all(rpkt, rlen, true);
@@ -1232,15 +1250,24 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                         cev.collision_force, tcls->mass, cc);
                     if (dmg <= 0.0f) break;  /* dead zone — no damage */
 
+                    int source_attacker_slot = -1;
+                    const bc_ship_class_t *source_attacker_cls = NULL;
+                    if (cev.source_object_id != 0) {
+                        source_attacker_slot = find_peer_by_object(
+                            cev.source_object_id);
+                        if (source_attacker_slot >= 0) {
+                            source_attacker_cls = bc_registry_get_ship(
+                                &g_registry,
+                                g_peers.peers[source_attacker_slot].class_index);
+                        }
+                    }
+
                     /* Impact direction for shield facing */
                     bc_vec3_t impact_dir = {0.0f, 0.0f, 1.0f};
-                    if (cev.source_object_id != 0) {
-                        int src_slot = find_peer_by_object(cev.source_object_id);
-                        if (src_slot >= 0) {
-                            impact_dir = bc_vec3_normalize(bc_vec3_sub(
-                                g_peers.peers[src_slot].ship.pos,
-                                target->ship.pos));
-                        }
+                    if (source_attacker_slot >= 0) {
+                        impact_dir = bc_vec3_normalize(bc_vec3_sub(
+                            g_peers.peers[source_attacker_slot].ship.pos,
+                            target->ship.pos));
                     }
 
                     /* Scale impact to ship surface for subsystem localization.
@@ -1256,10 +1283,25 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                     f32 thp_snap[BC_MAX_SUBSYSTEMS];
                     memcpy(thp_snap, target->ship.subsystem_hp,
                            sizeof(thp_snap));
+                    f32 target_shield_before = total_shields(&target->ship);
+                    f32 target_hull_before = target->ship.hull_hp;
 
                     bc_combat_apply_damage(&target->ship, tcls, dmg,
                                            collision_radius, scaled_impact,
                                            false, 1.0f);
+
+                    f32 target_shield_after = total_shields(&target->ship);
+                    f32 target_hull_after = target->ship.hull_hp;
+                    f32 target_shield_delta = target_shield_before -
+                                              target_shield_after;
+                    f32 target_hull_delta = target_hull_before - target_hull_after;
+                    if (target_shield_delta < 0.0f) target_shield_delta = 0.0f;
+                    if (target_hull_delta < 0.0f) target_hull_delta = 0.0f;
+
+                    record_damage_ledger(source_attacker_slot, target_slot,
+                                         source_attacker_cls, tcls,
+                                         target_shield_delta,
+                                         target_hull_delta);
 
                     /* Generate ADD_TO_REPAIR_LIST PythonEvents */
                     generate_damage_events(target_slot, thp_snap, tcls);
@@ -1346,6 +1388,13 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             cev.collision_force, scls->mass, cc);
                         if (sdmg <= 0.0f) break;  /* dead zone */
 
+                        const bc_ship_class_t *target_attacker_cls = NULL;
+                        if (target_slot >= 0) {
+                            target_attacker_cls = bc_registry_get_ship(
+                                &g_registry,
+                                g_peers.peers[target_slot].class_index);
+                        }
+
                         /* Flipped impact direction */
                         bc_vec3_t src_impact = {0.0f, 0.0f, 1.0f};
                         if (target_slot >= 0) {
@@ -1366,10 +1415,28 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                         f32 shp_snap[BC_MAX_SUBSYSTEMS];
                         memcpy(shp_snap, source->ship.subsystem_hp,
                                sizeof(shp_snap));
+                        f32 source_shield_before = total_shields(&source->ship);
+                        f32 source_hull_before = source->ship.hull_hp;
 
                         bc_combat_apply_damage(&source->ship, scls, sdmg,
                                                src_coll_radius, src_scaled,
                                                false, 1.0f);
+
+                        f32 source_shield_after = total_shields(&source->ship);
+                        f32 source_hull_after = source->ship.hull_hp;
+                        f32 source_shield_delta = source_shield_before -
+                                                  source_shield_after;
+                        f32 source_hull_delta = source_hull_before -
+                                                source_hull_after;
+                        if (source_shield_delta < 0.0f)
+                            source_shield_delta = 0.0f;
+                        if (source_hull_delta < 0.0f)
+                            source_hull_delta = 0.0f;
+
+                        record_damage_ledger(target_slot, src_slot,
+                                             target_attacker_cls, scls,
+                                             source_shield_delta,
+                                             source_hull_delta);
 
                         /* Generate ADD_TO_REPAIR_LIST PythonEvents */
                         generate_damage_events(src_slot, shp_snap, scls);
@@ -1618,6 +1685,7 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
                     peer->name[j] = '\0';
                     if (j > 0) {
                         LOG_INFO("net", "slot=%d player name: %s", slot, peer->name);
+                        bc_try_restore_reconnect_score(slot, peer->name);
                         /* Update player record with real name */
                         for (int r = 0; r < g_stats.player_count; r++) {
                             if (g_stats.players[r].connect_time == peer->connect_time) {
