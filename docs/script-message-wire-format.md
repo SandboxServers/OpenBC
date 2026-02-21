@@ -290,12 +290,18 @@ Same format as CHAT_MESSAGE but relayed only to team members.
 Offset  Size  Type    Field
 ------  ----  ----    -----
 0       1     u8      opcode = 0x35
-1       4     i32     player_limit
-5       2     u16     species_name_length
-7       var   str     species_name
-+0      4     i32     time_limit
-+4      4     i32     frag_limit
+1       1     u8      current_player_count
+2       1     u8      system_index
+3       1     u8      time_limit (0xFF = no limit)
+[if time_limit != 0xFF:]
+4       4     i32     end_time
+[end if]
++0      1     u8      frag_limit
 ```
+
+> **Correction**: The first payload byte is `current_player_count` (dynamic, u8), not
+> `player_limit` (i32). Stock servers send the number of currently connected players.
+> The join-flow document has the authoritative format; this section is corrected to match.
 
 Direction: Host → joining client (sent after client sends NewPlayerInGame 0x2A)
 

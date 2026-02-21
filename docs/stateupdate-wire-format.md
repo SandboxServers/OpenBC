@@ -42,8 +42,8 @@ Fields are serialized in flag-bit order (0x01 first, 0x80 last). Only fields who
 
 Verified across 199,541 StateUpdate messages from a 34-minute 3-player combat session:
 
-| Direction | Always Includes | Never Includes |
-|-----------|-----------------|----------------|
+| Direction | Predominantly Includes | Rarely Includes |
+|-----------|----------------------|-----------------|
 | **Ship owner -> server** | 0x80 (WEAPONS) | 0x20 (SUBSYSTEMS) |
 | **Server -> all clients** | 0x20 (SUBSYSTEMS) | 0x80 (WEAPONS) |
 
@@ -51,7 +51,7 @@ This reflects the authority model:
 - **Ship owners** are authoritative for their own position, orientation, speed, and weapon charge/cooldown state
 - **The server** is authoritative for subsystem health (damage is computed server-side)
 
-The two flags are **mutually exclusive by direction** in multiplayer. A StateUpdate never contains both 0x20 and 0x80 simultaneously.
+The two flags are **predominantly split by direction** (~96% correlation). The host's own ship object sends WEAPONS (0x80) in the server-to-client direction because the host is also a player — its weapon charge/cooldown state must be broadcast to clients like any other player's. The parser must accept weapon health flags on server-to-client packets, and the sender must include weapon data for the host's own ship when broadcasting state updates.
 
 **Common client-to-server flag patterns** (observed frequencies):
 - `0x9E` — DELTA + FORWARD + UP + SPEED + WEAPONS (full movement + weapons)
