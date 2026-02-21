@@ -764,6 +764,7 @@ TEST(full_join_flow_multi_client)
 
             /* Receive MissionInit response */
             bool got_mission = false;
+            u8 mission_player_count = 0;
             u32 mi_start = GetTickCount();
             while ((int)(GetTickCount() - mi_start) < 2000) {
                 if (tc_recv_raw(cl, 200) <= 0) continue;
@@ -773,15 +774,18 @@ TEST(full_join_flow_multi_client)
                     bc_transport_msg_t *msg = &parsed.msgs[i];
                     if (msg->type == BC_TRANSPORT_RELIABLE && (msg->flags & 0x80)) {
                         tc_send_ack(cl, msg->seq);
-                        if (msg->payload_len > 0 &&
-                            msg->payload[0] == BC_MSG_MISSION_INIT)
+                        if (msg->payload_len > 1 &&
+                            msg->payload[0] == BC_MSG_MISSION_INIT) {
                             got_mission = true;
+                            mission_player_count = msg->payload[1];
+                        }
                     }
                 }
                 if (got_mission) break;
             }
 
             CHECK(got_mission);
+            CHECK_EQ(mission_player_count, (u8)(c + 1));
         }
 
         cl->connected = true;

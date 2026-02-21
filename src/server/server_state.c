@@ -48,10 +48,23 @@ int         g_system_index = 1;   /* Star system 1-9 (SpeciesToSystem) */
 int         g_max_players = BC_MAX_PLAYERS;  /* Total slots incl. dedi */
 int         g_time_limit = -1;    /* Minutes, -1 = no limit */
 int         g_frag_limit = -1;    /* Kills, -1 = no limit */
+bool        g_use_score_limit = false;
 f32         g_game_time = 0.0f;
+f32         g_round_end_time = -1.0f;
+bool        g_team_mode = false;
+bool        g_accept_new_players = true;
 
 /* Win condition */
 bool g_game_ended = false;
+
+i32 g_player_scores[BC_MAX_PLAYERS];
+i32 g_player_kills[BC_MAX_PLAYERS];
+i32 g_player_deaths[BC_MAX_PLAYERS];
+u8  g_player_teams[BC_MAX_PLAYERS];
+i32 g_team_scores[2];
+i32 g_team_kills[2];
+bc_damage_ledger_entry_t g_damage_ledger[BC_MAX_PLAYERS][BC_MAX_PLAYERS];
+bc_reconnect_score_t g_reconnect_scores[BC_MAX_PLAYERS];
 
 /* Manifest / checksum validation */
 bc_manifest_t g_manifest;
