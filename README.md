@@ -139,7 +139,7 @@ src/
   server/      Entry point, configuration, logging
 tests/         11 test suites (unit + integration)
 tools/         CLI tools (hash manifest generator, data scraper, diagnostics)
-data/          Ship and projectile data (vanilla-1.1.json)
+data/          Ship and projectile data (vanilla-1.1/)
 manifests/     Precomputed hash manifests (vanilla-1.1.json)
 docs/          Design documents and protocol reference
 ```
@@ -188,7 +188,7 @@ The original Bridge Commander had a thriving mod community that pushed the game 
 - **Game logic hooks** *(Phase 2)* -- Planned extensibility points for game rules, damage formulas, victory conditions, and event handling.
 - **Hash manifests** -- The manifest system validates any mod combination without the server needing the actual files. `openbc-hash` generates manifests from a BC install or mod pack directory.
 
-The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla-1.1.json`, extracted from BC's readable scripts by `tools/scrape_bc.py`. The goal is that any mod that existed for Bridge Commander can reimplement itself in OpenBC through supported extension points, without having to pick up a crowbar.
+The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla-1.1/`, extracted from BC's readable scripts by `tools/scrape_bc.py`. The goal is that any mod that existed for Bridge Commander can reimplement itself in OpenBC through supported extension points, without having to pick up a crowbar.
 
 ## Documentation
 

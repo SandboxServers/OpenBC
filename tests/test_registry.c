@@ -9,7 +9,6 @@
 #include <math.h>
 
 #define REGISTRY_DIR  "data/vanilla-1.1"
-#define REGISTRY_PATH "data/vanilla-1.1.json"
 
 static bc_game_registry_t g_reg;
 
@@ -82,31 +81,6 @@ TEST(load_registry_power_modes)
     int cloak = find_ser_entry_for_type(bop, "cloak");
     ASSERT(cloak >= 0);
     ASSERT_EQ(bop->ser_list.entries[cloak].power_mode, BC_POWER_MODE_BACKUP_ONLY);
-
-    /* Monolith load should carry the same power_mode values. */
-    bc_game_registry_t reg;
-    ASSERT(bc_registry_load(&reg, REGISTRY_PATH));
-    const bc_ship_class_t *bop_m = bc_registry_find_ship(&reg, 6);
-    ASSERT(bop_m != NULL);
-    int cloak_m = find_ser_entry_for_type(bop_m, "cloak");
-    ASSERT(cloak_m >= 0);
-    ASSERT_EQ(bop_m->ser_list.entries[cloak_m].power_mode, BC_POWER_MODE_BACKUP_ONLY);
-}
-
-/* === Load registry (monolith format) === */
-
-TEST(load_registry_monolith)
-{
-    bc_game_registry_t reg;
-    ASSERT(bc_registry_load(&reg, REGISTRY_PATH));
-    ASSERT(reg.loaded);
-    ASSERT_EQ(reg.ship_count, 16);
-    ASSERT_EQ(reg.projectile_count, 15);
-    /* Spot-check a ship to verify data integrity matches the dir load */
-    const bc_ship_class_t *akira = bc_registry_find_ship(&reg, 1);
-    ASSERT(akira != NULL);
-    ASSERT(strcmp(akira->name, "Akira") == 0);
-    ASSERT(fabsf(akira->hull_hp - 9000.0f) < 1.0f);
 }
 
 /* === Ship lookups === */
@@ -838,7 +812,6 @@ TEST_MAIN_BEGIN()
     RUN(load_registry);
     RUN(load_registry_power);
     RUN(load_registry_power_modes);
-    RUN(load_registry_monolith);
     RUN(galaxy_stats);
     RUN(shuttle_stats);
     RUN(bop_cloak);

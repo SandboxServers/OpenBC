@@ -11,7 +11,7 @@ Usage:
     python3 tools/scrape_bc.py <scripts_dir> -o data/vanilla-1.1/
 
     # Migrate existing monolith to directory format (no BC installation needed):
-    python3 tools/scrape_bc.py --from-monolith data/vanilla-1.1.json -o data/vanilla-1.1/
+    python3 tools/scrape_bc.py --from-monolith legacy/vanilla-1.1.json -o data/vanilla-1.1/
 """
 
 import argparse

@@ -91,7 +91,7 @@ src/
 ├── protocol/      # Wire codec, opcodes, handshake, game events
 └── server/        # Main entry point, config, logging
 tools/             # CLI tools (hash manifest, data scraper, diagnostics)
-data/              # Ship and projectile data (vanilla-1.1.json)
+data/              # Ship and projectile data (vanilla-1.1/)
 manifests/         # Precomputed hash manifests (vanilla-1.1.json)
 tests/             # 11 test suites (unit + integration)
 docs/              # Design documents and protocol reference
@@ -182,7 +182,7 @@ Hard-won bugs — do not repeat:
 - Game systems: `src/game/{ship_data,ship_state,movement,combat}.c`
 - Logging: `src/server/log.c`
 - Test harness helpers: `tests/test_util.h` (unit), `tests/test_harness.h` (integration)
-- Ship/projectile data: `data/vanilla-1.1.json`
+- Ship/projectile data: `data/vanilla-1.1/`
 - Data scraper: `tools/scrape_bc.py`
 
 ## Legal Basis
