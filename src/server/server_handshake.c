@@ -9,6 +9,7 @@
 #include "openbc/master.h"
 #include "openbc/game_events.h"
 #include "openbc/game_builders.h"
+#include "openbc/player_ids.h"
 #include "openbc/ship_state.h"
 #include "openbc/log.h"
 
@@ -84,9 +85,15 @@ static void send_settings_and_gameinit(int peer_slot)
         int sent = 0;
         for (int i = 1; i < BC_MAX_PLAYERS; i++) {
             if (g_peers.peers[i].state >= PEER_LOBBY) {
+                i32 player_id = bc_player_id_from_peer_slot(i);
+                if (!bc_is_valid_player_id(player_id)) {
+                    LOG_WARN("handshake", "slot=%d skipping Score for invalid peer slot %d",
+                             peer_slot, i);
+                    continue;
+                }
                 u8 score_buf[32];
                 int slen = bc_build_score(score_buf, sizeof(score_buf),
-                                           g_peers.peers[i].ship.object_id,
+                                           player_id,
                                            g_peers.peers[i].kills,
                                            g_peers.peers[i].deaths,
                                            g_peers.peers[i].score);

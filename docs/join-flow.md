@@ -157,8 +157,10 @@ The server responds with:
 
 2. **Score (0x37)**: Current scores for all players (zeros for new game)
    ```
-   [0x37][count:u8][{slot:u8, score:i32le}...]
+   [0x37][player_id:i32][kills:i32][deaths:i32][score:i32]
    ```
+   One `0x37` message is sent per player (not batched). `player_id` is the
+   network player ID (`GetNetID()` / wire slot), not an object ID.
 
 3. **ObjCreateTeam (0x03)**: One per already-spawned ship (for late joiners)
    ```
@@ -173,7 +175,7 @@ The server responds with:
 ### Late-Join Data
 
 When a player joins an in-progress game, the server sends the full game state:
-- Score message (0x37) with all current scores
+- Score message(s) (0x37), one per player, with current kills/deaths/score
 - One ObjCreateTeam (0x03) for every already-spawned ship (cached from original creation)
 - DeletePlayerUI (0x17) for each connected player
 

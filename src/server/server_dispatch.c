@@ -9,6 +9,7 @@
 #include "openbc/gamespy.h"
 #include "openbc/game_events.h"
 #include "openbc/game_builders.h"
+#include "openbc/player_ids.h"
 #include "openbc/ship_data.h"
 #include "openbc/ship_state.h"
 #include "openbc/ship_power.h"
@@ -330,11 +331,21 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
         shooter->kills++;
         target->deaths++;
 
+        i32 killer_player_id = bc_player_id_from_peer_slot(shooter_slot);
+        i32 victim_player_id = bc_player_id_from_peer_slot(target_slot);
+        if (!bc_is_valid_player_id(killer_player_id) ||
+            !bc_is_valid_player_id(victim_player_id)) {
+            LOG_WARN("combat", "Invalid ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
+                     shooter_slot, (int)killer_player_id,
+                     target_slot, (int)victim_player_id);
+            return;
+        }
+
         u8 sc[64];
         int slen = bc_build_score_change(sc, sizeof(sc),
-                                          shooter->ship.object_id,
+                                          killer_player_id,
                                           shooter->kills, shooter->score,
-                                          target->ship.object_id,
+                                          victim_player_id,
                                           target->deaths,
                                           NULL, 0);
         if (slen > 0) bc_send_to_all(sc, slen, true);
@@ -427,11 +438,21 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
         shooter->kills++;
         target->deaths++;
 
+        i32 killer_player_id = bc_player_id_from_peer_slot(shooter_slot);
+        i32 victim_player_id = bc_player_id_from_peer_slot(target_slot);
+        if (!bc_is_valid_player_id(killer_player_id) ||
+            !bc_is_valid_player_id(victim_player_id)) {
+            LOG_WARN("combat", "Invalid ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
+                     shooter_slot, (int)killer_player_id,
+                     target_slot, (int)victim_player_id);
+            return;
+        }
+
         u8 sc[64];
         int slen = bc_build_score_change(sc, sizeof(sc),
-                                          shooter->ship.object_id,
+                                          killer_player_id,
                                           shooter->kills, shooter->score,
-                                          target->ship.object_id,
+                                          victim_player_id,
                                           target->deaths,
                                           NULL, 0);
         if (slen > 0) bc_send_to_all(sc, slen, true);
@@ -1067,12 +1088,21 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             k->score++;
                             k->kills++;
                             target->deaths++;
+                            i32 killer_player_id = bc_player_id_from_peer_slot(killer);
+                            i32 victim_player_id = bc_player_id_from_peer_slot(target_slot);
+                            if (!bc_is_valid_player_id(killer_player_id) ||
+                                !bc_is_valid_player_id(victim_player_id)) {
+                                LOG_WARN("combat", "Invalid collision ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
+                                         killer, (int)killer_player_id,
+                                         target_slot, (int)victim_player_id);
+                                break;
+                            }
                             u8 sc[64];
                             int slen = bc_build_score_change(
                                 sc, sizeof(sc),
-                                k->ship.object_id,
+                                killer_player_id,
                                 k->kills, k->score,
-                                target->ship.object_id,
+                                victim_player_id,
                                 target->deaths, NULL, 0);
                             if (slen > 0)
                                 bc_send_to_all(sc, slen, true);
@@ -1194,12 +1224,23 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 k->score++;
                                 k->kills++;
                                 source->deaths++;
+                                i32 killer_player_id =
+                                    bc_player_id_from_peer_slot(target_slot);
+                                i32 victim_player_id =
+                                    bc_player_id_from_peer_slot(src_slot);
+                                if (!bc_is_valid_player_id(killer_player_id) ||
+                                    !bc_is_valid_player_id(victim_player_id)) {
+                                    LOG_WARN("combat", "Invalid collision ScoreChange IDs (killer slot=%d -> %d, victim slot=%d -> %d)",
+                                             target_slot, (int)killer_player_id,
+                                             src_slot, (int)victim_player_id);
+                                    break;
+                                }
                                 u8 sc2[64];
                                 int slen2 = bc_build_score_change(
                                     sc2, sizeof(sc2),
-                                    k->ship.object_id,
+                                    killer_player_id,
                                     k->kills, k->score,
-                                    source->ship.object_id,
+                                    victim_player_id,
                                     source->deaths, NULL, 0);
                                 if (slen2 > 0)
                                     bc_send_to_all(sc2, slen2, true);
