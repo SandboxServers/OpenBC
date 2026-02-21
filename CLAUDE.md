@@ -78,7 +78,7 @@ Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002
 - **Phase B: Protocol Library** -- AlbyRules cipher, TGBufferStream codec, compressed type encoders ✓
 - **Phase C: Lobby Server** -- UDP socket, peer management, checksum validation via manifests, settings delivery, chat relay, GameSpy LAN + master server ✓
 - **Phase D: Relay Server** -- StateUpdate parsing/relay, weapon fire relay, object creation/destruction, ship data registry ✓
-- **Phase E: Simulation Server** -- Ship data registry, movement, combat simulation (cloaking, tractor, repair); server-authoritative physics not yet wired to live clients (in progress)
+- **Phase E: Simulation Server** -- Ship data registry, movement, combat simulation (cloaking, tractor, repair), dynamic AI battle, hierarchical subsystem health, power simulation ✓
 
 ## Project Layout
 
@@ -151,6 +151,39 @@ All critical protocol knowledge is documented in the clean room docs. Key verifi
 - **Script messages**: MAX_MESSAGE_TYPES = 0x2B; CHAT=0x2C, TEAM_CHAT=0x2D, MISSION_INIT=0x35, SCORE_CHANGE=0x36, SCORE=0x37, END_GAME=0x38, RESTART=0x39
 - **Ship creation**: ObjectCreateTeam (0x03), destruction: DestroyObject (0x14)
 - **Handshake**: connect -> GameSpy peek -> 4 checksum rounds -> Settings (0x00) -> GameInit (0x01) -> EnterSet (0x1F) -> NewPlayerInGame (0x2A)
+- **AlbyRules cipher**: Stream cipher with PRNG-derived keystream + plaintext feedback. Byte 0 (direction flag) is NEVER encrypted. Per-packet reset. PRNG: LCG cross-multiplication (mult=0x4E35, add=0x15A), 5 rounds per key schedule. API: `alby_cipher_encrypt()` / `alby_cipher_decrypt()`
+- **CF16 codec**: encode uses `(value - lo) / (hi - lo) * 4096`; decode uses `lo + (mantissa / 4095.0f) * (hi - lo)`. The 4096/4095 asymmetry is intentional.
+- **Connect handshake**: Server responds to Connect(0x03) with Connect(0x03), NOT ConnectAck(0x05). Format: `[0x03][0x06][0xC0][0x00][0x00][slot]`. ConnectAck(0x05) means disconnect/shutdown only.
+- **Player slots**: BC_MAX_PLAYERS=7 (slot 0=Dedicated Server, slots 1-6=humans). Wire slot = array index + 1. Direction byte = wire slot. All loops skip slot 0. GameSpy numplayers = count - 1.
+- **NewPlayerInGame (0x2A)**: 2 bytes `[0x2A][0x20]` (trailing space, not a length byte)
+- **Transport type 0x32**: Dual-use -- reliable (flags & 0x80, 5-byte header) AND unreliable (flags==0x00, 3-byte header). Parser must bifurcate; only ACK reliable messages.
+- **Checksum file tree format**: `[file_count:u16][files…][subdir_count:u8][all_name_hashes…][all_trees…]`. subdir_count is u8 (NOT u16), names-first-then-trees (NOT interleaved). Always present even when zero. dir_hash uses leaf directory name only (no trailing separator).
+- **GameSpy**: gamename="bcommander", secret key="Nm3aZ9", LAN query port=6500, master heartbeat port=27900. Server listens on two sockets (game port + query port).
+- **Reliable sequencing**: internal counter increments by 1; wire format `[seqHi=counter][seqLo=0]` → wire value increments by 256. ACK byte = seqHi.
+- **UDP batching**: One UDP packet can contain multiple transport messages. Consumers must iterate all (see `cached_pkt` pattern in `tests/test_harness.h`).
+
+## Implementation Gotchas
+
+Hard-won bugs — do not repeat:
+
+- **GCC -O2 dead-store elimination**: `i686-w64-mingw32-gcc -O2` silently drops `memcpy`/field-stores into structs after `memset()`. In `bc_peers_add()` this wiped the peer address. Fix: use a `volatile u8 *dst` byte-copy loop. Adding new fields to `bc_peer_t` can re-trigger this.
+- **Win32 stack probing crash**: Large local arrays in functions that call into functions with large struct locals (e.g. `bc_checksum_resp_t` ~10KB) can skip the 4KB guard page → silent crash (exit code 5, no output). MinGW lacks `__chkstk`. Fix: avoid large stack arrays; write directly into output structs.
+- **Type 0x00 keepalive**: The keepalive handler must only `continue` during player-name extraction, not for all type 0x00 messages — other 0x00 subtypes still need processing.
+- **Never delete build/ log files**: The user stores server session logs in `build/` (e.g. `build/openbc-*.log`). Do NOT run `make clean` or `rm -rf build/` without explicit confirmation.
+
+## Key Source Files
+
+- Server entry: `src/server/main.c`
+- Protocol codec/cipher: `src/protocol/{cipher,buffer,opcodes,handshake}.c`
+- Game events & builders: `src/protocol/{game_events,game_builders}.c`
+- Network: `src/network/{net,peer,transport,reliable,gamespy,master}.c`
+- Client transport (test harness side): `src/network/client_transport.c`
+- Checksum: `src/checksum/{string_hash,file_hash,hash_tables,manifest}.c`
+- Game systems: `src/game/{ship_data,ship_state,movement,combat}.c`
+- Logging: `src/server/log.c`
+- Test harness helpers: `tests/test_util.h` (unit), `tests/test_harness.h` (integration)
+- Ship/projectile data: `data/vanilla-1.1.json`
+- Data scraper: `tools/scrape_bc.py`
 
 ## Legal Basis
 
