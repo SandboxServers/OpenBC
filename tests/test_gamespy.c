@@ -371,7 +371,7 @@ TEST(build_validate_deterministic)
 
 #define GS_PORT      29877
 #define GS_TIMEOUT   2000  /* ms */
-#define MANIFEST_PATH "tests\\fixtures\\manifest.json"
+#define MANIFEST_PATH "tests/fixtures/manifest.json"
 
 TEST(server_responds_to_lan_query)
 {
@@ -537,6 +537,7 @@ static bool start_server_with_master(bc_test_server_t *srv, u16 game_port,
     memset(srv, 0, sizeof(*srv));
     srv->port = game_port;
 
+#ifdef _WIN32
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "build\\openbc-server.exe --manifest %s -v --log-file server_test.log "
@@ -556,6 +557,32 @@ static bool start_server_with_master(bc_test_server_t *srv, u16 game_port,
 
     srv->running = true;
     test_server_registry_add(srv->pi.hProcess);
+#else
+    char arg_master[64];
+    char arg_port[32];
+    snprintf(arg_master, sizeof(arg_master), "127.0.0.1:%u", master_port);
+    snprintf(arg_port,   sizeof(arg_port),   "%u", game_port);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "  HARNESS: fork() failed\n");
+        return false;
+    }
+    if (pid == 0) {
+        execl("build/openbc-server", "build/openbc-server",
+              "--manifest", manifest,
+              "-v",
+              "--log-file", "server_test.log",
+              "--master", arg_master,
+              "-p", arg_port,
+              (char *)NULL);
+        _exit(1);
+    }
+
+    srv->pid = pid;
+    srv->running = true;
+    test_server_registry_add(srv->pid);
+#endif
     return true;
 }
 

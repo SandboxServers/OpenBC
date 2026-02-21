@@ -22,10 +22,17 @@
 #include "openbc/game_builders.h"
 #include "openbc/log.h"
 
-#include <windows.h>  /* For Sleep(), GetTickCount() */
+#ifdef _WIN32
+#  include <windows.h>  /* For Sleep(), GetTickCount() */
+#else
+#  include <unistd.h>   /* For usleep() */
+#  include <time.h>     /* For time(), localtime() */
+#  include <dirent.h>   /* For opendir(), readdir() */
+#endif
 
 /* --- Signal handler --- */
 
+#ifdef _WIN32
 static BOOL WINAPI console_handler(DWORD type)
 {
     switch (type) {
@@ -47,6 +54,13 @@ static BOOL WINAPI console_handler(DWORD type)
         return FALSE;
     }
 }
+#else
+static void posix_signal_handler(int sig)
+{
+    (void)sig;
+    g_running = false;
+}
+#endif
 
 /* --- Main --- */
 
@@ -170,13 +184,22 @@ int main(int argc, char **argv)
     /* Generate default log file name if none specified and not disabled.
      * Format: openbc-YYYYMMDD-HHMMSS.log (one file per session). */
     if (!log_file_path && !no_log_file) {
+        static char default_log[64];
+#ifdef _WIN32
         SYSTEMTIME st;
         GetLocalTime(&st);
-        static char default_log[64];
         snprintf(default_log, sizeof(default_log),
                  "openbc-%04d%02d%02d-%02d%02d%02d.log",
                  st.wYear, st.wMonth, st.wDay,
                  st.wHour, st.wMinute, st.wSecond);
+#else
+        time_t now_t = time(NULL);
+        struct tm *tm_info = localtime(&now_t);
+        snprintf(default_log, sizeof(default_log),
+                 "openbc-%04d%02d%02d-%02d%02d%02d.log",
+                 tm_info->tm_year + 1900, tm_info->tm_mon + 1, tm_info->tm_mday,
+                 tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
+#endif
         log_file_path = default_log;
     }
 
@@ -185,17 +208,18 @@ int main(int argc, char **argv)
 
     /* Initialize session stats */
     memset(&g_stats, 0, sizeof(g_stats));
-    g_stats.start_time = GetTickCount();
+    g_stats.start_time = bc_ms_now();
 
     /* Load manifest.
      * If --manifest was given, use that path.  Otherwise, scan manifests/
      * for .json files -- if exactly one exists, auto-load it. */
     if (!manifest_path) {
+        static char auto_path[512];
+        int json_count = 0;
+#ifdef _WIN32
         WIN32_FIND_DATAA fd;
         HANDLE hFind = FindFirstFileA("manifests\\*.json", &fd);
         if (hFind != INVALID_HANDLE_VALUE) {
-            static char auto_path[MAX_PATH];
-            int json_count = 0;
             do {
                 if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
                     if (json_count == 0)
@@ -205,11 +229,27 @@ int main(int argc, char **argv)
                 }
             } while (FindNextFileA(hFind, &fd));
             FindClose(hFind);
-
-            if (json_count == 1) {
-                manifest_path = auto_path;
-                LOG_INFO("init", "Auto-detected manifest: %s", manifest_path);
+        }
+#else
+        DIR *mdir = opendir("manifests");
+        if (mdir) {
+            struct dirent *ment;
+            while ((ment = readdir(mdir)) != NULL) {
+                const char *n = ment->d_name;
+                size_t nlen = strlen(n);
+                if (nlen > 5 && strcmp(n + nlen - 5, ".json") == 0) {
+                    if (json_count == 0)
+                        snprintf(auto_path, sizeof(auto_path),
+                                 "manifests/%s", n);
+                    json_count++;
+                }
             }
+            closedir(mdir);
+        }
+#endif
+        if (json_count == 1) {
+            manifest_path = auto_path;
+            LOG_INFO("init", "Auto-detected manifest: %s", manifest_path);
         }
     }
 
@@ -236,11 +276,12 @@ int main(int argc, char **argv)
     memset(&g_registry, 0, sizeof(g_registry));
     bc_torpedo_mgr_init(&g_torpedoes);
     if (!data_path) {
+        static char auto_data[512];
+        int data_count = 0;
+#ifdef _WIN32
         WIN32_FIND_DATAA dfd;
         HANDLE dFind = FindFirstFileA("data\\*.json", &dfd);
         if (dFind != INVALID_HANDLE_VALUE) {
-            static char auto_data[MAX_PATH];
-            int data_count = 0;
             do {
                 if (!(dfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
                     if (data_count == 0)
@@ -250,11 +291,27 @@ int main(int argc, char **argv)
                 }
             } while (FindNextFileA(dFind, &dfd));
             FindClose(dFind);
-
-            if (data_count == 1) {
-                data_path = auto_data;
-                LOG_INFO("init", "Auto-detected data registry: %s", data_path);
+        }
+#else
+        DIR *ddir = opendir("data");
+        if (ddir) {
+            struct dirent *dent;
+            while ((dent = readdir(ddir)) != NULL) {
+                const char *n = dent->d_name;
+                size_t nlen = strlen(n);
+                if (nlen > 5 && strcmp(n + nlen - 5, ".json") == 0) {
+                    if (data_count == 0)
+                        snprintf(auto_data, sizeof(auto_data),
+                                 "data/%s", n);
+                    data_count++;
+                }
             }
+            closedir(ddir);
+        }
+#endif
+        if (data_count == 1) {
+            data_path = auto_data;
+            LOG_INFO("init", "Auto-detected data registry: %s", data_path);
         }
     }
     if (data_path) {
@@ -351,11 +408,17 @@ int main(int argc, char **argv)
             bc_master_probe(&g_masters, &g_socket, &g_info);
     }
 
+#ifdef _WIN32
     /* Create shutdown synchronization event (manual reset, initially unsignaled) */
     g_shutdown_done = CreateEvent(NULL, TRUE, FALSE, NULL);
 
     /* Register CTRL+C handler */
     SetConsoleCtrlHandler(console_handler, TRUE);
+#else
+    /* Register POSIX signal handlers */
+    signal(SIGINT,  posix_signal_handler);
+    signal(SIGTERM, posix_signal_handler);
+#endif
 
     /* Startup banner (raw printf, not a log message) */
     printf("OpenBC Server v0.1.0\n");
@@ -409,7 +472,7 @@ int main(int argc, char **argv)
      * 30 Hz is more than sufficient: network sends StateUpdates at ~10 Hz
      * and most game timers fire at 1-second intervals. */
     u8 recv_buf[2048];
-    u32 last_tick = GetTickCount();
+    u32 last_tick = bc_ms_now();
     u32 tick_counter = 0;
 
     while (g_running) {
@@ -437,7 +500,7 @@ int main(int argc, char **argv)
         }
 
         /* Tick at ~33ms intervals (~30 Hz) */
-        u32 now = GetTickCount();
+        u32 now = bc_ms_now();
         if (now - last_tick >= 33) {
             /* Advance game clock */
             g_game_time += (f32)(now - last_tick) / 1000.0f;
@@ -680,7 +743,11 @@ int main(int argc, char **argv)
         }
 
         /* Don't burn CPU -- sleep 1ms between polls */
+#ifdef _WIN32
         Sleep(1);
+#else
+        usleep(1000);
+#endif
     }
 
     LOG_INFO("shutdown", "Shutting down...");
@@ -731,14 +798,18 @@ int main(int argc, char **argv)
     /* Release Winsock */
     bc_net_shutdown();
 
+#ifdef _WIN32
     /* Unregister console handler */
     SetConsoleCtrlHandler(console_handler, FALSE);
+#endif
 
     LOG_INFO("shutdown", "Server stopped.");
     bc_log_shutdown();
 
+#ifdef _WIN32
     /* Signal console handler that cleanup is done (unblocks CTRL_CLOSE_EVENT) */
     SetEvent(g_shutdown_done);
     CloseHandle(g_shutdown_done);
+#endif
     return 0;
 }

@@ -10,7 +10,9 @@
 #include "openbc/torpedo_tracker.h"
 #include "openbc/gamespy.h"
 
-#include <windows.h>
+#ifdef _WIN32
+#  include <windows.h>
+#endif
 
 /* --- Session statistics types --- */
 
@@ -48,7 +50,9 @@ typedef struct {
 
 extern bc_session_stats_t  g_stats;
 extern volatile bool       g_running;
+#ifdef _WIN32
 extern HANDLE              g_shutdown_done;
+#endif
 
 extern bc_socket_t         g_socket;
 extern bc_socket_t         g_query_socket;

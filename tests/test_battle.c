@@ -83,8 +83,8 @@ static int g_assertions = 0;
 
 #define BATTLE_PORT      29876
 #define TIMEOUT          1000  /* ms */
-#define MANIFEST_PATH    "tests\\fixtures\\manifest.json"
-#define GAME_DIR         "tests\\fixtures\\"
+#define MANIFEST_PATH    "tests/fixtures/manifest.json"
+#define GAME_DIR         "tests/fixtures/"
 
 /* Assertion helper that counts */
 #define BATTLE_ASSERT(cond) do { \

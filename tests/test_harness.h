@@ -8,7 +8,7 @@
  * and provides send/recv/assert helpers for protocol-level testing.
  *
  * Design:
- *   - Server as subprocess: CreateProcess("build\\openbc-server.exe", ...)
+ *   - Server as subprocess: CreateProcess on Windows, fork/exec on POSIX
  *   - Real UDP, real AlbyRules cipher, real transport framing
  *   - Probe-based startup: GameSpy query loop until server responds
  *   - Real checksum validation: manifest + directory scanning
@@ -19,7 +19,17 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <windows.h>
+#ifdef _WIN32
+#  include <windows.h>
+#else
+#  include <unistd.h>
+#  include <signal.h>
+#  include <sys/wait.h>
+#  include <arpa/inet.h>   /* htonl, htons */
+/* POSIX shims so test .c files can call Sleep(ms) and GetTickCount() */
+#  define Sleep(ms)      usleep((unsigned)((ms) * 1000u))
+#  define GetTickCount() bc_ms_now()
+#endif
 
 #include "openbc/types.h"
 #include "openbc/net.h"
@@ -29,25 +39,35 @@
 #include "openbc/client_transport.h"
 #include "openbc/checksum.h"
 #include "openbc/buffer.h"
+#include "openbc/log.h"  /* bc_ms_now() */
 
 /* --- Server process registry + atexit cleanup --- */
 
 #define TEST_MAX_SERVERS 4
 
 typedef struct {
+#ifdef _WIN32
     PROCESS_INFORMATION pi;
+#else
+    pid_t pid;
+#endif
     u16 port;
     bool running;
 } bc_test_server_t;
 
 /* Global registry of spawned server handles for atexit cleanup */
+#ifdef _WIN32
 static HANDLE g_server_handles[TEST_MAX_SERVERS];
+#else
+static pid_t  g_server_pids[TEST_MAX_SERVERS];
+#endif
 static int    g_server_count = 0;
 static bool   g_atexit_registered = false;
 
 /* Kill all tracked servers -- called via atexit on early exit / crash */
 static void test_kill_all_servers(void)
 {
+#ifdef _WIN32
     for (int i = 0; i < g_server_count; i++) {
         if (g_server_handles[i] != NULL) {
             DWORD code = 0;
@@ -60,10 +80,20 @@ static void test_kill_all_servers(void)
             g_server_handles[i] = NULL;
         }
     }
+#else
+    for (int i = 0; i < g_server_count; i++) {
+        if (g_server_pids[i] > 0) {
+            kill(g_server_pids[i], SIGTERM);
+            waitpid(g_server_pids[i], NULL, 0);
+            g_server_pids[i] = -1;
+        }
+    }
+#endif
     g_server_count = 0;
 }
 
-/* Track a server handle in the global registry */
+/* Track a server handle/pid in the global registry */
+#ifdef _WIN32
 static void test_server_registry_add(HANDLE h)
 {
     if (!g_atexit_registered) {
@@ -73,8 +103,6 @@ static void test_server_registry_add(HANDLE h)
     if (g_server_count < TEST_MAX_SERVERS)
         g_server_handles[g_server_count++] = h;
 }
-
-/* Remove a server handle from the global registry */
 static void test_server_registry_remove(HANDLE h)
 {
     for (int i = 0; i < g_server_count; i++) {
@@ -84,6 +112,26 @@ static void test_server_registry_remove(HANDLE h)
         }
     }
 }
+#else
+static void test_server_registry_add(pid_t pid)
+{
+    if (!g_atexit_registered) {
+        atexit(test_kill_all_servers);
+        g_atexit_registered = true;
+    }
+    if (g_server_count < TEST_MAX_SERVERS)
+        g_server_pids[g_server_count++] = pid;
+}
+static void test_server_registry_remove(pid_t pid)
+{
+    for (int i = 0; i < g_server_count; i++) {
+        if (g_server_pids[i] == pid) {
+            g_server_pids[i] = -1;
+            break;
+        }
+    }
+}
+#endif
 
 /* Forward declarations */
 static void test_server_stop(bc_test_server_t *srv);
@@ -95,6 +143,7 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
     memset(srv, 0, sizeof(*srv));
     srv->port = port;
 
+#ifdef _WIN32
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "build\\openbc-server.exe --manifest %s -vv --log-file server_test_%u.log"
@@ -114,6 +163,42 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
 
     srv->running = true;
     test_server_registry_add(srv->pi.hProcess);
+#else
+    char arg_logfile[256];
+    char arg_port[32];
+    snprintf(arg_logfile, sizeof(arg_logfile), "server_test_%u.log", port);
+    snprintf(arg_port, sizeof(arg_port), "%u", port);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "  HARNESS: fork() failed\n");
+        return false;
+    }
+    if (pid == 0) {
+        /* Child: exec the server */
+        if (manifest_path) {
+            execl("build/openbc-server", "build/openbc-server",
+                  "--manifest", manifest_path,
+                  "-vv",
+                  "--log-file", arg_logfile,
+                  "--no-master",
+                  "-p", arg_port,
+                  (char *)NULL);
+        } else {
+            execl("build/openbc-server", "build/openbc-server",
+                  "-vv",
+                  "--log-file", arg_logfile,
+                  "--no-master",
+                  "-p", arg_port,
+                  (char *)NULL);
+        }
+        _exit(1);
+    }
+
+    srv->pid = pid;
+    srv->running = true;
+    test_server_registry_add(srv->pid);
+#endif
 
     /* Probe until server responds */
     bc_socket_t probe;
@@ -130,7 +215,11 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
     bool ready = false;
     for (int attempt = 0; attempt < 30; attempt++) {
         bc_socket_send(&probe, &srv_addr, query, sizeof(query) - 1);
+#ifdef _WIN32
         Sleep(100);
+#else
+        usleep(100000);
+#endif
         int got = bc_socket_recv(&probe, &from, resp, sizeof(resp));
         if (got > 0) { ready = true; break; }
     }
@@ -148,6 +237,7 @@ static void test_server_stop(bc_test_server_t *srv)
 {
     if (!srv->running) return;
 
+#ifdef _WIN32
     test_server_registry_remove(srv->pi.hProcess);
 
     DWORD code = 0;
@@ -160,6 +250,15 @@ static void test_server_stop(bc_test_server_t *srv)
     CloseHandle(srv->pi.hThread);
     srv->pi.hProcess = NULL;
     srv->pi.hThread = NULL;
+#else
+    test_server_registry_remove(srv->pid);
+
+    if (srv->pid > 0) {
+        kill(srv->pid, SIGTERM);
+        waitpid(srv->pid, NULL, 0);
+        srv->pid = -1;
+    }
+#endif
     srv->running = false;
 }
 
@@ -191,17 +290,21 @@ static void tc_send_raw(bc_test_client_t *c, u8 *pkt, int len)
 /* Internal: receive and decrypt a packet. Returns length, 0 if none. */
 static int tc_recv_raw(bc_test_client_t *c, int timeout_ms)
 {
-    u32 start = GetTickCount();
+    u32 start = bc_ms_now();
     bc_addr_t from;
 
-    while ((int)(GetTickCount() - start) < timeout_ms) {
+    while ((int)(bc_ms_now() - start) < timeout_ms) {
         int got = bc_socket_recv(&c->sock, &from, c->recv_buf, sizeof(c->recv_buf));
         if (got > 0) {
             alby_cipher_decrypt(c->recv_buf, (size_t)got);
             c->recv_len = got;
             return got;
         }
+#ifdef _WIN32
         Sleep(1);
+#else
+        usleep(1000);
+#endif
     }
     return 0;
 }
@@ -318,8 +421,8 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
              * packets (keepalives, retransmit ACKs) between rounds. */
             msg = NULL;
             int dbg_pkts = 0, dbg_parse_fail = 0, dbg_no_reliable = 0;
-            u32 round_start = GetTickCount();
-            while ((int)(GetTickCount() - round_start) < 2000) {
+            u32 round_start = bc_ms_now();
+            while ((int)(bc_ms_now() - round_start) < 2000) {
                 int got = tc_recv_raw(c, 200);
                 if (got <= 0) continue;
                 dbg_pkts++;
@@ -393,11 +496,11 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
 
     /* 5. Drain 0x28 + Settings + GameInit, then send NewPlayerInGame,
      *    then receive MissionInit. */
-    u32 drain_start = GetTickCount();
+    u32 drain_start = bc_ms_now();
     bool got_settings = false;
     bool got_gameinit = false;
 
-    while ((int)(GetTickCount() - drain_start) < 3000) {
+    while ((int)(bc_ms_now() - drain_start) < 3000) {
         if (tc_recv_raw(c, 200) <= 0) {
             if (got_settings && got_gameinit) break;
             continue;
@@ -436,8 +539,8 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
 
     /* 7. Wait for MissionInit (0x35) response */
     bool got_mission = false;
-    u32 mi_start = GetTickCount();
-    while ((int)(GetTickCount() - mi_start) < 2000) {
+    u32 mi_start = bc_ms_now();
+    while ((int)(bc_ms_now() - mi_start) < 2000) {
         if (tc_recv_raw(c, 200) <= 0) continue;
 
         bc_packet_t parsed;
@@ -528,10 +631,10 @@ static const u8 *test_client_recv_msg(bc_test_client_t *c, int *out_len,
         if (result) return result;
     }
 
-    u32 start = GetTickCount();
+    u32 start = bc_ms_now();
 
-    while ((int)(GetTickCount() - start) < timeout_ms) {
-        int remaining = timeout_ms - (int)(GetTickCount() - start);
+    while ((int)(bc_ms_now() - start) < timeout_ms) {
+        int remaining = timeout_ms - (int)(bc_ms_now() - start);
         if (remaining <= 0) break;
 
         if (tc_recv_raw(c, remaining) <= 0)
@@ -555,8 +658,8 @@ static void test_client_drain(bc_test_client_t *c, int timeout_ms)
 {
     c->has_cached = false;
 
-    u32 start = GetTickCount();
-    while ((int)(GetTickCount() - start) < timeout_ms) {
+    u32 start = bc_ms_now();
+    while ((int)(bc_ms_now() - start) < timeout_ms) {
         if (tc_recv_raw(c, 50) <= 0) continue;
 
         bc_packet_t parsed;
@@ -577,10 +680,10 @@ static void test_client_drain(bc_test_client_t *c, int timeout_ms)
 static const u8 *test_client_expect_opcode(bc_test_client_t *c, u8 opcode,
                                              int *out_len, int timeout_ms)
 {
-    u32 start = GetTickCount();
+    u32 start = bc_ms_now();
 
-    while ((int)(GetTickCount() - start) < timeout_ms) {
-        int remaining = timeout_ms - (int)(GetTickCount() - start);
+    while ((int)(bc_ms_now() - start) < timeout_ms) {
+        int remaining = timeout_ms - (int)(bc_ms_now() - start);
         if (remaining <= 0) break;
 
         int msg_len = 0;

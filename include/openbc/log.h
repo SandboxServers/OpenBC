@@ -42,4 +42,8 @@ void bc_log(bc_log_level_t level, const char *tag, const char *fmt, ...);
  * label: "RECV" or "SEND". slot: peer slot (-1 if unknown). */
 void bc_log_packet_trace(const bc_packet_t *pkt, int slot, const char *label);
 
+/* Monotonic millisecond clock (used for timeouts and retransmit timers).
+ * Wraps GetTickCount() on Windows, clock_gettime(CLOCK_MONOTONIC) on POSIX. */
+u32 bc_ms_now(void);
+
 #endif /* OPENBC_LOG_H */

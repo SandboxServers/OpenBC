@@ -194,7 +194,7 @@ TEST(scan_directory_round0)
 {
     /* Scan test fixtures for round 0: scripts/, App.pyc, non-recursive */
     bc_client_dir_scan_t scan;
-    ASSERT(bc_client_scan_directory("tests\\fixtures\\", "scripts/",
+    ASSERT(bc_client_scan_directory("tests/fixtures/", "scripts/",
                                      "App.pyc", false, &scan));
     ASSERT_EQ(scan.file_count, 1);
     ASSERT_EQ(scan.files[0].name_hash, string_hash("App.pyc"));
@@ -205,7 +205,7 @@ TEST(scan_directory_round2_recursive)
 {
     /* Scan test fixtures for round 2: scripts/ships/, *.pyc, recursive */
     bc_client_dir_scan_t scan;
-    ASSERT(bc_client_scan_directory("tests\\fixtures\\", "scripts/ships/",
+    ASSERT(bc_client_scan_directory("tests/fixtures/", "scripts/ships/",
                                      "*.pyc", true, &scan));
     ASSERT_EQ(scan.file_count, 1);  /* Galaxy.pyc */
     ASSERT_EQ(scan.files[0].name_hash, string_hash("Galaxy.pyc"));
@@ -218,7 +218,7 @@ TEST(scan_and_build_roundtrip)
 {
     /* Full roundtrip: scan directory -> build response -> parse -> validate */
     bc_client_dir_scan_t scan;
-    ASSERT(bc_client_scan_directory("tests\\fixtures\\", "scripts/",
+    ASSERT(bc_client_scan_directory("tests/fixtures/", "scripts/",
                                      "App.pyc", false, &scan));
     ASSERT_EQ(scan.file_count, 1);
 
@@ -242,7 +242,7 @@ TEST(scan_and_build_roundtrip)
     ASSERT_EQ(resp.files[0].name_hash, string_hash("App.pyc"));
     /* Content hash should be a real FileHash of the fixture file */
     bool ok;
-    u32 expected = file_hash_from_path("tests\\fixtures\\scripts\\App.pyc", &ok);
+    u32 expected = file_hash_from_path("tests/fixtures/scripts/App.pyc", &ok);
     ASSERT(ok);
     ASSERT_EQ(resp.files[0].content_hash, expected);
 }

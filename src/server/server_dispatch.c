@@ -23,7 +23,9 @@
 #include <string.h>
 #include <math.h>
 
-#include <windows.h>
+#ifdef _WIN32
+#  include <windows.h>
+#endif
 
 /* --- GameSpy query handler --- */
 
@@ -1108,7 +1110,7 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
     /* Update peer timestamp if known */
     int slot = bc_peers_find(&g_peers, from);
     if (slot >= 0) {
-        g_peers.peers[slot].last_recv_time = GetTickCount();
+        g_peers.peers[slot].last_recv_time = bc_ms_now();
     }
 
     /* Decrypt (byte 0 = direction flag, skipped by cipher) */

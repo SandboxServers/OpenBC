@@ -5,11 +5,26 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include <windows.h>  /* For GetTickCount() */
+#ifdef _WIN32
+#  include <windows.h>
+#else
+#  include <time.h>
+#endif
 
 static bc_log_level_t g_log_level = LOG_INFO;
 static FILE          *g_log_file  = NULL;
 static u32            g_start_time = 0;
+
+u32 bc_ms_now(void)
+{
+#ifdef _WIN32
+    return GetTickCount();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (u32)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+#endif
+}
 
 static const char *level_names[] = {
     "QUIET", "ERROR", "WARN ", "INFO ", "DEBUG", "TRACE"
@@ -18,7 +33,7 @@ static const char *level_names[] = {
 void bc_log_init(bc_log_level_t level, const char *log_file_path)
 {
     g_log_level  = level;
-    g_start_time = GetTickCount();
+    g_start_time = bc_ms_now();
 
     if (log_file_path) {
         g_log_file = fopen(log_file_path, "w");
@@ -42,7 +57,7 @@ void bc_log(bc_log_level_t level, const char *tag, const char *fmt, ...)
 {
     if (level > g_log_level || level == LOG_QUIET) return;
 
-    u32 elapsed = GetTickCount() - g_start_time;
+    u32 elapsed = bc_ms_now() - g_start_time;
     u32 ms  = elapsed % 1000;
     u32 sec = (elapsed / 1000) % 60;
     u32 min = (elapsed / 60000) % 60;

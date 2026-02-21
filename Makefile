@@ -1,13 +1,26 @@
 # OpenBC Makefile
-# Cross-compiles from WSL2 to Win32 using mingw.
-# WSL2 runs Windows .exe natively, so tests work directly.
+# Supports native Linux/macOS builds and cross-compile to Win32 via MinGW.
+# Cross-compile:  make PLATFORM=Windows
+# Native:         make  (or make PLATFORM=Linux / make PLATFORM=Darwin)
 
-CC       := i686-w64-mingw32-gcc
-CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2
+PLATFORM ?= $(shell uname -s 2>/dev/null || echo Windows)
+
+ifeq ($(PLATFORM),Windows)
+    CC       := i686-w64-mingw32-gcc
+    EXE      := .exe
+    NET_LIBS := -lws2_32
+    POSIX_DEFS :=
+else
+    CC       := cc
+    EXE      :=
+    NET_LIBS :=
+    # Expose POSIX.1-2008 + BSD extensions (getaddrinfo, usleep, opendir, DT_*)
+    POSIX_DEFS := -D_DEFAULT_SOURCE
+endif
+
+CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2 $(POSIX_DEFS)
 LDFLAGS  :=
 LDLIBS   := -lm
-NET_LIBS := -lws2_32
-EXE      := .exe
 
 # Build directory
 BUILD    := build

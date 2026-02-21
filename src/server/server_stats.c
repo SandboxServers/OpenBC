@@ -5,7 +5,9 @@
 
 #include <stdio.h>
 
-#include <windows.h>
+#ifdef _WIN32
+#  include <windows.h>
+#endif
 
 /* Format a millisecond duration as "Xh Ym Zs" into buf. */
 static void format_duration(u32 ms, char *buf, int bufsize)
@@ -34,7 +36,7 @@ static void format_time_offset(u32 offset_ms, char *buf, int bufsize)
 
 void bc_log_session_summary(void)
 {
-    u32 now = GetTickCount();
+    u32 now = bc_ms_now();
     u32 elapsed = now - g_stats.start_time;
     char dur[32];
     format_duration(elapsed, dur, sizeof(dur));

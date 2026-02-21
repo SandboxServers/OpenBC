@@ -7,7 +7,9 @@ bc_session_stats_t g_stats;
 /* --- Server state --- */
 
 volatile bool g_running = true;
+#ifdef _WIN32
 HANDLE g_shutdown_done;  /* Signaled after main thread completes cleanup */
+#endif
 
 bc_socket_t    g_socket;       /* Game port (default 22101) */
 bc_socket_t    g_query_socket; /* LAN query port (6500) */
