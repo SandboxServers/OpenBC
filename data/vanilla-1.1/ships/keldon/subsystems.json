@@ -1,0 +1,401 @@
+[
+  {
+    "name": "Forward Torpedo",
+    "type": "torpedo_tube",
+    "position": [
+      0.02,
+      1.03208,
+      -0.03
+    ],
+    "radius": 0.1,
+    "max_condition": 1800.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 3.0,
+    "reload_delay": 30.0,
+    "max_ready": 2,
+    "immediate_delay": 1.5,
+    "weapon_id": 1,
+    "dumbfire": true,
+    "direction": [
+      0.0,
+      1.0,
+      0.0
+    ]
+  },
+  {
+    "name": "Hull",
+    "type": "hull",
+    "position": [
+      0.0,
+      -0.184,
+      -0.08
+    ],
+    "radius": 0.8,
+    "max_condition": 6000.0,
+    "disabled_pct": 0.0,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Shield Generator",
+    "type": "shield",
+    "position": [
+      0.0,
+      -0.8,
+      0.4
+    ],
+    "radius": 0.3,
+    "max_condition": 9000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Sensor Array",
+    "type": "sensor",
+    "position": [
+      0.02,
+      1.06576,
+      0.34
+    ],
+    "radius": 0.15,
+    "max_condition": 5000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Warp Core",
+    "type": "power",
+    "position": [
+      0.0,
+      -0.5,
+      0.0
+    ],
+    "radius": 0.47,
+    "max_condition": 4000.0,
+    "disabled_pct": 0.5,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Impulse Engines",
+    "type": "impulse_engine",
+    "position": [
+      0.63,
+      -0.158,
+      0.02
+    ],
+    "radius": 0.15,
+    "max_condition": 2800.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 4.0
+  },
+  {
+    "name": "Warp Engine",
+    "type": "warp_engine",
+    "position": [
+      -0.63,
+      -0.158,
+      0.02
+    ],
+    "radius": 0.15,
+    "max_condition": 3000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 3.0
+  },
+  {
+    "name": "Aft Torpedo",
+    "type": "torpedo_tube",
+    "position": [
+      0.03,
+      -2.0,
+      0.33
+    ],
+    "radius": 0.15,
+    "max_condition": 1800.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 3.0,
+    "reload_delay": 30.0,
+    "max_ready": 1,
+    "immediate_delay": 1.5,
+    "weapon_id": 2,
+    "dumbfire": true,
+    "direction": [
+      0.0,
+      -1.0,
+      0.0
+    ]
+  },
+  {
+    "name": "Repair Subsystem",
+    "type": "repair",
+    "position": [
+      0.02335,
+      -2.36942,
+      -0.01
+    ],
+    "radius": 0.1,
+    "max_condition": 1000.0,
+    "disabled_pct": 0.1,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 4.0,
+    "max_repair_points": 20.0,
+    "num_repair_teams": 2
+  },
+  {
+    "name": "Forward Beam",
+    "type": "phaser",
+    "position": [
+      0.0,
+      1.02,
+      -0.001947
+    ],
+    "radius": 0.1,
+    "max_condition": 1600.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 400.0,
+    "max_charge": 8.0,
+    "min_firing_charge": 5.0,
+    "recharge_rate": 0.1,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 30.0,
+    "weapon_id": 1,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -1.134464,
+      1.134464
+    ],
+    "arc_height": [
+      -1.134464,
+      0.349066
+    ]
+  },
+  {
+    "name": "Port Beam",
+    "type": "phaser",
+    "position": [
+      -1.41,
+      -0.18,
+      0.008038
+    ],
+    "radius": 0.3,
+    "max_condition": 1600.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 200.0,
+    "max_charge": 8.0,
+    "min_firing_charge": 5.0,
+    "recharge_rate": 0.2,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 40.0,
+    "weapon_id": 2,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -3.141593,
+      -0.174533
+    ],
+    "arc_height": [
+      -0.698132,
+      1.221731
+    ]
+  },
+  {
+    "name": "Star Beam",
+    "type": "phaser",
+    "position": [
+      1.485,
+      -0.18,
+      0.008038
+    ],
+    "radius": 0.3,
+    "max_condition": 1600.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 200.0,
+    "max_charge": 8.0,
+    "min_firing_charge": 5.0,
+    "recharge_rate": 0.2,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 40.0,
+    "weapon_id": 3,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      0.174533,
+      3.141593
+    ],
+    "arc_height": [
+      -0.698132,
+      1.221731
+    ]
+  },
+  {
+    "name": "Ventral Tractor",
+    "type": "tractor_beam",
+    "position": [
+      0.0,
+      0.0,
+      -0.29
+    ],
+    "radius": 0.3,
+    "max_condition": 1000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 40.0,
+    "max_charge": 5.0,
+    "min_firing_charge": 3.0,
+    "recharge_rate": 0.3,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 80.0,
+    "weapon_id": 7,
+    "forward": [
+      0.0,
+      0.0,
+      -1.0
+    ],
+    "up": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "arc_width": [
+      -0.436332,
+      0.436332
+    ],
+    "arc_height": [
+      1.047198,
+      -1.221731
+    ],
+    "normal_power": 0.0
+  },
+  {
+    "name": "Aft Beam",
+    "type": "phaser",
+    "position": [
+      0.02,
+      -2.7,
+      0.22
+    ],
+    "radius": 0.2,
+    "max_condition": 800.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 200.0,
+    "max_charge": 8.0,
+    "min_firing_charge": 5.0,
+    "recharge_rate": 0.1,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 40.0,
+    "weapon_id": 4,
+    "forward": [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.698132,
+      0.698132
+    ],
+    "arc_height": [
+      0.087266,
+      0.610865
+    ]
+  },
+  {
+    "name": "Dorsal Tractor",
+    "type": "tractor_beam",
+    "position": [
+      0.0,
+      -1.98,
+      0.3
+    ],
+    "radius": 0.2,
+    "max_condition": 1000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 40.0,
+    "max_charge": 5.0,
+    "min_firing_charge": 3.0,
+    "recharge_rate": 0.3,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 80.0,
+    "weapon_id": 7,
+    "forward": [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.698132,
+      0.698132
+    ],
+    "arc_height": [
+      1.047198,
+      -0.034907
+    ],
+    "normal_power": 0.0
+  }
+]

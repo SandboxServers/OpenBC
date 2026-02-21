@@ -1,0 +1,36 @@
+{
+  "name": "CardHybrid",
+  "species_id": 12,
+  "faction": "Cardassian",
+  "hull_hp": 11000.0,
+  "mass": 200.0,
+  "rotational_inertia": 10000.0,
+  "max_speed": 5.4,
+  "max_accel": 1.4,
+  "max_angular_accel": 0.16,
+  "max_angular_velocity": 0.28,
+  "shield_hp": [
+    12000.0,
+    3000.0,
+    12000.0,
+    3000.0,
+    3000.0,
+    3000.0
+  ],
+  "shield_recharge": [
+    20.0,
+    10.0,
+    20.0,
+    10.0,
+    10.0,
+    10.0
+  ],
+  "can_cloak": false,
+  "has_tractor": true,
+  "torpedo_tubes": 3,
+  "phaser_banks": 7,
+  "pulse_weapons": 1,
+  "tractor_beams": 2,
+  "max_repair_points": 40.0,
+  "num_repair_teams": 3
+}

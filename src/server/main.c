@@ -29,6 +29,7 @@
 #  include <unistd.h>   /* For usleep() */
 #  include <time.h>     /* For time(), localtime() */
 #  include <dirent.h>   /* For opendir(), readdir() */
+#  include <sys/stat.h> /* For stat(), S_ISDIR() */
 #endif
 
 /* --- Signal handler --- */
@@ -83,7 +84,8 @@ static void usage(const char *prog)
         "  --no-collision     Disable collision damage\n"
         "  --friendly-fire    Enable friendly fire\n"
         "  --no-friendly-fire Disable friendly fire (default)\n"
-        "  --data <path>      Ship data registry JSON (default: data/vanilla-1.1.json)\n"
+        "  --data <path>      Ship data registry: JSON file or versioned directory\n"
+        "                     (e.g. data/vanilla-1.1.json or data/vanilla-1.1/)\n"
         "  --manifest <path>  Hash manifest JSON (e.g. manifests/vanilla-1.1.json)\n"
         "  --master <h:p>     Master server address (repeatable; replaces defaults)\n"
         "  --no-master        Disable all master server heartbeating\n"
@@ -345,23 +347,49 @@ int main(int argc, char **argv)
     }
 
     /* Load ship data registry for server-authoritative damage.
-     * If --data was given, use that path.  Otherwise, scan data/
-     * for .json files -- if exactly one exists, auto-load it. */
+     * Accepts both a versioned directory (contains manifest.json) and a
+     * legacy monolith JSON file.  If --data was not given, scan data/ for
+     * a directory with manifest.json first, then fall back to a lone .json. */
     memset(&g_registry, 0, sizeof(g_registry));
     bc_torpedo_mgr_init(&g_torpedoes);
+
+    bool data_is_dir = false;
+
     if (!data_path) {
-        static char auto_data[512];
-        int data_count = 0;
+        /* Use separate buffers so dir and json don't clobber each other. */
+        static char auto_dir[512];
+        static char auto_json[512];
+        int dir_count = 0;
+        int json_count = 0;
 #ifdef _WIN32
+        /* Check for versioned directories first */
         WIN32_FIND_DATAA dfd;
-        HANDLE dFind = FindFirstFileA("data\\*.json", &dfd);
+        HANDLE dFind = FindFirstFileA("data\\*", &dfd);
         if (dFind != INVALID_HANDLE_VALUE) {
             do {
-                if (!(dfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-                    if (data_count == 0)
-                        snprintf(auto_data, sizeof(auto_data),
-                                 "data/%s", dfd.cFileName);
-                    data_count++;
+                if ((dfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+                    strcmp(dfd.cFileName, ".") != 0 &&
+                    strcmp(dfd.cFileName, "..") != 0) {
+                    char mpath[512];
+                    snprintf(mpath, sizeof(mpath),
+                             "data/%s/manifest.json", dfd.cFileName);
+                    DWORD ma = GetFileAttributesA(mpath);
+                    if (ma != INVALID_FILE_ATTRIBUTES &&
+                        !(ma & FILE_ATTRIBUTE_DIRECTORY)) {
+                        if (dir_count == 0)
+                            snprintf(auto_dir, sizeof(auto_dir),
+                                     "data/%s", dfd.cFileName);
+                        dir_count++;
+                    }
+                } else if (!(dfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                    const char *fn = dfd.cFileName;
+                    size_t fnlen = strlen(fn);
+                    if (fnlen > 5 && strcmp(fn + fnlen - 5, ".json") == 0) {
+                        if (json_count == 0)
+                            snprintf(auto_json, sizeof(auto_json),
+                                     "data/%s", fn);
+                        json_count++;
+                    }
                 }
             } while (FindNextFileA(dFind, &dfd));
             FindClose(dFind);
@@ -372,24 +400,63 @@ int main(int argc, char **argv)
             struct dirent *dent;
             while ((dent = readdir(ddir)) != NULL) {
                 const char *n = dent->d_name;
-                size_t nlen = strlen(n);
-                if (nlen > 5 && strcmp(n + nlen - 5, ".json") == 0) {
-                    if (data_count == 0)
-                        snprintf(auto_data, sizeof(auto_data),
-                                 "data/%s", n);
-                    data_count++;
+                if (strcmp(n, ".") == 0 || strcmp(n, "..") == 0) continue;
+
+                char full[512];
+                snprintf(full, sizeof(full), "data/%s", n);
+                struct stat st;
+                if (stat(full, &st) != 0) continue;
+
+                if (S_ISDIR(st.st_mode)) {
+                    char mpath[640];
+                    snprintf(mpath, sizeof(mpath), "%s/manifest.json", full);
+                    struct stat mst;
+                    if (stat(mpath, &mst) == 0 && S_ISREG(mst.st_mode)) {
+                        if (dir_count == 0)
+                            snprintf(auto_dir, sizeof(auto_dir), "%s", full);
+                        dir_count++;
+                    }
+                } else if (S_ISREG(st.st_mode)) {
+                    size_t nlen = strlen(n);
+                    if (nlen > 5 && strcmp(n + nlen - 5, ".json") == 0) {
+                        if (json_count == 0)
+                            snprintf(auto_json, sizeof(auto_json), "%s", full);
+                        json_count++;
+                    }
                 }
             }
             closedir(ddir);
         }
 #endif
-        if (data_count == 1) {
-            data_path = auto_data;
+        if (dir_count == 1) {
+            data_path = auto_dir;
+            data_is_dir = true;
+            LOG_INFO("init", "Auto-detected data registry: %s/", data_path);
+        } else if (dir_count == 0 && json_count == 1) {
+            data_path = auto_json;
+            data_is_dir = false;
             LOG_INFO("init", "Auto-detected data registry: %s", data_path);
         }
+    } else {
+#ifdef _WIN32
+        {
+            DWORD _attr = GetFileAttributesA(data_path);
+            data_is_dir = (_attr != INVALID_FILE_ATTRIBUTES) &&
+                          (_attr & FILE_ATTRIBUTE_DIRECTORY);
+        }
+#else
+        {
+            struct stat _dstat;
+            data_is_dir = stat(data_path, &_dstat) == 0 && S_ISDIR(_dstat.st_mode);
+        }
+#endif
     }
+
     if (data_path) {
-        if (bc_registry_load(&g_registry, data_path)) {
+        bool ok = data_is_dir
+            ? bc_registry_load_dir(&g_registry, data_path)
+            : bc_registry_load(&g_registry, data_path);
+        if (ok) {
             g_registry_loaded = true;
             LOG_INFO("init", "Ship registry loaded: %d ships, %d projectiles from %s",
                      g_registry.ship_count, g_registry.projectile_count, data_path);

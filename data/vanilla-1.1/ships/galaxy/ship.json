@@ -1,0 +1,36 @@
+{
+  "name": "Galaxy",
+  "species_id": 3,
+  "faction": "Federation",
+  "hull_hp": 15000.0,
+  "mass": 120.0,
+  "rotational_inertia": 15000.0,
+  "max_speed": 6.3,
+  "max_accel": 1.5,
+  "max_angular_accel": 0.12,
+  "max_angular_velocity": 0.28,
+  "shield_hp": [
+    8000.0,
+    4000.0,
+    4000.0,
+    4000.0,
+    4000.0,
+    4000.0
+  ],
+  "shield_recharge": [
+    11.0,
+    11.0,
+    11.0,
+    11.0,
+    11.0,
+    11.0
+  ],
+  "can_cloak": false,
+  "has_tractor": true,
+  "torpedo_tubes": 6,
+  "phaser_banks": 8,
+  "pulse_weapons": 0,
+  "tractor_beams": 4,
+  "max_repair_points": 50.0,
+  "num_repair_teams": 3
+}

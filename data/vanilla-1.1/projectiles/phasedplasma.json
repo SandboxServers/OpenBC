@@ -1,0 +1,12 @@
+{
+  "name": "Phased",
+  "damage": 1900.0,
+  "launch_speed": 12.0,
+  "power_cost": 40.0,
+  "guidance_lifetime": 10.0,
+  "max_angular_accel": 0.11,
+  "lifetime": 0.0,
+  "damage_radius_factor": 0.19,
+  "net_type_id": 12,
+  "script": "PhasedPlasma"
+}

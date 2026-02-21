@@ -7,8 +7,11 @@ Parses auto-generated .py hardpoint files using regex (not import) since
 they depend on App/GlobalPropertyTemplates modules we don't have.
 
 Usage:
-    python3 tools/scrape_bc.py <scripts_dir> [-o output.json]
-    python3 tools/scrape_bc.py <bc-scripts-dir> -o data/vanilla-1.1.json
+    # Scrape from BC installation:
+    python3 tools/scrape_bc.py <scripts_dir> -o data/vanilla-1.1/
+
+    # Migrate existing monolith to directory format (no BC installation needed):
+    python3 tools/scrape_bc.py --from-monolith data/vanilla-1.1.json -o data/vanilla-1.1/
 """
 
 import argparse
@@ -17,6 +20,27 @@ import os
 import re
 import struct
 import sys
+
+# Ship name -> folder name mapping (derived from FLYABLE_SHIPS)
+# Used to produce consistent folder names when splitting the monolith.
+SHIP_FOLDER = {
+    "Akira":        "akira",
+    "Ambassador":   "ambassador",
+    "Galaxy":       "galaxy",
+    "Nebula":       "nebula",
+    "Sovereign":    "sovereign",
+    "BirdOfPrey":   "birdofprey",
+    "Vorcha":       "vorcha",
+    "Warbird":      "warbird",
+    "Marauder":     "marauder",
+    "Galor":        "galor",
+    "Keldon":       "keldon",
+    "CardHybrid":   "cardhybrid",
+    "KessokHeavy":  "kessokheavy",
+    "KessokLight":  "kessoklight",
+    "Shuttle":      "shuttle",
+    "CardFreighter":"cardfreighter",
+}
 
 # The 16 flyable ships (indices 1-16 from SpeciesToShip.py)
 FLYABLE_SHIPS = [
@@ -653,14 +677,270 @@ def scan_manifest(game_dir):
     return manifest
 
 
+# ---------------------------------------------------------------------------
+# Static gamemode definitions (scripted from observable BC 1.1 behavior)
+# ---------------------------------------------------------------------------
+
+GAMEMODES = {
+    "deathmatch": {
+        "id": "mission1",
+        "name": "Deathmatch",
+        "description": "Free-for-all combat. First player to reach frag or score limit wins.",
+        "script": "Multiplayer.Episode.Mission1.Mission1",
+        "teams": False,
+        "team_count": 0,
+        "has_objective": False,
+        "scoring": {
+            "mode": "individual_frags",
+            "kill_awards_frag": True,
+            "damage_contributes_score": True,
+            "friendly_fire_penalty": False,
+        },
+        "defaults": {
+            "player_limit": 8,
+            "time_limit_minutes": -1,
+            "frag_limit": 10,
+        },
+    },
+    "team-deathmatch": {
+        "id": "mission2",
+        "name": "Team Deathmatch",
+        "description": "Two-team combat. First team to reach frag limit wins. Friendly fire incurs score penalty.",
+        "script": "Multiplayer.Episode.Mission2.Mission2",
+        "teams": True,
+        "team_count": 2,
+        "team_names": ["Federation", "Non-Federation"],
+        "has_objective": False,
+        "scoring": {
+            "mode": "team_frags",
+            "kill_awards_frag": True,
+            "damage_contributes_score": True,
+            "friendly_fire_penalty": True,
+        },
+        "defaults": {
+            "player_limit": 8,
+            "time_limit_minutes": -1,
+            "frag_limit": 20,
+        },
+    },
+    "defenders-vs-attackers": {
+        "id": "mission3",
+        "name": "Defenders vs Attackers",
+        "description": "Two-team objective mode. Attackers must destroy the starbase. Defenders win if time runs out or attackers are eliminated.",
+        "script": "Multiplayer.Episode.Mission3.Mission3",
+        "teams": True,
+        "team_count": 2,
+        "team_names": ["Federation", "Non-Federation"],
+        "has_objective": True,
+        "objective": "destroy_starbase",
+        "scoring": {
+            "mode": "objective_plus_frags",
+            "kill_awards_frag": True,
+            "damage_contributes_score": True,
+            "friendly_fire_penalty": True,
+        },
+        "defaults": {
+            "player_limit": 8,
+            "time_limit_minutes": 15,
+            "frag_limit": -1,
+        },
+    },
+    "base-assault": {
+        "id": "mission4",
+        "name": "Base Assault",
+        "description": "Two-team asymmetric mode. Both teams have a starbase. Destroy the enemy starbase to win.",
+        "script": "Multiplayer.Episode.Mission4.Mission4",
+        "teams": True,
+        "team_count": 2,
+        "team_names": ["Attackers", "Defenders"],
+        "has_objective": True,
+        "objective": "destroy_enemy_starbase",
+        "asymmetric_scoring": True,
+        "scoring": {
+            "mode": "objective_plus_frags",
+            "kill_awards_frag": True,
+            "damage_contributes_score": True,
+            "friendly_fire_penalty": True,
+            "only_defender_kills_count": True,
+        },
+        "defaults": {
+            "player_limit": 8,
+            "time_limit_minutes": 20,
+            "frag_limit": -1,
+        },
+    },
+}
+
+
+def write_json(path, data):
+    """Write data as pretty-printed JSON to path, creating parent dirs."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+
+def split_monolith(monolith_path, output_dir):
+    """
+    Read existing vanilla-1.1.json and split it into the versioned directory
+    structure under output_dir.  No BC installation required.
+    """
+    with open(monolith_path, "r") as f:
+        registry = json.load(f)
+
+    ships = registry.get("ships", [])
+    projectiles = registry.get("projectiles", [])
+
+    ship_folders = []
+    proj_files = []
+
+    # --- Ships ---
+    for ship in ships:
+        name = ship["name"]
+        folder = SHIP_FOLDER.get(name, name.lower().replace(" ", ""))
+        ship_dir = os.path.join(output_dir, "ships", folder)
+
+        # ship.json -- identity + physics (no subsystems, power, or ser list)
+        identity_keys = [
+            "name", "species_id", "faction",
+            "hull_hp", "mass", "rotational_inertia",
+            "max_speed", "max_accel", "max_angular_accel", "max_angular_velocity",
+            "shield_hp", "shield_recharge",
+            "can_cloak", "has_tractor",
+            "torpedo_tubes", "phaser_banks", "pulse_weapons", "tractor_beams",
+            "max_repair_points", "num_repair_teams",
+        ]
+        ship_json = {k: ship[k] for k in identity_keys if k in ship}
+        write_json(os.path.join(ship_dir, "ship.json"), ship_json)
+
+        # subsystems.json
+        write_json(os.path.join(ship_dir, "subsystems.json"),
+                   ship.get("subsystems", []))
+
+        # serialization.json
+        write_json(os.path.join(ship_dir, "serialization.json"),
+                   ship.get("serialization_list", []))
+
+        # power.json
+        power_keys = [
+            "power_output", "main_battery_limit", "backup_battery_limit",
+            "main_conduit_capacity", "backup_conduit_capacity",
+        ]
+        power_json = {k: ship[k] for k in power_keys if k in ship}
+        write_json(os.path.join(ship_dir, "power.json"), power_json)
+
+        ship_folders.append(folder)
+        print(f"  {name} -> ships/{folder}/", file=sys.stderr)
+
+    # --- Projectiles ---
+    for proj in projectiles:
+        script = proj.get("script", proj["name"])
+        file_base = script.lower()
+        write_json(os.path.join(output_dir, "projectiles", f"{file_base}.json"), proj)
+        proj_files.append(file_base)
+        print(f"  {proj['name']} -> projectiles/{file_base}.json", file=sys.stderr)
+
+    # --- manifest.json ---
+    manifest = {
+        "version": registry.get("version", "vanilla-1.1"),
+        "ships": ship_folders,
+        "projectiles": proj_files,
+    }
+    write_json(os.path.join(output_dir, "manifest.json"), manifest)
+
+    # --- gamemodes/ ---
+    for gm_key, gm_data in GAMEMODES.items():
+        write_json(os.path.join(output_dir, "gamemodes", f"{gm_key}.json"), gm_data)
+        print(f"  gamemode -> gamemodes/{gm_key}.json", file=sys.stderr)
+
+    print(f"\nSplit complete: {len(ship_folders)} ships, {len(proj_files)} projectiles",
+          file=sys.stderr)
+
+
+def write_registry_dir(ships, projectiles, output_dir):
+    """
+    Write ships and projectiles (as returned by scrape_ships/scrape_projectiles)
+    to the versioned directory structure under output_dir.
+    """
+    ship_folders = []
+    proj_files = []
+
+    for ship in ships:
+        name = ship["name"]
+        folder = SHIP_FOLDER.get(name, name.lower().replace(" ", ""))
+        ship_dir = os.path.join(output_dir, "ships", folder)
+
+        identity_keys = [
+            "name", "species_id", "faction",
+            "hull_hp", "mass", "rotational_inertia",
+            "max_speed", "max_accel", "max_angular_accel", "max_angular_velocity",
+            "shield_hp", "shield_recharge",
+            "can_cloak", "has_tractor",
+            "torpedo_tubes", "phaser_banks", "pulse_weapons", "tractor_beams",
+            "max_repair_points", "num_repair_teams",
+        ]
+        ship_json = {k: ship[k] for k in identity_keys if k in ship}
+        write_json(os.path.join(ship_dir, "ship.json"), ship_json)
+        write_json(os.path.join(ship_dir, "subsystems.json"),
+                   ship.get("subsystems", []))
+        write_json(os.path.join(ship_dir, "serialization.json"),
+                   ship.get("serialization_list", []))
+
+        power_keys = [
+            "power_output", "main_battery_limit", "backup_battery_limit",
+            "main_conduit_capacity", "backup_conduit_capacity",
+        ]
+        power_json = {k: ship[k] for k in power_keys if k in ship}
+        write_json(os.path.join(ship_dir, "power.json"), power_json)
+
+        ship_folders.append(folder)
+
+    for proj in projectiles:
+        script = proj.get("script", proj["name"])
+        file_base = script.lower()
+        write_json(os.path.join(output_dir, "projectiles", f"{file_base}.json"), proj)
+        proj_files.append(file_base)
+
+    manifest = {
+        "version": "vanilla-1.1",
+        "ships": ship_folders,
+        "projectiles": proj_files,
+    }
+    write_json(os.path.join(output_dir, "manifest.json"), manifest)
+
+    for gm_key, gm_data in GAMEMODES.items():
+        write_json(os.path.join(output_dir, "gamemodes", f"{gm_key}.json"), gm_data)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Scrape BC reference scripts to JSON")
-    parser.add_argument("scripts_dir", help="Path to BC scripts/ directory")
+    parser.add_argument("scripts_dir", nargs="?", default=None,
+                        help="Path to BC scripts/ directory (required unless --from-monolith)")
     parser.add_argument("-o", "--output", default=None,
-                        help="Output JSON file (default: stdout)")
+                        help="Output directory (default: stdout for legacy monolith mode)")
+    parser.add_argument("--from-monolith", metavar="FILE",
+                        help="Split an existing monolith JSON into directory format "
+                             "(no BC installation required)")
     parser.add_argument("--game-dir", default=None,
                         help="Path to BC game directory for manifest scanning")
     args = parser.parse_args()
+
+    # --- Migration mode: split existing monolith ---
+    if args.from_monolith:
+        if not os.path.isfile(args.from_monolith):
+            print(f"Error: {args.from_monolith} not found", file=sys.stderr)
+            sys.exit(1)
+        output_dir = args.output
+        if not output_dir:
+            print("Error: --from-monolith requires -o <output-dir>", file=sys.stderr)
+            sys.exit(1)
+        print(f"Splitting {args.from_monolith} -> {output_dir}/", file=sys.stderr)
+        split_monolith(args.from_monolith, output_dir)
+        return
+
+    # --- Scrape mode: requires scripts_dir ---
+    if not args.scripts_dir:
+        parser.error("scripts_dir is required unless --from-monolith is used")
 
     if not os.path.isdir(args.scripts_dir):
         print(f"Error: {args.scripts_dir} is not a directory", file=sys.stderr)
@@ -674,26 +954,42 @@ def main():
     projectiles = scrape_projectiles(args.scripts_dir)
     print(f"Found {len(projectiles)} projectile types", file=sys.stderr)
 
-    registry = {
-        "version": "vanilla-1.1",
-        "ships": ships,
-        "projectiles": projectiles,
-    }
-
+    manifest_data = None
     if args.game_dir:
         print("\nScanning manifest...", file=sys.stderr)
-        registry["manifest"] = scan_manifest(args.game_dir)
+        manifest_data = scan_manifest(args.game_dir)
 
-    output = json.dumps(registry, indent=2)
-
-    if args.output:
-        os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-        with open(args.output, "w") as f:
-            f.write(output)
-            f.write("\n")
-        print(f"\nWritten to {args.output}", file=sys.stderr)
+    # --- Output ---
+    if args.output and not args.output.endswith(".json"):
+        # Directory output
+        print(f"\nWriting to {args.output}/", file=sys.stderr)
+        write_registry_dir(ships, projectiles, args.output)
+        if manifest_data is not None:
+            hashes_path = os.path.join(args.output, "manifest_hashes.json")
+            with open(hashes_path, "w") as f:
+                json.dump(manifest_data, f, indent=2)
+                f.write("\n")
+            print(f"Manifest hashes -> {hashes_path}", file=sys.stderr)
+        print(f"Done: {len(ships)} ships, {len(projectiles)} projectiles",
+              file=sys.stderr)
     else:
-        print(output)
+        # Legacy monolith output (file or stdout)
+        registry = {
+            "version": "vanilla-1.1",
+            "ships": ships,
+            "projectiles": projectiles,
+        }
+        if manifest_data is not None:
+            registry["manifest"] = manifest_data
+        output = json.dumps(registry, indent=2)
+        if args.output:
+            os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+            with open(args.output, "w") as f:
+                f.write(output)
+                f.write("\n")
+            print(f"\nWritten to {args.output}", file=sys.stderr)
+        else:
+            print(output)
 
 
 if __name__ == "__main__":

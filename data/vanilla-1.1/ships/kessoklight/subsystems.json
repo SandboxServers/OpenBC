@@ -1,0 +1,471 @@
+[
+  {
+    "name": "Hull",
+    "type": "hull",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 1.2,
+    "max_condition": 7000.0,
+    "disabled_pct": 0.0,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Warp Core",
+    "type": "power",
+    "position": [
+      0.0,
+      -1.5,
+      -0.2
+    ],
+    "radius": 0.35,
+    "max_condition": 6000.0,
+    "disabled_pct": 0.5,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Repair System",
+    "type": "repair",
+    "position": [
+      0.0,
+      -0.6,
+      0.0
+    ],
+    "radius": 0.3,
+    "max_condition": 2000.0,
+    "disabled_pct": 0.0,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 20.0,
+    "max_repair_points": 90.0,
+    "num_repair_teams": 4
+  },
+  {
+    "name": "Sensor Array",
+    "type": "sensor",
+    "position": [
+      0.0,
+      -1.1,
+      0.27
+    ],
+    "radius": 0.25,
+    "max_condition": 9000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Shield Generator",
+    "type": "shield",
+    "position": [
+      0.0,
+      -0.5,
+      0.15
+    ],
+    "radius": 0.3,
+    "max_condition": 10000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Torpedo",
+    "type": "torpedo_tube",
+    "position": [
+      0.0,
+      1.5,
+      -0.15
+    ],
+    "radius": 0.16,
+    "max_condition": 2400.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 3.0,
+    "reload_delay": 50.0,
+    "max_ready": 1,
+    "immediate_delay": 0.25,
+    "weapon_id": 0,
+    "dumbfire": true,
+    "direction": [
+      0.0,
+      1.0,
+      0.0
+    ]
+  },
+  {
+    "name": "Impulse Engines",
+    "type": "impulse_engine",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.25,
+    "max_condition": 2000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 3.0
+  },
+  {
+    "name": "Warp Engines",
+    "type": "warp_engine",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.25,
+    "max_condition": 4000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 3.0
+  },
+  {
+    "name": "Forward Beam 1",
+    "type": "phaser",
+    "position": [
+      -0.8,
+      -1.25,
+      -0.3
+    ],
+    "radius": 0.25,
+    "max_condition": 2400.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 400.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.17,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 200.0,
+    "weapon_id": 2,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.174533,
+      0.174533
+    ],
+    "arc_height": [
+      -0.261799,
+      0.261799
+    ]
+  },
+  {
+    "name": "Forward Beam 2",
+    "type": "phaser",
+    "position": [
+      0.8,
+      -1.25,
+      -0.3
+    ],
+    "radius": 0.25,
+    "max_condition": 2400.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 400.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.17,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 200.0,
+    "weapon_id": 3,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.174533,
+      0.174533
+    ],
+    "arc_height": [
+      -0.261799,
+      0.261799
+    ]
+  },
+  {
+    "name": "Port Beam 1",
+    "type": "phaser",
+    "position": [
+      -0.24,
+      0.37,
+      0.0
+    ],
+    "radius": 0.2,
+    "max_condition": 1200.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 200.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.05,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 120.0,
+    "weapon_id": 1,
+    "forward": [
+      -1.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -1.134464,
+      1.047198
+    ],
+    "arc_height": [
+      -0.349066,
+      1.396263
+    ]
+  },
+  {
+    "name": "Star Beam 1",
+    "type": "phaser",
+    "position": [
+      0.24,
+      0.37,
+      0.0
+    ],
+    "radius": 0.2,
+    "max_condition": 1200.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 200.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.05,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 120.0,
+    "weapon_id": 4,
+    "forward": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -1.047198,
+      1.134464
+    ],
+    "arc_height": [
+      -0.349066,
+      1.396263
+    ]
+  },
+  {
+    "name": "Aft Beam 1",
+    "type": "phaser",
+    "position": [
+      -0.45,
+      -2.2,
+      -0.1
+    ],
+    "radius": 0.1,
+    "max_condition": 1200.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 200.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.05,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 120.0,
+    "weapon_id": 6,
+    "forward": [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.349066,
+      0.349066
+    ],
+    "arc_height": [
+      -0.523599,
+      0.523599
+    ]
+  },
+  {
+    "name": "Aft Beam 2",
+    "type": "phaser",
+    "position": [
+      0.45,
+      -2.2,
+      -0.1
+    ],
+    "radius": 0.1,
+    "max_condition": 1200.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 200.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.05,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 120.0,
+    "weapon_id": 7,
+    "forward": [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.349066,
+      0.349066
+    ],
+    "arc_height": [
+      -0.523599,
+      0.523599
+    ]
+  },
+  {
+    "name": "Cloaking Device",
+    "type": "cloak",
+    "position": [
+      0.0,
+      -0.27,
+      0.0
+    ],
+    "radius": 0.28,
+    "max_condition": 1500.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 6.0,
+    "cloak_strength": 50.0,
+    "normal_power": 700.0
+  },
+  {
+    "name": "Port Beam 2",
+    "type": "phaser",
+    "position": [
+      -0.57,
+      -1.6,
+      -0.1
+    ],
+    "radius": 0.2,
+    "max_condition": 1200.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 150.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.05,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 120.0,
+    "weapon_id": 1,
+    "forward": [
+      -1.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -1.047198,
+      1.134464
+    ],
+    "arc_height": [
+      -0.349066,
+      1.396263
+    ]
+  },
+  {
+    "name": "Star Beam 2",
+    "type": "phaser",
+    "position": [
+      0.57,
+      -1.6,
+      -0.1
+    ],
+    "radius": 0.2,
+    "max_condition": 1200.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 150.0,
+    "max_charge": 7.0,
+    "min_firing_charge": 4.0,
+    "recharge_rate": 0.05,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 120.0,
+    "weapon_id": 4,
+    "forward": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -1.134464,
+      1.047198
+    ],
+    "arc_height": [
+      -0.349066,
+      1.396263
+    ]
+  }
+]

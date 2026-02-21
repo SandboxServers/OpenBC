@@ -1,0 +1,36 @@
+{
+  "name": "Shuttle",
+  "species_id": 15,
+  "faction": "Federation",
+  "hull_hp": 1600.0,
+  "mass": 15.0,
+  "rotational_inertia": 2000.0,
+  "max_speed": 4.0,
+  "max_accel": 2.5,
+  "max_angular_accel": 0.6,
+  "max_angular_velocity": 0.8,
+  "shield_hp": [
+    2400.0,
+    800.0,
+    800.0,
+    800.0,
+    800.0,
+    800.0
+  ],
+  "shield_recharge": [
+    15.0,
+    12.0,
+    12.0,
+    12.0,
+    12.0,
+    12.0
+  ],
+  "can_cloak": false,
+  "has_tractor": true,
+  "torpedo_tubes": 0,
+  "phaser_banks": 1,
+  "pulse_weapons": 0,
+  "tractor_beams": 1,
+  "max_repair_points": 2.0,
+  "num_repair_teams": 1
+}

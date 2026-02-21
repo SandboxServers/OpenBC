@@ -1,0 +1,36 @@
+{
+  "name": "BirdOfPrey",
+  "species_id": 6,
+  "faction": "Klingon",
+  "hull_hp": 4000.0,
+  "mass": 45.0,
+  "rotational_inertia": 2000.0,
+  "max_speed": 6.2,
+  "max_accel": 2.5,
+  "max_angular_accel": 0.35,
+  "max_angular_velocity": 0.5,
+  "shield_hp": [
+    3000.0,
+    3000.0,
+    3000.0,
+    3000.0,
+    3000.0,
+    3000.0
+  ],
+  "shield_recharge": [
+    20.0,
+    8.0,
+    8.0,
+    3.0,
+    3.0,
+    3.0
+  ],
+  "can_cloak": true,
+  "has_tractor": false,
+  "torpedo_tubes": 1,
+  "phaser_banks": 0,
+  "pulse_weapons": 2,
+  "tractor_beams": 0,
+  "max_repair_points": 16.0,
+  "num_repair_teams": 1
+}

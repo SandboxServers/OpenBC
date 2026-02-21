@@ -1,0 +1,88 @@
+[
+  {
+    "format": "base",
+    "name": "Hull",
+    "max_condition": 4000
+  },
+  {
+    "format": "base",
+    "name": "Shield Generator",
+    "max_condition": 4000
+  },
+  {
+    "format": "power",
+    "name": "Warp Core",
+    "max_condition": 3000
+  },
+  {
+    "format": "powered",
+    "name": "Disruptor Cannons",
+    "max_condition": 3000,
+    "normal_power": 80,
+    "children": [
+      {
+        "name": "Port Cannon"
+      },
+      {
+        "name": "Star Cannon"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Torpedoes",
+    "max_condition": 2000,
+    "normal_power": 50,
+    "children": [
+      {
+        "name": "Fwd Torpedo"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Impulse Engines",
+    "max_condition": 2000,
+    "normal_power": 50,
+    "children": [
+      {
+        "name": "Impulse Engine",
+        "max_condition": 2000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Warp Engines",
+    "max_condition": 4000,
+    "normal_power": 0,
+    "children": [
+      {
+        "name": "Port Warp",
+        "max_condition": 2000.0
+      },
+      {
+        "name": "Starboard Warp",
+        "max_condition": 2000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Cloaking Device",
+    "max_condition": 3000,
+    "normal_power": 380
+  },
+  {
+    "format": "powered",
+    "name": "Sensor Array",
+    "max_condition": 3000,
+    "normal_power": 50
+  },
+  {
+    "format": "powered",
+    "name": "Engineering",
+    "max_condition": 4000,
+    "normal_power": 1
+  }
+]
