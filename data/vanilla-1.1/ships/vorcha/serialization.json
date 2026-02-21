@@ -2,20 +2,17 @@
   {
     "format": "base",
     "name": "Hull",
-    "max_condition": 12000,
-    "power_mode": 0
+    "max_condition": 12000
   },
   {
     "format": "base",
     "name": "Shield Generator",
-    "max_condition": 10000,
-    "power_mode": 0
+    "max_condition": 10000
   },
   {
     "format": "power",
     "name": "Warp Core",
-    "max_condition": 7000,
-    "power_mode": 0
+    "max_condition": 7000
   },
   {
     "format": "powered",

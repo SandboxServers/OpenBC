@@ -2,14 +2,12 @@
   {
     "format": "base",
     "name": "Hull",
-    "max_condition": 9000,
-    "power_mode": 0
+    "max_condition": 9000
   },
   {
     "format": "base",
     "name": "Shield Generator",
-    "max_condition": 9000,
-    "power_mode": 0
+    "max_condition": 9000
   },
   {
     "format": "powered",
@@ -21,8 +19,7 @@
   {
     "format": "power",
     "name": "Warp Core",
-    "max_condition": 6000,
-    "power_mode": 0
+    "max_condition": 6000
   },
   {
     "format": "powered",
@@ -143,7 +140,6 @@
   {
     "format": "base",
     "name": "Bridge",
-    "max_condition": 9000,
-    "power_mode": 0
+    "max_condition": 9000
   }
 ]

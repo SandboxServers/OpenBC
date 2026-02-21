@@ -144,7 +144,10 @@ static void load_serialization_list(bc_ship_class_t *ship, const json_value_t *a
         e->format = parse_ss_format(json_get(entry_obj, "format"));
         e->max_condition = (f32)json_number(json_get(entry_obj, "max_condition"));
         e->normal_power = (f32)json_number(json_get(entry_obj, "normal_power"));
-        e->power_mode = parse_power_mode(json_get(entry_obj, "power_mode"));
+        e->power_mode = BC_POWER_MODE_MAIN_FIRST;
+        if (e->format == BC_SS_FORMAT_POWERED) {
+            e->power_mode = parse_power_mode(json_get(entry_obj, "power_mode"));
+        }
 
         /* Match entry name to flat subsystem array */
         const char *ename = json_string(json_get(entry_obj, "name"));

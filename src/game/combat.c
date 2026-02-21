@@ -422,6 +422,8 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
     if (shield_ss >= 0) {
         shield_alive = ship->subsystem_hp[shield_ss] > 0.0f;
 
+        /* subsys_enabled[] is indexed by serialization entry, not by
+         * flat subsystem index, so map shield_ss -> ser entry first. */
         int shield_entry = find_ser_entry_by_hp_index(cls, shield_ss);
         if (shield_entry >= 0 && shield_entry < BC_SS_MAX_ENTRIES)
             shield_enabled = ship->subsys_enabled[shield_entry];
