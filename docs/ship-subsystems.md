@@ -38,7 +38,7 @@ These subsystems are **not** directly in the serialization list. They are childr
 | `CT_TORPEDO_TUBE` | Torpedo Tube | Torpedo System |
 | `CT_TRACTOR_BEAM_PROJECTOR` | Tractor Beam Projector | Tractor Beam System |
 | `CT_PULSE_WEAPON` | Pulse Weapon | Pulse Weapon System |
-| `CT_ENGINE_PROPERTY` | Individual Engine | Impulse Engine or Warp Engine System |
+| `CT_ENGINE_PROPERTY` | Individual Engine | Impulse or Warp Engine System (determined by engine type tag — see below) |
 
 ### How Reparenting Works
 
@@ -49,6 +49,35 @@ When a ship is created:
 4. After linking, only top-level systems remain in the serialization list
 
 This means the serialization list has far fewer entries than the total subsystem count (e.g., Sovereign has 11 top-level entries, not 33).
+
+### Engine Type Tag
+
+Individual engines (`CT_ENGINE_PROPERTY`) are the **only** child subsystem type that can belong to either of two different parent systems. All other child types have unambiguous parents — phasers always go to the phaser system, torpedoes always go to the torpedo system, etc. But an individual engine could be an impulse engine or a warp engine.
+
+The game resolves this with an **explicit tag** set in the hardpoint script via `SetEngineType()`:
+
+| Enum Value | Constant | Meaning |
+|-----------|----------|---------|
+| 0 | `EP_IMPULSE` | Attach to the Impulse Engine System |
+| 1 | `EP_WARP` | Attach to the Warp Engine System |
+
+**Default**: `EP_IMPULSE` — if `SetEngineType()` is never called, the engine is treated as an impulse engine.
+
+**Hardpoint script example** (Sovereign class):
+```python
+PortImpulse = App.EngineProperty_Create("Port Impulse")
+PortImpulse.SetEngineType(PortImpulse.EP_IMPULSE)
+
+PortWarp = App.EngineProperty_Create("Port Warp")
+PortWarp.SetEngineType(PortWarp.EP_WARP)
+```
+
+During the linking pass, the engine type tag is read to determine which parent system receives each individual engine child.
+
+**Implementation notes**:
+- The scraper must parse `SetEngineType()` calls from hardpoint scripts and store the engine type in `serialization.json` children entries (e.g., `"engine_type": "impulse"` or `"engine_type": "warp"`)
+- The server's linking pass must read the engine type to assign each individual engine to the correct parent system container
+- All 16 stock ships explicitly call `SetEngineType()` on every individual engine — no stock ship relies on the default. However, mods may omit the call, so honoring the default (EP_IMPULSE) is important for compatibility.
 
 ---
 
