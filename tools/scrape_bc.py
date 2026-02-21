@@ -81,12 +81,160 @@ PROP_TYPES = {
     "CrewProperty":              "crew",
     "BridgeProperty":            "bridge",
     "LifeSupportSubsystemProperty": "life_support",
+    # System containers and child types (for serialization list extraction)
+    "EngineProperty":            "engine",         # child: individual impulse/warp engine
+    "WeaponSystemProperty":      "weapon_system",  # system container: phasers, pulse, tractors
+    "TorpedoSystemProperty":     "torpedo_system", # system container: torpedoes
+    # Non-subsystem types (present in AddToSet calls, but skipped for serialization)
+    "ShipProperty":              "ship",
+    "ObjectEmitterProperty":     "emitter",
+    "FirstPersonProperty":       "first_person",
 }
+
+# Types that appear in LoadPropertySet but are not subsystems — skip for ser list
+SKIP_SER_TYPES = {
+    "ship", "emitter", "first_person", "viewscreen", "crew", "life_support", "powered",
+}
+
+# Child types that get linked into a parent system during the engine's linking pass
+CHILD_SER_TYPES = {"phaser", "torpedo_tube", "pulse_weapon", "tractor_beam", "engine"}
+
+# Serialization wire format per top-level subsystem category
+_BASE_SER = {"hull", "shield", "bridge"}
+_POWER_SER = {"power"}
 
 # Shield facing names
 SHIELD_FACINGS = ["FRONT_SHIELDS", "REAR_SHIELDS", "TOP_SHIELDS",
                   "BOTTOM_SHIELDS", "LEFT_SHIELDS", "RIGHT_SHIELDS"]
 SHIELD_IDX = {name: i for i, name in enumerate(SHIELD_FACINGS)}
+
+
+def _ser_format(type_cat):
+    """Return the wire serialization format string for a top-level subsystem type."""
+    if type_cat in _BASE_SER:
+        return "base"
+    if type_cat in _POWER_SER:
+        return "power"
+    return "powered"
+
+
+def _child_parent_key(prop):
+    """Return the parent-system lookup key for a child subsystem."""
+    type_cat = prop.get("type", "")
+    if type_cat == "phaser":
+        return "weapon_system_phaser"
+    if type_cat == "pulse_weapon":
+        return "weapon_system_pulse"
+    if type_cat == "tractor_beam":
+        return "weapon_system_tractor"
+    if type_cat == "torpedo_tube":
+        return "torpedo_system"
+    if type_cat == "engine":
+        ep = prop.get("ep_type", "EP_IMPULSE")  # default: impulse (per game behavior)
+        if "WARP" in ep:
+            return "warp_engine"
+        return "impulse_engine"  # EP_IMPULSE or missing → impulse
+    return None
+
+
+def _system_key(type_cat, prop):
+    """Return the lookup key that child subsystems use to find this system."""
+    if type_cat == "weapon_system":
+        wst = prop.get("wst_type", "")
+        if "PHASER" in wst:
+            return "weapon_system_phaser"
+        if "PULSE" in wst:
+            return "weapon_system_pulse"
+        if "TRACTOR" in wst:
+            return "weapon_system_tractor"
+    elif type_cat == "torpedo_system":
+        return "torpedo_system"
+    elif type_cat == "impulse_engine":
+        return "impulse_engine"
+    elif type_cat == "warp_engine":
+        return "warp_engine"
+    return None
+
+
+def build_serialization_list(text, name_to_prop):
+    """
+    Build the ordered serialization list from a hardpoint file's LoadPropertySet().
+
+    Algorithm:
+      1. Extract LoadPropertySet() body and parse FindByName("Name") call order.
+      2. Classify each name as top-level, child, or skip using name_to_prop.
+      3. Assign children to parents by subsystem type (type-based, not order-based).
+      4. Return top-level entries in LoadPropertySet order, children nested inside.
+    """
+    # Extract LoadPropertySet function body
+    lps_start = re.search(r'\ndef LoadPropertySet\s*\(', text)
+    if not lps_start:
+        return []
+    lps_tail = text[lps_start.start() + 1:]
+    lps_end = re.search(r'\ndef ', lps_tail)
+    lps_text = lps_tail[:lps_end.start()] if lps_end else lps_tail
+
+    # Parse ordered FindByName("Name", LOCAL_TEMPLATES) calls
+    ordered_names = re.findall(
+        r'FindByName\s*\(\s*"([^"]+)"\s*,\s*App\.TGModelPropertyManager\.LOCAL_TEMPLATES',
+        lps_text,
+    )
+
+    # Separate top-level from children (preserving order within each group)
+    top_level = []   # [(name, prop)]
+    children = []    # [(name, prop, parent_key)]
+
+    for name in ordered_names:
+        prop = name_to_prop.get(name)
+        if prop is None:
+            continue
+        type_cat = prop.get("type", "")
+        if type_cat in SKIP_SER_TYPES:
+            continue
+        if type_cat in CHILD_SER_TYPES:
+            children.append((name, prop, _child_parent_key(prop)))
+        else:
+            top_level.append((name, prop))
+
+    # Build top-level ser_list and record where each system lives
+    parent_idx = {}   # system_key -> index in ser_list
+    ser_list = []
+
+    for name, prop in top_level:
+        type_cat = prop.get("type", "")
+        fmt = _ser_format(type_cat)
+        entry = {
+            "format": fmt,
+            "name": name,
+            "max_condition": prop.get("max_condition", 0.0),
+        }
+        if fmt in ("powered", "power"):
+            entry["normal_power"] = prop.get("normal_power", 0.0)
+
+        skey = _system_key(type_cat, prop)
+        if skey:
+            parent_idx[skey] = len(ser_list)
+        ser_list.append(entry)
+
+    # Attach children to their type-determined parents
+    for name, prop, parent_key in children:
+        if parent_key and parent_key in parent_idx:
+            idx = parent_idx[parent_key]
+            child_entry = {
+                "name": name,
+                "max_condition": prop.get("max_condition", 0.0),
+            }
+            # Engine children carry an explicit engine_type tag so the server's
+            # linking pass can re-derive the impulse/warp assignment at runtime.
+            if prop.get("type") == "engine":
+                ep = prop.get("ep_type", "EP_IMPULSE")  # default: impulse
+                child_entry["engine_type"] = "warp" if "WARP" in ep else "impulse"
+            ser_list[idx].setdefault("children", []).append(child_entry)
+        else:
+            print(f"  WARNING: no parent for child '{name}' "
+                  f"(parent_key={parent_key})", file=sys.stderr)
+
+    return ser_list
 
 
 def parse_float(s):
@@ -111,6 +259,7 @@ def scrape_hardpoint(filepath):
         text = f.read()
 
     subsystems = []
+    name_to_prop = {}   # prop_name -> subsys dict (for serialization list building)
     hull_hp = 0.0
     mass = 0.0
     rotational_inertia = 0.0
@@ -124,6 +273,12 @@ def scrape_hardpoint(filepath):
     has_tractor = False
     max_repair_points = 0.0
     num_repair_teams = 0
+    # Power plant parameters (from PowerProperty)
+    power_output = 0.0
+    main_battery_limit = 0.0
+    backup_battery_limit = 0.0
+    main_conduit_capacity = 0.0
+    backup_conduit_capacity = 0.0
 
     # Find all property creations: VarName = App.TypeProperty_Create("Name")
     create_re = re.compile(
@@ -171,6 +326,8 @@ def scrape_hardpoint(filepath):
         subsys["repair_complexity"] = parse_float(get_set("SetRepairComplexity", "0"))
         subsys["disabled_pct"] = parse_float(get_set("SetDisabledPercentage", "0"))
         subsys["radius"] = parse_float(get_set("SetRadius", "0"))
+        # Power consumption — present on all powered subsystems; 0.0 if not set
+        subsys["normal_power"] = parse_float(get_set("SetNormalPowerPerSecond", "0"))
 
         # Position: SetPosition(x, y, z)
         pos_m = re.search(
@@ -271,7 +428,6 @@ def scrape_hardpoint(filepath):
 
         if category == "tractor_beam":
             has_tractor = True
-            subsys["normal_power"] = parse_float(get_set("SetNormalPowerPerSecond", "0"))
 
         if category == "torpedo_tube":
             subsys["reload_delay"] = parse_float(get_set("SetReloadDelay", "0"))
@@ -296,7 +452,34 @@ def scrape_hardpoint(filepath):
         if category == "cloak":
             can_cloak = True
             subsys["cloak_strength"] = parse_float(get_set("SetCloakStrength", "0"))
-            subsys["normal_power"] = parse_float(get_set("SetNormalPowerPerSecond", "0"))
+
+        if category == "power":
+            power_output = parse_float(get_set("SetPowerOutput", "0"))
+            main_battery_limit = parse_float(get_set("SetMainBatteryLimit", "0"))
+            backup_battery_limit = parse_float(get_set("SetBackupBatteryLimit", "0"))
+            main_conduit_capacity = parse_float(get_set("SetMainConduitCapacity", "0"))
+            backup_conduit_capacity = parse_float(get_set("SetBackupConduitCapacity", "0"))
+            subsys["power_output"] = power_output
+            subsys["main_battery_limit"] = main_battery_limit
+            subsys["backup_battery_limit"] = backup_battery_limit
+            subsys["main_conduit_capacity"] = main_conduit_capacity
+            subsys["backup_conduit_capacity"] = backup_conduit_capacity
+
+        if category == "weapon_system":
+            wst_m = re.search(
+                rf'{re.escape(var_name)}\.SetWeaponSystemType\s*\(\s*\w+\.(WST_\w+)\s*\)',
+                text,
+            )
+            if wst_m:
+                subsys["wst_type"] = wst_m.group(1)
+
+        if category == "engine":
+            ep_m = re.search(
+                rf'{re.escape(var_name)}\.SetEngineType\s*\(\s*\w+\.(EP_\w+)\s*\)',
+                text,
+            )
+            if ep_m:
+                subsys["ep_type"] = ep_m.group(1)
 
         if category == "repair":
             max_repair_points = parse_float(get_set("SetMaxRepairPoints", "0"))
@@ -304,6 +487,7 @@ def scrape_hardpoint(filepath):
             subsys["max_repair_points"] = max_repair_points
             subsys["num_repair_teams"] = num_repair_teams
 
+        name_to_prop[prop_name] = subsys
         subsystems.append(subsys)
 
     # Count weapon types
@@ -319,6 +503,9 @@ def scrape_hardpoint(filepath):
     m = re.search(r"\.SetRotationalInertia\s*\(\s*([^)]+)\)", text)
     if m:
         rotational_inertia = parse_float(m.group(1))
+
+    # Build serialization list from LoadPropertySet call order
+    serialization_list = build_serialization_list(text, name_to_prop)
 
     return {
         "hull_hp": hull_hp,
@@ -338,6 +525,12 @@ def scrape_hardpoint(filepath):
         "tractor_beams": tractor_beams,
         "max_repair_points": max_repair_points,
         "num_repair_teams": num_repair_teams,
+        "power_output": power_output,
+        "main_battery_limit": main_battery_limit,
+        "backup_battery_limit": backup_battery_limit,
+        "main_conduit_capacity": main_conduit_capacity,
+        "backup_conduit_capacity": backup_conduit_capacity,
+        "serialization_list": serialization_list,
         "subsystems": subsystems,
     }
 
@@ -376,13 +569,22 @@ def scrape_ships(scripts_dir):
             "tractor_beams": data["tractor_beams"],
             "max_repair_points": data["max_repair_points"],
             "num_repair_teams": data["num_repair_teams"],
+            "power_output": data["power_output"],
+            "main_battery_limit": data["main_battery_limit"],
+            "backup_battery_limit": data["backup_battery_limit"],
+            "main_conduit_capacity": data["main_conduit_capacity"],
+            "backup_conduit_capacity": data["backup_conduit_capacity"],
             "subsystem_count": len(data["subsystems"]),
             "subsystems": data["subsystems"],
+            "serialization_list": data["serialization_list"],
         }
         ships.append(ship)
+        ser_count = len(data["serialization_list"])
         print(f"  {name}: hull={data['hull_hp']:.0f}, "
               f"shields={sum(data['shield_hp']):.0f}, "
               f"{len(data['subsystems'])} subsystems, "
+              f"{ser_count} ser entries, "
+              f"power={data['power_output']:.0f}, "
               f"cloak={data['can_cloak']}, tractor={data['has_tractor']}",
               file=sys.stderr)
 
