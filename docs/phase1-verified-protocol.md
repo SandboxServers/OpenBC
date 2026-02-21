@@ -630,7 +630,7 @@ Per-player score synchronization. The server sends **one 0x37 message per existi
 Field             Type       Size   Notes
 -----             ----       ----   -----
 opcode            u8         1      0x37
-playerId          i32 LE     4      Player's object ID (from GetObjID())
+playerId          i32 LE     4      Network player ID (GetNetID()/wire slot)
 kills             i32 LE     4      Kill count
 deaths            i32 LE     4      Death count
 score             i32 LE     4      Current score (signed, can be negative)
@@ -648,15 +648,15 @@ Sent when a kill occurs. Contains updated kill/death/score counts for the killer
 Field             Type       Size   Notes
 -----             ----       ----   -----
 opcode            u8         1      0x36
-killerId          i32 LE     4      Killer's object ID (0 for environmental kills)
+killerId          i32 LE     4      Killer's network player ID (0 for environmental kills)
 [if killerId != 0:]
   killerKills     i32 LE     4      Killer's updated kill count
   killerScore     i32 LE     4      Killer's updated score
-victimId          i32 LE     4      Victim's object ID
+victimId          i32 LE     4      Victim's network player ID
 victimDeaths      i32 LE     4      Victim's updated death count
 updateCount       u8         1      Number of extra score updates
 [repeated updateCount times:]
-  playerId        i32 LE     4      Player's object ID
+  playerId        i32 LE     4      Player's network player ID
   score           i32 LE     4      Player's updated score
 ```
 

@@ -138,6 +138,7 @@ int bc_build_score_change(u8 *buf, int buf_size,
      *   [if killer_id != 0: kills:i32, killer_score:i32]
      *   [victim_id:i32][deaths:i32]
      *   [update_count:u8][{player_id:i32, score:i32}...]
+     * IDs are network player IDs (GetNetID()/wire_slot), not object IDs.
      */
     bc_buffer_t b;
     bc_buf_init(&b, buf, (size_t)buf_size);
@@ -241,7 +242,8 @@ int bc_build_score(u8 *buf, int buf_size,
 {
     /* Wire format (from stock Mission1.py SendScoreMessage):
      *   [0x37][player_id:i32][kills:i32][deaths:i32][score:i32]
-     * 17 bytes total. One message per player. */
+     * 17 bytes total. One message per player.
+     * player_id is the network player ID (GetNetID()/wire_slot). */
     bc_buffer_t b;
     bc_buf_init(&b, buf, (size_t)buf_size);
 

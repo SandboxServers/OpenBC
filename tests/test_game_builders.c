@@ -6,6 +6,14 @@
 #include <string.h>
 #include <math.h>
 
+static i32 read_i32_le(const u8 *p)
+{
+    return (i32)((u32)p[0] |
+                 ((u32)p[1] << 8) |
+                 ((u32)p[2] << 16) |
+                 ((u32)p[3] << 24));
+}
+
 /* === Object ID arithmetic === */
 
 TEST(object_id_slot0)
@@ -220,6 +228,78 @@ TEST(chat_team)
     ASSERT(strcmp(ev.message, "help me") == 0);
 }
 
+/* === Score messages === */
+
+TEST(score_message_single_player)
+{
+    u8 buf[32];
+    int len = bc_build_score(buf, sizeof(buf), 2, 3, 1, 7);
+
+    ASSERT_EQ_INT(len, 17);
+    ASSERT_EQ(buf[0], BC_MSG_SCORE);
+    ASSERT_EQ_INT(read_i32_le(buf + 1), 2);
+    ASSERT_EQ_INT(read_i32_le(buf + 5), 3);
+    ASSERT_EQ_INT(read_i32_le(buf + 9), 1);
+    ASSERT_EQ_INT(read_i32_le(buf + 13), 7);
+}
+
+TEST(score_change_with_killer)
+{
+    u8 buf[64];
+    int len = bc_build_score_change(buf, sizeof(buf),
+                                     3, 4, 11,
+                                     2, 5,
+                                     NULL, 0);
+
+    ASSERT_EQ_INT(len, 22);
+    ASSERT_EQ(buf[0], BC_MSG_SCORE_CHANGE);
+    ASSERT_EQ_INT(read_i32_le(buf + 1), 3);   /* killer_id */
+    ASSERT_EQ_INT(read_i32_le(buf + 5), 4);   /* killer_kills */
+    ASSERT_EQ_INT(read_i32_le(buf + 9), 11);  /* killer_score */
+    ASSERT_EQ_INT(read_i32_le(buf + 13), 2);  /* victim_id */
+    ASSERT_EQ_INT(read_i32_le(buf + 17), 5);  /* victim_deaths */
+    ASSERT_EQ(buf[21], 0);                    /* update_count */
+}
+
+TEST(score_change_environmental_kill)
+{
+    u8 buf[64];
+    int len = bc_build_score_change(buf, sizeof(buf),
+                                     0, 0, 0,
+                                     2, 6,
+                                     NULL, 0);
+
+    ASSERT_EQ_INT(len, 14);
+    ASSERT_EQ(buf[0], BC_MSG_SCORE_CHANGE);
+    ASSERT_EQ_INT(read_i32_le(buf + 1), 0);   /* killer_id=0 omits killer stats */
+    ASSERT_EQ_INT(read_i32_le(buf + 5), 2);   /* victim_id */
+    ASSERT_EQ_INT(read_i32_le(buf + 9), 6);   /* victim_deaths */
+    ASSERT_EQ(buf[13], 0);                    /* update_count */
+}
+
+TEST(score_change_extra_entries)
+{
+    bc_score_entry_t extra[2];
+    extra[0].player_id = 2;
+    extra[0].score = 12;
+    extra[1].player_id = 4;
+    extra[1].score = 9;
+
+    u8 buf[96];
+    int len = bc_build_score_change(buf, sizeof(buf),
+                                     3, 8, 20,
+                                     2, 7,
+                                     extra, 2);
+
+    ASSERT_EQ_INT(len, 38);
+    ASSERT_EQ(buf[0], BC_MSG_SCORE_CHANGE);
+    ASSERT_EQ(buf[21], 2);                    /* update_count */
+    ASSERT_EQ_INT(read_i32_le(buf + 22), 2);  /* extra[0].player_id */
+    ASSERT_EQ_INT(read_i32_le(buf + 26), 12); /* extra[0].score */
+    ASSERT_EQ_INT(read_i32_le(buf + 30), 4);  /* extra[1].player_id */
+    ASSERT_EQ_INT(read_i32_le(buf + 34), 9);  /* extra[1].score */
+}
+
 /* === StateUpdate === */
 
 TEST(state_update_with_fields)
@@ -281,6 +361,12 @@ TEST_MAIN_BEGIN()
     /* Chat */
     RUN(chat_all);
     RUN(chat_team);
+
+    /* Score */
+    RUN(score_message_single_player);
+    RUN(score_change_with_killer);
+    RUN(score_change_environmental_kill);
+    RUN(score_change_extra_entries);
 
     /* StateUpdate */
     RUN(state_update_with_fields);
