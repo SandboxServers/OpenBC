@@ -23,7 +23,8 @@
         "name": "Starboard Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -39,7 +40,8 @@
         "name": "Starboard Warp",
         "max_condition": 4000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -71,7 +73,8 @@
       {
         "name": "Forward Beam 4"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -85,13 +88,15 @@
       {
         "name": "Torpedo Tube 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Repair System",
     "max_condition": 8000,
-    "normal_power": 50
+    "normal_power": 50,
+    "power_mode": 0
   },
   {
     "format": "base",
@@ -102,12 +107,14 @@
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 8000,
-    "normal_power": 200
+    "normal_power": 200,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Cloaking Device",
     "max_condition": 7000,
-    "normal_power": 1300
+    "normal_power": 1300,
+    "power_mode": 2
   }
 ]

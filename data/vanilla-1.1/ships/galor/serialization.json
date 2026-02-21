@@ -32,7 +32,8 @@
       {
         "name": "Aft Beam"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -43,7 +44,8 @@
       {
         "name": "Forward Torpedo"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -59,7 +61,8 @@
         "name": "Starboard Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -71,18 +74,21 @@
         "name": "Warp Engine 1",
         "max_condition": 4000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Repair Subsystem",
     "max_condition": 5000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 5000,
-    "normal_power": 50
+    "normal_power": 50,
+    "power_mode": 0
   }
 ]

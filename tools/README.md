@@ -5,7 +5,7 @@
 | Tool | Type | Purpose |
 |------|------|---------|
 | `manifest.c` → `openbc-hash.exe` | C (built by `make all`) | Hash manifest CLI: generate, verify, hash-string, hash-file |
-| `scrape_bc.py` | Python 3 | Extract ship/projectile data from BC reference scripts → `data/vanilla-1.1.json` |
+| `scrape_bc.py` | Python 3 | Extract ship/projectile data from BC reference scripts → `data/vanilla-1.1/` |
 | `compare_traces.py` | Python 3 | Compare OBCTRACE binary logs vs reference payloads |
 | `gs_query.py` | Python 3 | GameSpy query diagnostic tool |
 | `ahk/bc-test.ahk` | AutoHotkey v2 | Automate real BC client for manual integration testing ([see README](ahk/README.md)) |
@@ -34,7 +34,7 @@ Extracts ship stats and projectile data from Bridge Commander reference scripts.
 
 ```
 # Extract from reference scripts directory
-python3 tools/scrape_bc.py <bc-scripts-dir> -o data/vanilla-1.1.json
+python3 tools/scrape_bc.py <bc-scripts-dir> -o data/vanilla-1.1/
 ```
 
 Output: JSON with 16 flyable ships (hull, shields, subsystems, weapon hardpoints) and 15 projectile types (damage, speed, lifetime, guidance).

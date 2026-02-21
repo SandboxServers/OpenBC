@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Add serialization_list and power parameters to vanilla-1.1.json.
+Add serialization_list and power parameters to a monolith registry JSON.
 
 Data sources:
 - docs/ship-subsystems.md Section 7 (per-ship serialization lists)
@@ -398,7 +398,10 @@ def validate(data):
     return issues
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else "data/vanilla-1.1.json"
+    if len(sys.argv) < 2:
+        print("Usage: add_ser_lists.py <monolith-registry.json>", file=sys.stderr)
+        sys.exit(2)
+    path = sys.argv[1]
     with open(path, "r") as f:
         data = json.load(f)
 
