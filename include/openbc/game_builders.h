@@ -86,6 +86,20 @@ int bc_build_score_change(u8 *buf, int buf_size,
                            i32 victim_id, i32 victim_deaths,
                            const bc_score_entry_t *extra, int extra_count);
 
+/* ScoreInit (team mode join sync):
+ * [0x3F][player_id:i32][kills:i32][deaths:i32][score:i32][team_id:u8]
+ * 18 bytes total.
+ * team_id: 0/1, or 255 when no team assignment exists. */
+int bc_build_score_init(u8 *buf, int buf_size,
+                         i32 player_id, i32 kills, i32 deaths, i32 score,
+                         u8 team_id);
+
+/* TeamScore (team mode aggregate update):
+ * [0x40][team_id:u8][team_kills:i32][team_score:i32]
+ * 10 bytes total. */
+int bc_build_team_score(u8 *buf, int buf_size,
+                         u8 team_id, i32 team_kills, i32 team_score);
+
 /* EndGame: [0x38][reason:i32]
  * 5 bytes total. Sent when frag/time limit reached.
  * Reason codes: 0=over, 1=time_up, 2=frag_limit, 3=score_limit,
@@ -95,6 +109,10 @@ int bc_build_score_change(u8 *buf, int buf_size,
 #define BC_END_REASON_FRAG_LIMIT    2
 #define BC_END_REASON_SCORE_LIMIT   3
 int bc_build_end_game(u8 *buf, int buf_size, i32 reason);
+
+/* RestartGame: [0x39]
+ * 1 byte total. */
+int bc_build_restart_game(u8 *buf, int buf_size);
 
 /* --- PythonEvent (0x06) builders --- */
 

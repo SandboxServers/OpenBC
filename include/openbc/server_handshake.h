@@ -15,4 +15,7 @@ void bc_handle_checksum_response(int peer_slot,
 /* Notify all other peers that a player has left, then remove them. */
 void bc_handle_peer_disconnect(int slot);
 
+/* Restore preserved score/team state for reconnecting players by name. */
+void bc_try_restore_reconnect_score(int slot, const char *name);
+
 #endif /* OPENBC_SERVER_HANDSHAKE_H */

@@ -26,7 +26,8 @@
       {
         "name": "Star Cannon"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -37,7 +38,8 @@
       {
         "name": "Fwd Torpedo"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -49,7 +51,8 @@
         "name": "Impulse Engine",
         "max_condition": 2000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -65,24 +68,28 @@
         "name": "Starboard Warp",
         "max_condition": 2000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Cloaking Device",
     "max_condition": 3000,
-    "normal_power": 380
+    "normal_power": 380,
+    "power_mode": 2
   },
   {
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 3000,
-    "normal_power": 50
+    "normal_power": 50,
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Engineering",
     "max_condition": 4000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   }
 ]

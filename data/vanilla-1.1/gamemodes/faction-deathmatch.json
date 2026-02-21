@@ -1,0 +1,8 @@
+{
+  "id": "mission3",
+  "name": "Faction Deathmatch",
+  "script": "Multiplayer.Episode.Mission3.Mission3",
+  "teams": true,
+  "team_names": ["Federation", "Non-Federation"],
+  "scoring": "team"
+}

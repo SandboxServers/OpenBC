@@ -2,7 +2,7 @@
 
 A clean-room, open-source reimplementation of Star Trek: Bridge Commander (2002).
 
-Phase 1 server in active development. Stock BC 1.1 clients connect and play.
+Phase 1 server complete. Stock BC 1.1 clients connect and play.
 
 ## What Is OpenBC?
 
@@ -26,36 +26,56 @@ Zero copyrighted content is shipped. The game client will require a legitimate B
 | E. Simulation Server | Ship data registry, movement, combat simulation | Complete |
 | **2. Game Client** | Rendering, audio, UI, input | Planning |
 
-What works today:
+### Validated in stock BC 1.1 client sessions
 
-- Stock BC 1.1 clients connect and play multiplayer matches
+Validation in progress -- features get promoted here as they're confirmed working in real multiplayer sessions.
+
+### Implemented and tested in server harness
+
+All of these features work in our test harness and generate correct wire-format packets. End-to-end validation with stock clients is ongoing.
+
 - Full handshake: GameSpy discovery, 4-round checksum validation, settings delivery
 - Ship creation, weapons fire, damage, repairs, cloaking, warp -- all relayed
-- Server-authoritative damage: collision, weapon, and explosion pipelines
+- Server-authoritative damage: collision, beam, torpedo, and explosion pipelines
+- Collision damage with dual scaling paths, dead zone, ownership validation, and deduplication
+- Power system: reactor/battery/conduit simulation, 10Hz subsystem health broadcast, sign-bit encoding
+- PythonEvent generation: subsystem damage/repair events, ship explosion events, score tracking
+- Respawn system with configurable timer and frag/time limit win conditions
 - Chat (global and team), lobby and in-game
 - GameSpy LAN browser and internet master server registration
-- Reliable delivery with retransmit and sequencing
-- Ship data registry: 16 ships, 15 projectile types loaded from JSON
-- Server-side movement and combat simulation (cloaking, tractor beams, repair)
+- Reliable delivery with retransmit, sequencing, and fragment reassembly
 - Dynamic AI battles with seeded RNG
 - Manifest auto-detection, session summary at shutdown, graceful shutdown handling
-- 11 test suites, 226 tests, 1,184 assertions (including networked battle integration)
 
-**Important caveat:** "Complete" means the server-side logic is implemented and tested against our own test harness. It does not mean every feature has been validated end-to-end with a stock BC client. The wire protocol for connection, checksums, lobby, chat, relay, and basic gameplay is proven against real clients. Server-authoritative features like damage simulation generate correct wire-format packets, but whether the stock client accepts and renders all of them is still being verified.
+### Project facts
+
+- Ship data registry: 16 ships, 15 projectile types loaded from JSON
+- Cross-platform: builds natively on Linux and macOS, cross-compiles to Win32 via MinGW
+- 11 test suites, 226 tests, 1,184 assertions
 
 ## Quick Start
 
-Prerequisites: `i686-w64-mingw32-gcc` cross-compiler, Make.
+**Linux / macOS (native):**
 
 ```
-make all     # builds openbc-hash.exe and openbc-server.exe
+make all     # builds openbc-hash and openbc-server
 make test    # runs all 11 test suites
+./build/openbc-server [options]
 ```
+
+**Windows (cross-compile from WSL2 or Linux):**
+
+```
+make all PLATFORM=Windows   # builds openbc-hash.exe and openbc-server.exe
+make test PLATFORM=Windows  # runs all 11 test suites (WSL2 runs .exe natively)
+```
+
+Prerequisites: a C11 compiler (`cc` on Linux/macOS, `i686-w64-mingw32-gcc` for Windows cross-compile), and Make.
 
 Run the server:
 
 ```
-./build/openbc-server.exe [options]
+./build/openbc-server [options]
 
 Options:
   -p <port>          Listen port (default: 22101)
@@ -107,7 +127,7 @@ Connect a stock BC 1.1 client by pointing it to the server IP via the LAN browse
   └───────────┘                          └───────────────┘
 ```
 
-UDP packets arrive, get deciphered (AlbyRules XOR), decoded (TGBufferStream wire format), and dispatched to the appropriate opcode handler. Game state is relayed to all connected peers. Hash manifests validate client file integrity without the server needing any game files.
+UDP packets arrive, get deciphered (AlbyRules stream cipher), decoded (TGBufferStream wire format), and dispatched to the appropriate opcode handler. Game state is relayed to all connected peers. Hash manifests validate client file integrity without the server needing any game files.
 
 ```
 src/
@@ -119,7 +139,7 @@ src/
   server/      Entry point, configuration, logging
 tests/         11 test suites (unit + integration)
 tools/         CLI tools (hash manifest generator, data scraper, diagnostics)
-data/          Ship and projectile data (vanilla-1.1.json)
+data/          Ship and projectile data (vanilla-1.1/)
 manifests/     Precomputed hash manifests (vanilla-1.1.json)
 docs/          Design documents and protocol reference
 ```
@@ -138,8 +158,8 @@ docs/          Design documents and protocol reference
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Language | C11 | Performance, portability, no runtime dependencies |
-| Build | Make | Simple, proven, cross-compiles from WSL2 to Win32 |
-| Networking | Raw UDP (Winsock) | Wire-compatible with stock BC clients |
+| Build | Make | Simple, proven; native on Linux/macOS, cross-compiles to Win32 via MinGW |
+| Networking | Raw UDP (Winsock / BSD sockets) | Wire-compatible with stock BC clients; builds natively on all platforms |
 | Data | JSON (machine-generated) | Ship/projectile registry, hash manifests |
 | Discovery | GameSpy protocol | LAN browser + 333networks-compatible master server |
 
@@ -164,11 +184,11 @@ The original Bridge Commander had a thriving mod community that pushed the game 
 
 - **Data packs** -- Ship stats, weapons, projectiles, maps, and game rules are JSON. Add a ship by adding a file, not by hacking a script.
 - **Custom opcodes** -- The network layer supports registering new message types. Mods that need custom client-server communication get a proper channel for it.
-- **UI and menus** -- The client UI is built on a modular document system. Mods can add new panels, replace existing screens, or reskin the entire interface.
-- **Game logic hooks** -- Extensibility points for game rules, damage formulas, victory conditions, and event handling. Change how the game plays without forking the engine.
+- **UI and menus** *(Phase 2)* -- The planned client UI will be built on a modular document system. Mods will be able to add new panels, replace existing screens, or reskin the entire interface.
+- **Game logic hooks** *(Phase 2)* -- Planned extensibility points for game rules, damage formulas, victory conditions, and event handling.
 - **Hash manifests** -- The manifest system validates any mod combination without the server needing the actual files. `openbc-hash` generates manifests from a BC install or mod pack directory.
 
-The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla-1.1.json`, extracted from BC's readable scripts by `tools/scrape_bc.py`. The goal is that any mod that existed for Bridge Commander can reimplement itself in OpenBC through supported extension points, without having to pick up a crowbar.
+The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla-1.1/`, extracted from BC's readable scripts by `tools/scrape_bc.py`. The goal is that any mod that existed for Bridge Commander can reimplement itself in OpenBC through supported extension points, without having to pick up a crowbar.
 
 ## Documentation
 
@@ -193,7 +213,12 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 
 **Game Systems:**
 - [Combat System](docs/combat-system.md) -- Damage pipeline, shields, cloaking, tractor beams, repair
+- [Power & Reactor System](docs/power-system.md) -- Reactor, batteries, conduits, consumer draw, power wire format
+- [Repair System](docs/repair-system.md) -- Repair queue, priority toggle, PythonEvent wire format
 - [Ship Subsystems](docs/ship-subsystems.md) -- Fixed subsystem index table, HP values, StateUpdate serialization
+- [Collision Detection](docs/collision-detection-system.md) -- Collision damage scaling, dual damage paths
+- [Collision Shield Interaction](docs/collision-shield-interaction.md) -- Shield absorption during collisions
+- [PythonEvent Wire Format](docs/pythonevent-wire-format.md) -- Factory IDs, event types, subsystem and explosion events
 
 **Testing & Tools:**
 - [Test Suite](tests/README.md) -- 11 test suites, test frameworks, adding new tests
@@ -204,9 +229,14 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 Contributions are welcome. The most useful things right now:
 
 - **Testing**: Connect stock BC 1.1 clients, report connection issues or protocol mismatches
+- **Cross-platform testing**: Build and test on macOS, different Linux distributions
 - **Protocol analysis**: Packet captures, behavioral observation, documentation
 - **Data files**: Ship stats, map definitions, game rule sets
 - **Code review**: Protocol correctness, edge cases, platform compatibility
+
+**Clean room requirement:** This is a clean-room reimplementation. All protocol knowledge must come from observable wire behavior (packet captures, behavioral observation) and the docs in `docs/` -- never from decompiled or original source code. Do not reference disassembly output, binary addresses, or decompiled pseudocode in issues, PRs, or comments. See `CLAUDE.md` for the full clean room rules and legal basis.
+
+**Code style:** Builds must pass with zero warnings under `-Wall -Wextra -Wpedantic`. Run `make test` before submitting.
 
 Open an issue to discuss before starting large changes.
 

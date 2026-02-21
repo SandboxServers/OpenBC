@@ -300,6 +300,40 @@ TEST(score_change_extra_entries)
     ASSERT_EQ_INT(read_i32_le(buf + 34), 9);  /* extra[1].score */
 }
 
+TEST(score_init_team_sync)
+{
+    u8 buf[32];
+    int len = bc_build_score_init(buf, sizeof(buf), 5, 2, 1, 17, 1);
+
+    ASSERT_EQ_INT(len, 18);
+    ASSERT_EQ(buf[0], BC_MSG_SCORE_INIT);
+    ASSERT_EQ_INT(read_i32_le(buf + 1), 5);    /* player_id */
+    ASSERT_EQ_INT(read_i32_le(buf + 5), 2);    /* kills */
+    ASSERT_EQ_INT(read_i32_le(buf + 9), 1);    /* deaths */
+    ASSERT_EQ_INT(read_i32_le(buf + 13), 17);  /* score */
+    ASSERT_EQ(buf[17], 1);                     /* team */
+}
+
+TEST(team_score_update)
+{
+    u8 buf[32];
+    int len = bc_build_team_score(buf, sizeof(buf), 0, 12, 4200);
+
+    ASSERT_EQ_INT(len, 10);
+    ASSERT_EQ(buf[0], BC_MSG_TEAM_SCORE);
+    ASSERT_EQ(buf[1], 0);
+    ASSERT_EQ_INT(read_i32_le(buf + 2), 12);   /* team kills */
+    ASSERT_EQ_INT(read_i32_le(buf + 6), 4200); /* team score */
+}
+
+TEST(restart_game_message)
+{
+    u8 buf[8];
+    int len = bc_build_restart_game(buf, sizeof(buf));
+    ASSERT_EQ_INT(len, 1);
+    ASSERT_EQ(buf[0], BC_MSG_RESTART);
+}
+
 /* === StateUpdate === */
 
 TEST(state_update_with_fields)
@@ -367,6 +401,9 @@ TEST_MAIN_BEGIN()
     RUN(score_change_with_killer);
     RUN(score_change_environmental_kill);
     RUN(score_change_extra_entries);
+    RUN(score_init_team_sync);
+    RUN(team_score_update);
+    RUN(restart_game_message);
 
     /* StateUpdate */
     RUN(state_update_with_fields);

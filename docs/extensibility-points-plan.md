@@ -101,14 +101,14 @@ Stock handlers (already implemented):
 
 ### 3.2 Ship Data Registry (Extensibility Point: Data Packs)
 
-**Current state**: `data/vanilla-1.1.json` has 16 ships + 15 projectiles. `bc_registry_load()` reads this at startup. Species lookup by `u16 species_id`.
+**Current state**: `data/vanilla-1.1/` has 16 ships + 15 projectiles. `bc_registry_load_dir()` reads this at startup. Species lookup by `u16 species_id`.
 
-**Extension model**: Data packs loaded from a directory. Each pack is a JSON file (machine-generated from mod scripts by tooling). Server loads `data/vanilla-1.1.json` as the base, then overlays mod pack JSON on top.
+**Extension model**: Data packs loaded from a directory. Each pack is machine-generated from mod scripts by tooling. Server loads `data/vanilla-1.1/` as the base, then overlays mod pack directories on top.
 
 **Tooling needed**: Extend `tools/scrape_bc.py` to scrape mod ship definitions:
 - KM: Parse `scripts/Custom/Ships/*.py` for Foundation ShipDef registrations + `scripts/Ships/Hardpoints/*.py` for weapon/subsystem data
 - BCRM: Parse `py/Orion/Ships/*.py` for `GetShipStats()` return dicts + `Scripts/Ships/Hardpoints/*.py`
-- Output: `data/<modname>.json` in same schema as `vanilla-1.1.json`
+- Output: `data/<modname>/` in the same versioned directory schema as `vanilla-1.1/`
 
 **Why JSON not TOML**: Ship data is machine-generated from mod Python scripts. 187-291 ships with 20+ subsystems each -- nobody is editing this by hand. Scraper generates it.
 
@@ -140,8 +140,8 @@ friendly_fire = false
 difficulty = 1       # 0=Easy, 1=Normal, 2=Hard
 
 [data]
-registry = "data/vanilla-1.1.json"
-# mod_packs = ["data/kobayashi-maru.json", "data/bcrm-orion.json"]
+registry = "data/vanilla-1.1/"
+# mod_packs = ["data/kobayashi-maru/", "data/bcrm-orion/"]
 
 [gamespy]
 enabled = true

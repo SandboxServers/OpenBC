@@ -177,6 +177,13 @@ int bc_build_end_game(u8 *buf, int buf_size, i32 reason)
     return (int)b.pos;
 }
 
+int bc_build_restart_game(u8 *buf, int buf_size)
+{
+    if (buf_size < 1) return -1;
+    buf[0] = BC_MSG_RESTART;
+    return 1;
+}
+
 int bc_build_python_subsystem_event(u8 *buf, int buf_size,
                                      i32 event_type,
                                      i32 source_obj_id,
@@ -273,6 +280,41 @@ int bc_build_score(u8 *buf, int buf_size,
     if (!bc_buf_write_i32(&b, kills)) return -1;
     if (!bc_buf_write_i32(&b, deaths)) return -1;
     if (!bc_buf_write_i32(&b, score)) return -1;
+
+    return (int)b.pos;
+}
+
+int bc_build_score_init(u8 *buf, int buf_size,
+                         i32 player_id, i32 kills, i32 deaths, i32 score,
+                         u8 team_id)
+{
+    /* Wire format:
+     *   [0x3F][player_id:i32][kills:i32][deaths:i32][score:i32][team_id:u8] */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_MSG_SCORE_INIT)) return -1;
+    if (!bc_buf_write_i32(&b, player_id)) return -1;
+    if (!bc_buf_write_i32(&b, kills)) return -1;
+    if (!bc_buf_write_i32(&b, deaths)) return -1;
+    if (!bc_buf_write_i32(&b, score)) return -1;
+    if (!bc_buf_write_u8(&b, team_id)) return -1;
+
+    return (int)b.pos;
+}
+
+int bc_build_team_score(u8 *buf, int buf_size,
+                         u8 team_id, i32 team_kills, i32 team_score)
+{
+    /* Wire format:
+     *   [0x40][team_id:u8][team_kills:i32][team_score:i32] */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_MSG_TEAM_SCORE)) return -1;
+    if (!bc_buf_write_u8(&b, team_id)) return -1;
+    if (!bc_buf_write_i32(&b, team_kills)) return -1;
+    if (!bc_buf_write_i32(&b, team_score)) return -1;
 
     return (int)b.pos;
 }

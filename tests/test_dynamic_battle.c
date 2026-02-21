@@ -11,7 +11,7 @@
 #include <time.h>
 #include <stdio.h>
 
-#define REGISTRY_PATH "data/vanilla-1.1.json"
+#define REGISTRY_DIR "data/vanilla-1.1"
 
 /* === Seeded RNG (xorshift32) for deterministic replay === */
 
@@ -343,7 +343,7 @@ static void ai_update(int idx, f32 dt)
 TEST(dynamic_battle)
 {
     /* Load registry */
-    ASSERT(bc_registry_load(&g_reg, REGISTRY_PATH));
+    ASSERT(bc_registry_load_dir(&g_reg, REGISTRY_DIR));
 
     /* Seed RNG */
     u32 seed = (u32)time(NULL);
