@@ -1172,10 +1172,72 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
     }
 
-    /* --- Host message (C->S only, not relayed) --- */
-    case BC_OP_HOST_MSG:
-        LOG_DEBUG("game", "slot=%d host message len=%d", peer_slot, payload_len);
+    /* --- Host message (0x13): self-destruct (C->S only, not relayed).
+     * Single-byte wire message; sender identity from transport peer_slot.
+     * Kills the sender's own ship with no kill credit awarded.
+     * Gate: must have an alive ship and the game registry loaded.
+     * Scoring: killer_slot=-1 (environmental/no-killer path). */
+    case BC_OP_HOST_MSG: {
+        if (!bc_parse_host_msg(payload, payload_len)) {
+            LOG_WARN("game", "slot=%d malformed HostMsg", peer_slot);
+            break;
+        }
+
+        if (!g_registry_loaded || !peer->has_ship || !peer->ship.alive) {
+            LOG_DEBUG("game", "slot=%d self-destruct ignored (no ship)", peer_slot);
+            break;
+        }
+
+        const bc_ship_class_t *cls =
+            bc_registry_get_ship(&g_registry, peer->class_index);
+        if (!cls) break;
+
+        LOG_INFO("combat", "%s self-destructed", peer_name(peer_slot));
+
+        /* Force-kill: zero all subsystem HP (cascading reactor failure),
+         * then set hull to 0 and mark the ship dead. */
+        f32 hp_snap[BC_MAX_SUBSYSTEMS];
+        memcpy(hp_snap, peer->ship.subsystem_hp, sizeof(hp_snap));
+
+        for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++)
+            peer->ship.subsystem_hp[i] = 0.0f;
+        peer->ship.hull_hp = 0.0f;
+        peer->ship.alive   = false;
+
+        /* Generate ADD_TO_REPAIR_LIST PythonEvents for every destroyed subsystem */
+        generate_damage_events(peer_slot, hp_snap, cls);
+
+        /* OBJECT_EXPLODING PythonEvent -- killer_id=0 (no attacker) */
+        {
+            u8 expl[25];
+            int elen = bc_build_python_exploding_event(
+                expl, sizeof(expl),
+                peer->ship.object_id,
+                0, /* killer_id: NULL -- self-destruct has no attacker */
+                1.0f);
+            if (elen > 0) bc_send_to_all(expl, elen, true);
+        }
+
+        /* DestroyObject to remove the ship from all clients */
+        {
+            u8 dest[8];
+            int dlen = bc_build_destroy_obj(dest, sizeof(dest),
+                                             peer->ship.object_id);
+            if (dlen > 0) bc_send_to_all(dest, dlen, true);
+        }
+
+        /* Score: death for self, no kill credit (killer_slot=-1) */
+        process_ship_kill(-1, peer_slot);
+
+        /* Clear ship state and schedule respawn */
+        peer->has_ship = false;
+        peer->spawn_len = 0;
+        if (!g_game_ended) {
+            peer->respawn_timer = 5.0f;
+            peer->respawn_class = peer->class_index;
+        }
         break;
+    }
 
     /* --- Collision effect: parse and apply damage server-side.
      * Wire format from docs/collision-effect-wire-format.md.

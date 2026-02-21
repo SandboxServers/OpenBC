@@ -132,4 +132,9 @@ typedef struct {
 bool bc_parse_set_phaser_level(const u8 *payload, int len,
                                 bc_phaser_level_event_t *out);
 
+/* HostMsg (0x13) -- self-destruct request (C->S only, 1 byte, no payload).
+ * Sender identity comes from the transport envelope (peer_slot), not this
+ * message body.  Returns true iff the single opcode byte is 0x13. */
+bool bc_parse_host_msg(const u8 *payload, int len);
+
 #endif /* OPENBC_GAME_EVENTS_H */
