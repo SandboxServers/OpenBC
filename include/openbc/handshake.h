@@ -52,15 +52,15 @@ int bc_gameinit_build(u8 *buf, int buf_size);
 
 /* Build the MissionInit payload (opcode 0x35).
  * Sent to each client after NewPlayerInGame to tell them which star system
- * to load, along with player limit and match rules.
- *   system_index  - star system (1-9, see SpeciesToSystem.py)
- *   player_limit  - max players in the match
- *   time_limit    - time limit in minutes (-1 = no limit)
- *   end_time      - absolute game clock second when round ends
- *   frag_limit    - frag/kill limit (-1 = no limit)
+ * to load, along with current connected player count and match rules.
+ *   system_index          - star system (1-9, see SpeciesToSystem.py)
+ *   current_player_count  - currently connected human players (dynamic u8)
+ *   time_limit            - time limit in minutes (-1 = no limit)
+ *   end_time              - absolute game clock second when round ends
+ *   frag_limit            - frag/kill limit (-1 = no limit)
  * Returns bytes written, or -1 on error. */
 int bc_mission_init_build(u8 *buf, int buf_size,
-                          int system_index, int player_limit,
+                          int system_index, int current_player_count,
                           int time_limit, i32 end_time, int frag_limit);
 
 /* --- UICollisionSetting (opcode 0x16) --- */

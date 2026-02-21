@@ -268,6 +268,14 @@ static bool same_team_slots(int a_slot, int b_slot)
     return a == b;
 }
 
+static u8 current_player_count(void)
+{
+    int count = g_peers.count - 1;  /* exclude dedicated slot 0 */
+    if (count < 0) count = 0;
+    if (count > 255) count = 255;
+    return (u8)count;
+}
+
 static f32 class_damage_modifier(const bc_ship_class_t *attacker_cls,
                                  const bc_ship_class_t *target_cls)
 {
@@ -371,7 +379,8 @@ static void check_limit_after_kill(void)
     }
 }
 
-static void process_ship_kill(int killer_slot, int victim_slot)
+static void process_ship_kill(int killer_slot, int victim_slot,
+                              bool self_destruct)
 {
     if (g_game_ended) return;
     if (victim_slot <= 0 || victim_slot >= BC_MAX_PLAYERS) return;
@@ -400,6 +409,14 @@ static void process_ship_kill(int killer_slot, int victim_slot)
             g_player_kills[killer_slot]++;
             u8 team = g_player_teams[killer_slot];
             if (g_team_mode && team < 2) g_team_kills[team]++;
+        }
+    } else if (self_destruct && g_team_mode) {
+        u8 victim_team = g_player_teams[victim_slot];
+        if (victim_team == BC_TEAM_NONE)
+            victim_team = g_peers.peers[victim_slot].ship.team_id;
+        if (victim_team < 2) {
+            u8 opposing_team = (u8)(1 - victim_team);
+            g_team_kills[opposing_team]++;
         }
     }
 
@@ -573,7 +590,7 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
                                          target->ship.object_id);
         if (dlen > 0) bc_send_to_all(dest, dlen, true);
 
-        process_ship_kill(shooter_slot, target_slot);
+        process_ship_kill(shooter_slot, target_slot, false);
 
         /* Clear victim ship state */
         target->has_ship = false;
@@ -665,7 +682,7 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
                                          target->ship.object_id);
         if (dlen > 0) bc_send_to_all(dest, dlen, true);
 
-        process_ship_kill(shooter_slot, target_slot);
+        process_ship_kill(shooter_slot, target_slot, false);
 
         target->has_ship = false;
         target->spawn_len = 0;
@@ -1116,7 +1133,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         u8 mi[32];
         i32 end_time = (g_round_end_time >= 0.0f) ? (i32)g_round_end_time : 0;
         int mi_len = bc_mission_init_build(mi, sizeof(mi),
-                                            g_system_index, g_max_players,
+                                            g_system_index,
+                                            (int)current_player_count(),
                                             g_time_limit, end_time, g_frag_limit);
         if (mi_len > 0) {
             LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
@@ -1174,9 +1192,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* --- Host message (0x13): self-destruct (C->S only, not relayed).
      * Single-byte wire message; sender identity from transport peer_slot.
-     * Kills the sender's own ship with no kill credit awarded.
+     * Kills the sender's own ship with no killer player.
      * Gate: must have an alive ship and the game registry loaded.
-     * Scoring: killer_slot=-1 (environmental/no-killer path). */
+     * Scoring: death for self; in team mode, opposing team gets +1 team kill. */
     case BC_OP_HOST_MSG: {
         if (!bc_parse_host_msg(payload, payload_len)) {
             LOG_WARN("game", "slot=%d malformed HostMsg", peer_slot);
@@ -1226,8 +1244,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             if (dlen > 0) bc_send_to_all(dest, dlen, true);
         }
 
-        /* Score: death for self, no kill credit (killer_slot=-1) */
-        process_ship_kill(-1, peer_slot);
+        /* Score: death for self, no killer player (killer_slot=-1). */
+        process_ship_kill(-1, peer_slot, true);
 
         /* Clear ship state and schedule respawn */
         peer->has_ship = false;
@@ -1422,13 +1440,13 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             killer = find_peer_by_object(
                                 cev.source_object_id);
                         if (killer >= 0) {
-                            process_ship_kill(killer, target_slot);
+                            process_ship_kill(killer, target_slot, false);
                             LOG_INFO("combat",
                                      "%s destroyed in collision with %s",
                                      peer_name(target_slot),
                                      peer_name(killer));
                         } else {
-                            process_ship_kill(-1, target_slot);
+                            process_ship_kill(-1, target_slot, false);
                             LOG_INFO("combat",
                                      "%s destroyed in collision",
                                      peer_name(target_slot));
@@ -1546,14 +1564,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             /* Kill credit: target killed the source */
                             if (target_slot >= 0 &&
                                 g_peers.peers[target_slot].has_ship) {
-                                process_ship_kill(target_slot, src_slot);
+                                process_ship_kill(target_slot, src_slot, false);
                                 LOG_INFO("combat",
                                          "%s destroyed in collision "
                                          "with %s",
                                          peer_name(src_slot),
                                          peer_name(target_slot));
                             } else {
-                                process_ship_kill(-1, src_slot);
+                                process_ship_kill(-1, src_slot, false);
                                 LOG_INFO("combat",
                                          "%s destroyed in collision",
                                          peer_name(src_slot));

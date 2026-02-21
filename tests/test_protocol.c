@@ -740,9 +740,9 @@ TEST(mission_init_no_limits)
     ASSERT(bc_buf_read_u8(&b, &opcode));
     ASSERT_EQ(opcode, BC_MSG_MISSION_INIT);
 
-    u8 player_limit;
-    ASSERT(bc_buf_read_u8(&b, &player_limit));
-    ASSERT_EQ(player_limit, 6);
+    u8 current_player_count;
+    ASSERT(bc_buf_read_u8(&b, &current_player_count));
+    ASSERT_EQ(current_player_count, 6);
 
     u8 system_index;
     ASSERT(bc_buf_read_u8(&b, &system_index));
@@ -773,9 +773,9 @@ TEST(mission_init_with_limits)
     ASSERT(bc_buf_read_u8(&b, &opcode));
     ASSERT_EQ(opcode, BC_MSG_MISSION_INIT);
 
-    u8 player_limit;
-    ASSERT(bc_buf_read_u8(&b, &player_limit));
-    ASSERT_EQ(player_limit, 4);
+    u8 current_player_count;
+    ASSERT(bc_buf_read_u8(&b, &current_player_count));
+    ASSERT_EQ(current_player_count, 4);
 
     u8 system_index;
     ASSERT(bc_buf_read_u8(&b, &system_index));
