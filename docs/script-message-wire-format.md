@@ -305,24 +305,22 @@ Direction: Host → joining client (sent after client sends NewPlayerInGame 0x2A
 Offset  Size  Type    Field
 ------  ----  ----    -----
 0       1     u8      opcode = 0x36
-1       4     i32     killed_player_id
-5       4     i32     killer_player_id (0 if suicide/environment)
+1       4     i32     killer_player_id (0 if suicide/environment)
 [if killer_player_id != 0:]
-9       4     i32     killer_score_delta
-13      4     i32     killer_deaths_delta
+5       4     i32     killer_kills
+9       4     i32     killer_score
 [end if]
-+0      4     i32     killed_score_delta
-+4      4     i32     killed_deaths_delta
++0      4     i32     victim_player_id
++4      4     i32     victim_deaths
 +8      1     u8      update_count (number of additional score entries)
 [repeated update_count times:]
   +0    4     i32     player_id
-  +4    4     i32     kills
-  +8    4     i32     deaths
-  +12   4     i32     score
+  +4    4     i32     score
 [end repeat]
 ```
 
 Direction: Host → all clients (broadcast on kill)
+All player IDs in this message use the network ID domain (`GetNetID()` / wire slot).
 
 ### SCORE_MESSAGE (0x37)
 
@@ -330,16 +328,14 @@ Direction: Host → all clients (broadcast on kill)
 Offset  Size  Type    Field
 ------  ----  ----    -----
 0       1     u8      opcode = 0x37
-1       1     u8      player_count
-[repeated player_count times:]
-  +0    4     i32     player_id
-  +4    4     i32     kills
-  +8    4     i32     deaths
-  +12   4     i32     score
-[end repeat]
+1       4     i32     player_id
+5       4     i32     kills
+9       4     i32     deaths
+13      4     i32     score
 ```
 
-Direction: Host → joining client (full score roster sync)
+Direction: Host → joining client (full score roster sync, one message per player)
+`player_id` uses the network ID domain (`GetNetID()` / wire slot).
 
 ### END_GAME_MESSAGE (0x38)
 

@@ -65,6 +65,7 @@ int bc_build_chat(u8 *buf, int buf_size,
 
 /* Score: [0x37][player_id:i32][kills:i32][deaths:i32][score:i32]
  * 17 bytes total. Sent once per player to a newly joining client.
+ * player_id is the network player ID (GetNetID()/wire_slot), not object_id.
  * Stock BC sends one message per player (not batched). */
 int bc_build_score(u8 *buf, int buf_size,
                     i32 player_id, i32 kills, i32 deaths, i32 score);
@@ -73,6 +74,7 @@ int bc_build_score(u8 *buf, int buf_size,
  *              [victim_id:i32][deaths:i32][update_count:u8]
  *              [{player_id:i32, score:i32}...]
  * Variable length. Sent when a kill occurs. killer_id=0 for environmental kills.
+ * killer_id/victim_id/player_id use network player IDs (GetNetID()/wire_slot).
  * extra_scores is an array of {player_id, score} pairs for damage-share updates. */
 typedef struct {
     i32 player_id;
