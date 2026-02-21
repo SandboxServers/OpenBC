@@ -35,6 +35,22 @@ TEST(load_registry_power)
     ASSERT(akira->backup_conduit_capacity > 0.0f);
 }
 
+/* === Load registry (monolith format) === */
+
+TEST(load_registry_monolith)
+{
+    bc_game_registry_t reg;
+    ASSERT(bc_registry_load(&reg, REGISTRY_PATH));
+    ASSERT(reg.loaded);
+    ASSERT_EQ(reg.ship_count, 16);
+    ASSERT_EQ(reg.projectile_count, 15);
+    /* Spot-check a ship to verify data integrity matches the dir load */
+    const bc_ship_class_t *akira = bc_registry_find_ship(&reg, 1);
+    ASSERT(akira != NULL);
+    ASSERT(strcmp(akira->name, "Akira") == 0);
+    ASSERT(fabsf(akira->hull_hp - 9000.0f) < 1.0f);
+}
+
 /* === Ship lookups === */
 
 TEST(galaxy_stats)
@@ -736,6 +752,7 @@ TEST(repair_no_duplicates)
 TEST_MAIN_BEGIN()
     RUN(load_registry);
     RUN(load_registry_power);
+    RUN(load_registry_monolith);
     RUN(galaxy_stats);
     RUN(shuttle_stats);
     RUN(bop_cloak);

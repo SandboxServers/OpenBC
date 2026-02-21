@@ -954,15 +954,22 @@ def main():
     projectiles = scrape_projectiles(args.scripts_dir)
     print(f"Found {len(projectiles)} projectile types", file=sys.stderr)
 
+    manifest_data = None
     if args.game_dir:
         print("\nScanning manifest...", file=sys.stderr)
-        scan_manifest(args.game_dir)
+        manifest_data = scan_manifest(args.game_dir)
 
     # --- Output ---
     if args.output and not args.output.endswith(".json"):
         # Directory output
         print(f"\nWriting to {args.output}/", file=sys.stderr)
         write_registry_dir(ships, projectiles, args.output)
+        if manifest_data is not None:
+            hashes_path = os.path.join(args.output, "manifest_hashes.json")
+            with open(hashes_path, "w") as f:
+                json.dump(manifest_data, f, indent=2)
+                f.write("\n")
+            print(f"Manifest hashes -> {hashes_path}", file=sys.stderr)
         print(f"Done: {len(ships)} ships, {len(projectiles)} projectiles",
               file=sys.stderr)
     else:
@@ -972,6 +979,8 @@ def main():
             "ships": ships,
             "projectiles": projectiles,
         }
+        if manifest_data is not None:
+            registry["manifest"] = manifest_data
         output = json.dumps(registry, indent=2)
         if args.output:
             os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
