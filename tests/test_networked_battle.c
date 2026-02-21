@@ -36,7 +36,7 @@
 #define NB_TIMEOUT       1000
 #define NB_MANIFEST      "tests/fixtures/manifest.json"
 #define NB_GAME_DIR      "tests/fixtures/"
-#define NB_REGISTRY      "data/vanilla-1.1.json"
+#define NB_REGISTRY_DIR  "data/vanilla-1.1"
 #define NB_TRACE_FILE    "battle_trace.bin"
 #define NB_MAX_PLAYERS   4
 #define NB_MAX_TICKS     600   /* 60 seconds at 10 Hz */
@@ -773,7 +773,7 @@ static int run_networked_battle(void)
         return 1;
     }
 
-    if (!bc_registry_load(&g_reg, NB_REGISTRY)) {
+    if (!bc_registry_load_dir(&g_reg, NB_REGISTRY_DIR)) {
         fprintf(stderr, "  registry load failed\n");
         return 1;
     }

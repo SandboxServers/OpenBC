@@ -13,7 +13,8 @@
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 8000,
-    "normal_power": 150
+    "normal_power": 150,
+    "power_mode": 0
   },
   {
     "format": "power",
@@ -34,7 +35,8 @@
         "name": "Starboard Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -60,13 +62,15 @@
       {
         "name": "Aft Torpedo 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Repair",
     "max_condition": 8000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   },
   {
     "format": "base",
@@ -103,7 +107,8 @@
       {
         "name": "Ventral Phaser 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -123,7 +128,8 @@
       {
         "name": "Forward Tractor 2"
       }
-    ]
+    ],
+    "power_mode": 1
   },
   {
     "format": "powered",
@@ -139,6 +145,7 @@
         "name": "Starboard Warp",
         "max_condition": 4500.0
       }
-    ]
+    ],
+    "power_mode": 0
   }
 ]

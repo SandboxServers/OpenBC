@@ -18,13 +18,15 @@
       {
         "name": "Torpedo"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Repair System",
     "max_condition": 6000,
-    "normal_power": 1
+    "normal_power": 1,
+    "power_mode": 0
   },
   {
     "format": "base",
@@ -35,7 +37,8 @@
     "format": "powered",
     "name": "Sensor Array",
     "max_condition": 6000,
-    "normal_power": 100
+    "normal_power": 100,
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -51,7 +54,8 @@
         "name": "Starboard Impulse",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -67,7 +71,8 @@
         "name": "Starboard Warp",
         "max_condition": 3000.0
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
@@ -99,12 +104,14 @@
       {
         "name": "Aft Beam 2"
       }
-    ]
+    ],
+    "power_mode": 0
   },
   {
     "format": "powered",
     "name": "Cloaking Device",
     "max_condition": 5000,
-    "normal_power": 700
+    "normal_power": 700,
+    "power_mode": 2
   }
 ]
