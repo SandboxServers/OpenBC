@@ -299,6 +299,36 @@ TEST(chat_truncated)
     ASSERT(!bc_parse_chat_message(buf, 3, &ev));
 }
 
+/* === HostMsg (self-destruct, 0x13) parser === */
+
+TEST(host_msg_happy_path)
+{
+    /* Single-byte wire message: just the opcode */
+    u8 buf[1] = { BC_OP_HOST_MSG };
+    ASSERT(bc_parse_host_msg(buf, 1));
+}
+
+TEST(host_msg_wrong_opcode)
+{
+    /* A different opcode byte must be rejected */
+    u8 buf[1] = { 0x14 };
+    ASSERT(!bc_parse_host_msg(buf, 1));
+}
+
+TEST(host_msg_empty)
+{
+    /* Zero-length payload must be rejected */
+    u8 buf[1] = { BC_OP_HOST_MSG };
+    ASSERT(!bc_parse_host_msg(buf, 0));
+}
+
+TEST(host_msg_extra_bytes)
+{
+    /* Extra trailing bytes are tolerated (not an error -- forward compat) */
+    u8 buf[4] = { BC_OP_HOST_MSG, 0x00, 0x00, 0x00 };
+    ASSERT(bc_parse_host_msg(buf, 4));
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -333,4 +363,10 @@ TEST_MAIN_BEGIN()
     RUN(chat_happy_path);
     RUN(chat_team);
     RUN(chat_truncated);
+
+    /* HostMsg (self-destruct 0x13) */
+    RUN(host_msg_happy_path);
+    RUN(host_msg_wrong_opcode);
+    RUN(host_msg_empty);
+    RUN(host_msg_extra_bytes);
 TEST_MAIN_END()

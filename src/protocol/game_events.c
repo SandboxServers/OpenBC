@@ -355,6 +355,20 @@ bool bc_parse_set_phaser_level(const u8 *payload, int len,
 }
 
 /*
+ * HostMsg (opcode 0x13) -- self-destruct
+ *
+ * Wire format: [0x13]  (1 byte, no payload)
+ *
+ * The sender's identity is derived from the transport envelope's connection
+ * ID, not from this message body.  This function only validates the opcode.
+ */
+bool bc_parse_host_msg(const u8 *payload, int len)
+{
+    if (len < 1) return false;
+    return payload[0] == BC_OP_HOST_MSG;
+}
+
+/*
  * Chat / Team Chat (opcode 0x2C / 0x2D)
  *
  * Wire format:
