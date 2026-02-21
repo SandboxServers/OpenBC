@@ -109,12 +109,17 @@ int bc_build_end_game(u8 *buf, int buf_size, i32 reason);
 #define BC_EVENT_REPAIR_CANNOT      0x00800075
 #define BC_EVENT_OBJECT_EXPLODING   0x0080004E
 
-/* ObjPtrEvent event types (factory BC_FACTORY_OBJ_PTR_EVENT).
- * Account for ~45% of combat PythonEvent traffic. */
-#define BC_EVENT_WEAPON_FIRED       0x0080007C
-#define BC_EVENT_PHASER_STOPPED     0x00800083
-#define BC_EVENT_TRACTOR_STOPPED    0x0080007F
-#define BC_EVENT_REPAIR_PRIORITY    0x00800076
+/* ObjPtrEvent network event types (factory BC_FACTORY_OBJ_PTR_EVENT).
+ * Account for ~45% of combat PythonEvent traffic (see pythonevent-wire-format.md).
+ * obj_ptr meaning varies by event type (target ID, subsystem ID, etc.).
+ * Phaser/tractor fire each generate two events: start-specific + WEAPON_FIRED. */
+#define BC_EVENT_WEAPON_FIRED       0x0080007C  /* obj_ptr = target ID or 0 */
+#define BC_EVENT_PHASER_STARTED     0x00800081  /* obj_ptr = target ID */
+#define BC_EVENT_PHASER_STOPPED     0x00800083  /* obj_ptr = target ID */
+#define BC_EVENT_TRACTOR_STARTED    0x0080007D  /* obj_ptr = target ID */
+#define BC_EVENT_TRACTOR_STOPPED    0x0080007F  /* obj_ptr = target ID */
+#define BC_EVENT_REPAIR_PRIORITY    0x00800076  /* obj_ptr = subsystem ID */
+#define BC_EVENT_STOP_AT_TARGET     0x008000DC  /* obj_ptr = target ID or 0; host-only (opcode 0x09) */
 
 /* SubsystemEvent: [0x06][factory=0x101:i32][event_type:i32][source:i32][dest:i32]
  * 17 bytes total. Used for ADD_TO_REPAIR_LIST, REPAIR_COMPLETED, etc. */
