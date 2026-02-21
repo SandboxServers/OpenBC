@@ -1,0 +1,12 @@
+{
+  "name": "Kessok Disruptor",
+  "damage": 2000.0,
+  "launch_speed": 27.0,
+  "power_cost": 30.0,
+  "guidance_lifetime": 0.0,
+  "max_angular_accel": 0.25,
+  "lifetime": 12.0,
+  "damage_radius_factor": 0.17,
+  "net_type_id": 11,
+  "script": "KessokDisruptor"
+}

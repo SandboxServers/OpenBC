@@ -1,0 +1,25 @@
+{
+  "id": "mission3",
+  "name": "Defenders vs Attackers",
+  "description": "Two-team objective mode. Attackers must destroy the starbase. Defenders win if time runs out or attackers are eliminated.",
+  "script": "Multiplayer.Episode.Mission3.Mission3",
+  "teams": true,
+  "team_count": 2,
+  "team_names": [
+    "Federation",
+    "Non-Federation"
+  ],
+  "has_objective": true,
+  "objective": "destroy_starbase",
+  "scoring": {
+    "mode": "objective_plus_frags",
+    "kill_awards_frag": true,
+    "damage_contributes_score": true,
+    "friendly_fire_penalty": true
+  },
+  "defaults": {
+    "player_limit": 8,
+    "time_limit_minutes": 15,
+    "frag_limit": -1
+  }
+}

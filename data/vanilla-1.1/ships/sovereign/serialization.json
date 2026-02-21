@@ -1,0 +1,144 @@
+[
+  {
+    "format": "base",
+    "name": "Hull",
+    "max_condition": 12000
+  },
+  {
+    "format": "base",
+    "name": "Shield Generator",
+    "max_condition": 10000
+  },
+  {
+    "format": "powered",
+    "name": "Sensor Array",
+    "max_condition": 8000,
+    "normal_power": 150
+  },
+  {
+    "format": "power",
+    "name": "Warp Core",
+    "max_condition": 7000
+  },
+  {
+    "format": "powered",
+    "name": "Impulse Engines",
+    "max_condition": 3000,
+    "normal_power": 200,
+    "children": [
+      {
+        "name": "Port Impulse",
+        "max_condition": 3000.0
+      },
+      {
+        "name": "Starboard Impulse",
+        "max_condition": 3000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Torpedoes",
+    "max_condition": 6000,
+    "normal_power": 150,
+    "children": [
+      {
+        "name": "Forward Torpedo 1"
+      },
+      {
+        "name": "Forward Torpedo 2"
+      },
+      {
+        "name": "Forward Torpedo 3"
+      },
+      {
+        "name": "Forward Torpedo 4"
+      },
+      {
+        "name": "Aft Torpedo 1"
+      },
+      {
+        "name": "Aft Torpedo 2"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Repair",
+    "max_condition": 8000,
+    "normal_power": 1
+  },
+  {
+    "format": "base",
+    "name": "Bridge",
+    "max_condition": 10000
+  },
+  {
+    "format": "powered",
+    "name": "Phasers",
+    "max_condition": 8000,
+    "normal_power": 400,
+    "children": [
+      {
+        "name": "Ventral Phaser 3"
+      },
+      {
+        "name": "Dorsal Phaser 2"
+      },
+      {
+        "name": "Dorsal Phaser 4"
+      },
+      {
+        "name": "Dorsal Phaser 1"
+      },
+      {
+        "name": "Dorsal Phaser 3"
+      },
+      {
+        "name": "Ventral Phaser 1"
+      },
+      {
+        "name": "Ventral Phaser 4"
+      },
+      {
+        "name": "Ventral Phaser 2"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Tractors",
+    "max_condition": 3000,
+    "normal_power": 700,
+    "children": [
+      {
+        "name": "Aft Tractor 1"
+      },
+      {
+        "name": "Aft Tractor 2"
+      },
+      {
+        "name": "Forward Tractor 1"
+      },
+      {
+        "name": "Forward Tractor 2"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Warp Engines",
+    "max_condition": 8000,
+    "normal_power": 0,
+    "children": [
+      {
+        "name": "Port Warp",
+        "max_condition": 4500.0
+      },
+      {
+        "name": "Starboard Warp",
+        "max_condition": 4500.0
+      }
+    ]
+  }
+]

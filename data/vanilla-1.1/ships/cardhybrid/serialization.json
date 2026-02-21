@@ -1,0 +1,136 @@
+[
+  {
+    "format": "base",
+    "name": "Hull",
+    "max_condition": 12000
+  },
+  {
+    "format": "power",
+    "name": "Warp Core",
+    "max_condition": 7000
+  },
+  {
+    "format": "powered",
+    "name": "Torpedoes",
+    "max_condition": 5000,
+    "normal_power": 100,
+    "children": [
+      {
+        "name": "Torpedo 1"
+      },
+      {
+        "name": "Torpedo 2"
+      },
+      {
+        "name": "Aft Torpedo"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Repair System",
+    "max_condition": 7000,
+    "normal_power": 1
+  },
+  {
+    "format": "base",
+    "name": "Shield Generator",
+    "max_condition": 10000
+  },
+  {
+    "format": "powered",
+    "name": "Sensor Array",
+    "max_condition": 7000,
+    "normal_power": 100
+  },
+  {
+    "format": "powered",
+    "name": "Impulse Engines",
+    "max_condition": 3000,
+    "normal_power": 100,
+    "children": [
+      {
+        "name": "Port Impulse",
+        "max_condition": 3000.0
+      },
+      {
+        "name": "Starboard Impulse",
+        "max_condition": 3000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Warp Engines",
+    "max_condition": 8000,
+    "normal_power": 0,
+    "children": [
+      {
+        "name": "Port Warp",
+        "max_condition": 4000.0
+      },
+      {
+        "name": "Starboard Warp",
+        "max_condition": 4000.0
+      },
+      {
+        "name": "Center Warp",
+        "max_condition": 4000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Beams",
+    "max_condition": 7000,
+    "normal_power": 300,
+    "children": [
+      {
+        "name": "Forward Compressor"
+      },
+      {
+        "name": "Forward Beam 1"
+      },
+      {
+        "name": "Forward Beam 2"
+      },
+      {
+        "name": "Ventral Beam 1"
+      },
+      {
+        "name": "Ventral Beam 2"
+      },
+      {
+        "name": "Dorsal Beam 1"
+      },
+      {
+        "name": "Dorsal Beam 2"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Disruptor Cannons",
+    "max_condition": 5000,
+    "normal_power": 100,
+    "children": [
+      {
+        "name": "Cannon"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Tractors",
+    "max_condition": 3000,
+    "normal_power": 400,
+    "children": [
+      {
+        "name": "Forward Tractor"
+      },
+      {
+        "name": "Aft Tractor"
+      }
+    ]
+  }
+]

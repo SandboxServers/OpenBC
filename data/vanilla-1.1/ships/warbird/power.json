@@ -1,0 +1,7 @@
+{
+  "power_output": 1500.0,
+  "main_battery_limit": 100000.0,
+  "backup_battery_limit": 200000.0,
+  "main_conduit_capacity": 1700.0,
+  "backup_conduit_capacity": 300.0
+}

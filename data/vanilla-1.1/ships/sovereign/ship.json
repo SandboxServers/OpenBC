@@ -1,0 +1,36 @@
+{
+  "name": "Sovereign",
+  "species_id": 5,
+  "faction": "Federation",
+  "hull_hp": 12000.0,
+  "mass": 100.0,
+  "rotational_inertia": 10000.0,
+  "max_speed": 7.5,
+  "max_accel": 1.6,
+  "max_angular_accel": 0.15,
+  "max_angular_velocity": 0.3,
+  "shield_hp": [
+    11000.0,
+    5500.0,
+    11000.0,
+    11000.0,
+    5500.0,
+    5500.0
+  ],
+  "shield_recharge": [
+    12.0,
+    12.0,
+    12.0,
+    12.0,
+    12.0,
+    12.0
+  ],
+  "can_cloak": false,
+  "has_tractor": true,
+  "torpedo_tubes": 6,
+  "phaser_banks": 8,
+  "pulse_weapons": 0,
+  "tractor_beams": 4,
+  "max_repair_points": 50.0,
+  "num_repair_teams": 3
+}

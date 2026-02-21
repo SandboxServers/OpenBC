@@ -1,0 +1,12 @@
+{
+  "name": "Disruptor",
+  "damage": 220.0,
+  "launch_speed": 55.0,
+  "power_cost": 10.0,
+  "guidance_lifetime": 0.0,
+  "max_angular_accel": 0.025,
+  "lifetime": 8.0,
+  "damage_radius_factor": 0.1,
+  "net_type_id": 8,
+  "script": "PulseDisruptor"
+}

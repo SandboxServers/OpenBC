@@ -1,0 +1,110 @@
+[
+  {
+    "format": "base",
+    "name": "Hull",
+    "max_condition": 10000
+  },
+  {
+    "format": "power",
+    "name": "Warp Core",
+    "max_condition": 6000
+  },
+  {
+    "format": "powered",
+    "name": "Torpedoes",
+    "max_condition": 4000,
+    "normal_power": 100,
+    "children": [
+      {
+        "name": "Torpedo"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Repair System",
+    "max_condition": 6000,
+    "normal_power": 1
+  },
+  {
+    "format": "base",
+    "name": "Shield Generator",
+    "max_condition": 8000
+  },
+  {
+    "format": "powered",
+    "name": "Sensor Array",
+    "max_condition": 6000,
+    "normal_power": 100
+  },
+  {
+    "format": "powered",
+    "name": "Impulse Engines",
+    "max_condition": 3000,
+    "normal_power": 100,
+    "children": [
+      {
+        "name": "Port Impulse",
+        "max_condition": 3000.0
+      },
+      {
+        "name": "Starboard Impulse",
+        "max_condition": 3000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Warp Engines",
+    "max_condition": 6000,
+    "normal_power": 0,
+    "children": [
+      {
+        "name": "Port Warp",
+        "max_condition": 3000.0
+      },
+      {
+        "name": "Starboard Warp",
+        "max_condition": 3000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Beams",
+    "max_condition": 7000,
+    "normal_power": 300,
+    "children": [
+      {
+        "name": "Forward Beam 1"
+      },
+      {
+        "name": "Forward Beam 2"
+      },
+      {
+        "name": "Port Beam 1"
+      },
+      {
+        "name": "Port Beam 2"
+      },
+      {
+        "name": "Star Beam 1"
+      },
+      {
+        "name": "Star Beam 2"
+      },
+      {
+        "name": "Aft Beam 1"
+      },
+      {
+        "name": "Aft Beam 2"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Cloaking Device",
+    "max_condition": 5000,
+    "normal_power": 700
+  }
+]

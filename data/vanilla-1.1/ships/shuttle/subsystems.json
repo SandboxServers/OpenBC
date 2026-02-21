@@ -1,0 +1,207 @@
+[
+  {
+    "name": "Hull",
+    "type": "hull",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.12,
+    "max_condition": 1600.0,
+    "disabled_pct": 0.0,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Impulse Engines",
+    "type": "impulse_engine",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.003,
+    "max_condition": 1000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Warp Core",
+    "type": "power",
+    "position": [
+      0.0,
+      -0.06,
+      -0.03
+    ],
+    "radius": 0.04,
+    "max_condition": 1000.0,
+    "disabled_pct": 0.5,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Repair System",
+    "type": "repair",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.25,
+    "max_condition": 200.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 1.0,
+    "max_repair_points": 15.0,
+    "num_repair_teams": 3
+  },
+  {
+    "name": "Sensor Array",
+    "type": "sensor",
+    "position": [
+      0.0,
+      0.04,
+      -0.014
+    ],
+    "radius": 0.03,
+    "max_condition": 1400.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 0.4
+  },
+  {
+    "name": "Shield Generator",
+    "type": "shield",
+    "position": [
+      0.0,
+      -0.04,
+      0.04
+    ],
+    "radius": 0.04,
+    "max_condition": 2600.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Phaser",
+    "type": "phaser",
+    "position": [
+      0.0,
+      0.11,
+      -0.013
+    ],
+    "radius": 0.034,
+    "max_condition": 800.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 3.0,
+    "max_damage": 300.0,
+    "max_charge": 4.0,
+    "min_firing_charge": 2.0,
+    "recharge_rate": 0.8,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 45.0,
+    "weapon_id": 1,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.959931,
+      0.959931
+    ],
+    "arc_height": [
+      -1.047198,
+      0.610865
+    ]
+  },
+  {
+    "name": "Repair",
+    "type": "repair",
+    "position": [
+      0.0,
+      0.03,
+      0.0
+    ],
+    "radius": 0.03,
+    "max_condition": 200.0,
+    "disabled_pct": 0.1,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 4.0,
+    "max_repair_points": 2.0,
+    "num_repair_teams": 1
+  },
+  {
+    "name": "Warp Engines",
+    "type": "warp_engine",
+    "position": [
+      0.0,
+      0.0,
+      -0.02
+    ],
+    "radius": 0.01,
+    "max_condition": 1600.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Forward Tractor",
+    "type": "tractor_beam",
+    "position": [
+      0.0,
+      0.12,
+      -0.01
+    ],
+    "radius": 0.04,
+    "max_condition": 400.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 4.0,
+    "max_damage": 20.0,
+    "max_charge": 5.0,
+    "min_firing_charge": 3.0,
+    "recharge_rate": 0.3,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 100.0,
+    "weapon_id": 0,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.698132,
+      0.698132
+    ],
+    "arc_height": [
+      -0.698132,
+      0.349066
+    ],
+    "normal_power": 0.0
+  }
+]

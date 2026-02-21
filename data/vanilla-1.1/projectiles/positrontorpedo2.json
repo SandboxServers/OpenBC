@@ -1,0 +1,12 @@
+{
+  "name": "Positron",
+  "damage": 2200.0,
+  "launch_speed": 5.0,
+  "power_cost": 10.0,
+  "guidance_lifetime": 40.0,
+  "max_angular_accel": 3.0,
+  "lifetime": 0.0,
+  "damage_radius_factor": 0.2,
+  "net_type_id": 13,
+  "script": "PositronTorpedo2"
+}

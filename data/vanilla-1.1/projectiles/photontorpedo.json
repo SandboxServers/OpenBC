@@ -1,0 +1,12 @@
+{
+  "name": "Photon",
+  "damage": 500.0,
+  "launch_speed": 19.0,
+  "power_cost": 20.0,
+  "guidance_lifetime": 6.0,
+  "max_angular_accel": 0.15,
+  "lifetime": 0.0,
+  "damage_radius_factor": 0.13,
+  "net_type_id": 2,
+  "script": "PhotonTorpedo"
+}
