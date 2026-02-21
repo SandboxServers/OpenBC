@@ -105,7 +105,7 @@ $(BUILD)/%.o: %.c
 # --- Copy data files into build directory ---
 $(BUILD)/data: data
 	@mkdir -p $(BUILD)/data
-	cp -u data/* $(BUILD)/data/ 2>/dev/null || true
+	cp -ru data/. $(BUILD)/data/ 2>/dev/null || true
 
 all: $(BUILD)/data
 

@@ -1,0 +1,12 @@
+{
+  "name": "Adv. Photon",
+  "damage": 1400.0,
+  "launch_speed": 10.0,
+  "power_cost": 40.0,
+  "guidance_lifetime": 7.0,
+  "max_angular_accel": 0.2,
+  "lifetime": 0.0,
+  "damage_radius_factor": 0.2,
+  "net_type_id": 6,
+  "script": "KlingonTorpedo"
+}

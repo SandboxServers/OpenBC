@@ -1,0 +1,38 @@
+{
+  "version": "vanilla-1.1",
+  "ships": [
+    "akira",
+    "ambassador",
+    "galaxy",
+    "nebula",
+    "sovereign",
+    "birdofprey",
+    "vorcha",
+    "warbird",
+    "marauder",
+    "galor",
+    "keldon",
+    "cardhybrid",
+    "kessokheavy",
+    "kessoklight",
+    "shuttle",
+    "cardfreighter"
+  ],
+  "projectiles": [
+    "disruptor",
+    "photontorpedo",
+    "quantumtorpedo",
+    "antimattertorpedo",
+    "cardassiantorpedo",
+    "klingontorpedo",
+    "positrontorpedo",
+    "pulsedisruptor",
+    "fusionbolt",
+    "cardassiandisruptor",
+    "kessokdisruptor",
+    "phasedplasma",
+    "positrontorpedo2",
+    "photontorpedo2",
+    "romulancannon"
+  ]
+}

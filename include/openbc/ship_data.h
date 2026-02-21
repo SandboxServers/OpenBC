@@ -151,8 +151,13 @@ typedef struct {
     bool                loaded;
 } bc_game_registry_t;
 
-/* Load registry from JSON file. Returns true on success. */
+/* Load registry from JSON file (monolith format). Returns true on success. */
 bool bc_registry_load(bc_game_registry_t *reg, const char *path);
+
+/* Load registry from versioned directory (manifest.json entry point).
+ * dir should be the path to a directory containing manifest.json, ships/,
+ * and projectiles/.  Returns true on success. */
+bool bc_registry_load_dir(bc_game_registry_t *reg, const char *dir);
 
 /* Lookup by index (0-based). Returns NULL if out of range. */
 const bc_ship_class_t *bc_registry_get_ship(const bc_game_registry_t *reg, int index);

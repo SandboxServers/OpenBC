@@ -258,21 +258,21 @@ static bool load_projectile(bc_projectile_def_t *proj, const json_value_t *obj)
     return true;
 }
 
-bool bc_registry_load(bc_game_registry_t *reg, const char *path)
+/* Open and parse a JSON file from disk. Returns NULL on error.
+ * Caller must call json_free() on the returned value. */
+static json_value_t *json_open(const char *path)
 {
-    memset(reg, 0, sizeof(*reg));
-
     FILE *f = fopen(path, "rb");
-    if (!f) return false;
+    if (!f) return NULL;
 
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (size <= 0) { fclose(f); return false; }
+    if (size <= 0) { fclose(f); return NULL; }
 
     char *text = (char *)malloc((size_t)size + 1);
-    if (!text) { fclose(f); return false; }
+    if (!text) { fclose(f); return NULL; }
 
     size_t nread = fread(text, 1, (size_t)size, f);
     fclose(f);
@@ -280,6 +280,14 @@ bool bc_registry_load(bc_game_registry_t *reg, const char *path)
 
     json_value_t *root = json_parse(text);
     free(text);
+    return root;
+}
+
+bool bc_registry_load(bc_game_registry_t *reg, const char *path)
+{
+    memset(reg, 0, sizeof(*reg));
+
+    json_value_t *root = json_open(path);
     if (!root) return false;
 
     /* Ships */
@@ -307,6 +315,146 @@ bool bc_registry_load(bc_game_registry_t *reg, const char *path)
     json_free(root);
     reg->loaded = true;
     return true;
+}
+
+/* Load ship identity/physics fields from ship.json into an already-zeroed
+ * bc_ship_class_t.  Does not touch subsystems, ser_list, or power fields. */
+static void load_ship_identity(bc_ship_class_t *ship, const json_value_t *obj)
+{
+    copy_str(ship->name, sizeof(ship->name), json_get(obj, "name"));
+    ship->species_id = (u16)json_int(json_get(obj, "species_id"));
+    copy_str(ship->faction, sizeof(ship->faction), json_get(obj, "faction"));
+    ship->hull_hp = (f32)json_number(json_get(obj, "hull_hp"));
+    ship->mass = (f32)json_number(json_get(obj, "mass"));
+    ship->rotational_inertia = (f32)json_number(json_get(obj, "rotational_inertia"));
+    ship->max_speed = (f32)json_number(json_get(obj, "max_speed"));
+    ship->max_accel = (f32)json_number(json_get(obj, "max_accel"));
+    ship->max_angular_accel = (f32)json_number(json_get(obj, "max_angular_accel"));
+    ship->max_angular_velocity = (f32)json_number(json_get(obj, "max_angular_velocity"));
+    read_float_array(json_get(obj, "shield_hp"), ship->shield_hp, BC_MAX_SHIELD_FACINGS);
+    read_float_array(json_get(obj, "shield_recharge"), ship->shield_recharge, BC_MAX_SHIELD_FACINGS);
+    ship->can_cloak = json_bool(json_get(obj, "can_cloak"));
+    ship->has_tractor = json_bool(json_get(obj, "has_tractor"));
+    ship->torpedo_tubes = (u8)json_int(json_get(obj, "torpedo_tubes"));
+    ship->phaser_banks = (u8)json_int(json_get(obj, "phaser_banks"));
+    ship->pulse_weapons = (u8)json_int(json_get(obj, "pulse_weapons"));
+    ship->tractor_beams = (u8)json_int(json_get(obj, "tractor_beams"));
+    ship->max_repair_points = (f32)json_number(json_get(obj, "max_repair_points"));
+    ship->num_repair_teams = json_int(json_get(obj, "num_repair_teams"));
+    ship->damage_radius_multiplier = 1.0f;
+    ship->damage_falloff_multiplier = 1.0f;
+}
+
+bool bc_registry_load_dir(bc_game_registry_t *reg, const char *dir)
+{
+    memset(reg, 0, sizeof(*reg));
+
+    /* Load manifest.json */
+    char manifest_path[512];
+    snprintf(manifest_path, sizeof(manifest_path), "%s/manifest.json", dir);
+    json_value_t *manifest = json_open(manifest_path);
+    if (!manifest) return false;
+
+    /* --- Ships --- */
+    json_value_t *ships_arr = json_get(manifest, "ships");
+    if (ships_arr && ships_arr->type == JSON_ARRAY) {
+        size_t n = json_array_len(ships_arr);
+        if ((int)n > BC_MAX_SHIPS) n = BC_MAX_SHIPS;
+
+        for (size_t i = 0; i < n; i++) {
+            const char *folder = json_string(json_array_get(ships_arr, i));
+            if (!folder) continue;
+
+            bc_ship_class_t *ship = &reg->ships[reg->ship_count];
+            memset(ship, 0, sizeof(*ship));
+
+            char path[512];
+
+            /* ship.json -- identity + physics */
+            snprintf(path, sizeof(path), "%s/ships/%s/ship.json", dir, folder);
+            json_value_t *ship_obj = json_open(path);
+            if (!ship_obj) continue; /* skip ships with missing ship.json */
+            load_ship_identity(ship, ship_obj);
+            json_free(ship_obj);
+
+            /* subsystems.json */
+            snprintf(path, sizeof(path), "%s/ships/%s/subsystems.json", dir, folder);
+            json_value_t *subs_arr = json_open(path);
+            if (subs_arr && subs_arr->type == JSON_ARRAY) {
+                size_t sn = json_array_len(subs_arr);
+                if ((int)sn > BC_MAX_SUBSYSTEMS) sn = BC_MAX_SUBSYSTEMS;
+                ship->subsystem_count = (int)sn;
+                for (size_t j = 0; j < sn; j++)
+                    load_subsystem(&ship->subsystems[j], json_array_get(subs_arr, j));
+                json_free(subs_arr);
+            }
+
+            /* Compute bounding extent from subsystem positions */
+            {
+                f32 max_dist = 0.0f;
+                for (int j = 0; j < ship->subsystem_count; j++) {
+                    bc_vec3_t p = ship->subsystems[j].position;
+                    f32 d = sqrtf(p.x*p.x + p.y*p.y + p.z*p.z);
+                    if (d > max_dist) max_dist = d;
+                }
+                ship->bounding_extent = max_dist > 0.0f ? max_dist : 1.0f;
+            }
+
+            /* serialization.json -- must come after subsystems are loaded */
+            snprintf(path, sizeof(path), "%s/ships/%s/serialization.json", dir, folder);
+            json_value_t *ser_arr = json_open(path);
+            if (ser_arr) {
+                load_serialization_list(ship, ser_arr);
+                json_free(ser_arr);
+            } else {
+                ship->ser_list.total_hp_slots = ship->subsystem_count;
+                ship->ser_list.reactor_entry_idx = -1;
+            }
+
+            /* power.json */
+            snprintf(path, sizeof(path), "%s/ships/%s/power.json", dir, folder);
+            json_value_t *pow_obj = json_open(path);
+            if (pow_obj) {
+                ship->power_output =
+                    (f32)json_number(json_get(pow_obj, "power_output"));
+                ship->main_battery_limit =
+                    (f32)json_number(json_get(pow_obj, "main_battery_limit"));
+                ship->backup_battery_limit =
+                    (f32)json_number(json_get(pow_obj, "backup_battery_limit"));
+                ship->main_conduit_capacity =
+                    (f32)json_number(json_get(pow_obj, "main_conduit_capacity"));
+                ship->backup_conduit_capacity =
+                    (f32)json_number(json_get(pow_obj, "backup_conduit_capacity"));
+                json_free(pow_obj);
+            }
+
+            reg->ship_count++;
+        }
+    }
+
+    /* --- Projectiles --- */
+    json_value_t *projs_arr = json_get(manifest, "projectiles");
+    if (projs_arr && projs_arr->type == JSON_ARRAY) {
+        size_t n = json_array_len(projs_arr);
+        if ((int)n > BC_MAX_PROJECTILES) n = BC_MAX_PROJECTILES;
+
+        for (size_t i = 0; i < n; i++) {
+            const char *file_base = json_string(json_array_get(projs_arr, i));
+            if (!file_base) continue;
+
+            char path[512];
+            snprintf(path, sizeof(path), "%s/projectiles/%s.json", dir, file_base);
+            json_value_t *proj_obj = json_open(path);
+            if (!proj_obj) continue;
+            load_projectile(&reg->projectiles[reg->projectile_count], proj_obj);
+            json_free(proj_obj);
+            reg->projectile_count++;
+        }
+    }
+
+    json_free(manifest);
+    reg->loaded = true;
+    return reg->ship_count > 0;
 }
 
 const bc_ship_class_t *bc_registry_get_ship(const bc_game_registry_t *reg, int index)

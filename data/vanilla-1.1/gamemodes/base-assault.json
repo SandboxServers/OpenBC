@@ -1,0 +1,27 @@
+{
+  "id": "mission4",
+  "name": "Base Assault",
+  "description": "Two-team asymmetric mode. Both teams have a starbase. Destroy the enemy starbase to win.",
+  "script": "Multiplayer.Episode.Mission4.Mission4",
+  "teams": true,
+  "team_count": 2,
+  "team_names": [
+    "Attackers",
+    "Defenders"
+  ],
+  "has_objective": true,
+  "objective": "destroy_enemy_starbase",
+  "asymmetric_scoring": true,
+  "scoring": {
+    "mode": "objective_plus_frags",
+    "kill_awards_frag": true,
+    "damage_contributes_score": true,
+    "friendly_fire_penalty": true,
+    "only_defender_kills_count": true
+  },
+  "defaults": {
+    "player_limit": 8,
+    "time_limit_minutes": 20,
+    "frag_limit": -1
+  }
+}

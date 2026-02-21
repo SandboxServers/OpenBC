@@ -1,0 +1,12 @@
+{
+  "name": "Disruptor",
+  "damage": 400.0,
+  "launch_speed": 43.0,
+  "power_cost": 10.0,
+  "guidance_lifetime": 0.0,
+  "max_angular_accel": 0.125,
+  "lifetime": 8.0,
+  "damage_radius_factor": 0.2,
+  "net_type_id": 15,
+  "script": "RomulanCannon"
+}

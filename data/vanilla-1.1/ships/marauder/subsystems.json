@@ -1,0 +1,311 @@
+[
+  {
+    "name": "Shield Generator",
+    "type": "shield",
+    "position": [
+      0.0,
+      -0.3,
+      0.1
+    ],
+    "radius": 0.2,
+    "max_condition": 12000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Hull",
+    "type": "hull",
+    "position": [
+      0.0,
+      -0.502,
+      0.27
+    ],
+    "radius": 1.0,
+    "max_condition": 9000.0,
+    "disabled_pct": 0.0,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 3.0
+  },
+  {
+    "name": "Sensor Array",
+    "type": "sensor",
+    "position": [
+      0.0,
+      1.15,
+      0.2
+    ],
+    "radius": 0.2,
+    "max_condition": 8000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Warp Core",
+    "type": "power",
+    "position": [
+      0.0,
+      -1.276,
+      0.3
+    ],
+    "radius": 0.25,
+    "max_condition": 8000.0,
+    "disabled_pct": 0.5,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Impulse Engines",
+    "type": "impulse_engine",
+    "position": [
+      0.735,
+      -1.192,
+      0.2
+    ],
+    "radius": 0.12,
+    "max_condition": 3000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 4.0
+  },
+  {
+    "name": "Warp Engines",
+    "type": "warp_engine",
+    "position": [
+      -0.735,
+      -1.192,
+      0.2
+    ],
+    "radius": 0.12,
+    "max_condition": 400.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 3.0
+  },
+  {
+    "name": "Repair Subsystem",
+    "type": "repair",
+    "position": [
+      -0.434,
+      -1.165,
+      0.13
+    ],
+    "radius": 0.1,
+    "max_condition": 2000.0,
+    "disabled_pct": 0.1,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 1.0,
+    "max_repair_points": 36.0,
+    "num_repair_teams": 4
+  },
+  {
+    "name": "Ventral Phaser",
+    "type": "phaser",
+    "position": [
+      0.0,
+      0.28,
+      -0.04
+    ],
+    "radius": 0.25,
+    "max_condition": 2000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 900.0,
+    "max_charge": 4.5,
+    "min_firing_charge": 3.0,
+    "recharge_rate": 0.08,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 80.0,
+    "weapon_id": 1,
+    "forward": [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -1.221731,
+      1.221731
+    ],
+    "arc_height": [
+      -2.792527,
+      0.017453
+    ]
+  },
+  {
+    "name": "Port Emitter",
+    "type": "pulse_weapon",
+    "position": [
+      -1.3,
+      0.3,
+      0.06
+    ],
+    "radius": 0.25,
+    "max_condition": 4000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 4.0,
+    "max_damage": 400.0,
+    "max_charge": 3.5,
+    "min_firing_charge": 2.0,
+    "recharge_rate": 0.4,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 100.0,
+    "weapon_id": 1,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.349066,
+      0.349066
+    ],
+    "arc_height": [
+      -0.349066,
+      0.349066
+    ]
+  },
+  {
+    "name": "Star Emitter",
+    "type": "pulse_weapon",
+    "position": [
+      1.3,
+      0.3,
+      0.06
+    ],
+    "radius": 0.25,
+    "max_condition": 4000.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 4.0,
+    "max_damage": 400.0,
+    "max_charge": 3.5,
+    "min_firing_charge": 2.0,
+    "recharge_rate": 0.4,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 100.0,
+    "weapon_id": 2,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.349066,
+      0.349066
+    ],
+    "arc_height": [
+      -0.349066,
+      0.349066
+    ]
+  },
+  {
+    "name": "Forward Tractor",
+    "type": "tractor_beam",
+    "position": [
+      0.0,
+      1.6,
+      0.08
+    ],
+    "radius": 0.2,
+    "max_condition": 2500.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 110.0,
+    "max_charge": 50.0,
+    "min_firing_charge": 3.0,
+    "recharge_rate": 0.3,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 180.0,
+    "weapon_id": 0,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.698132,
+      0.698132
+    ],
+    "arc_height": [
+      -0.872665,
+      0.872665
+    ],
+    "normal_power": 0.0
+  },
+  {
+    "name": "Aft Tractor",
+    "type": "tractor_beam",
+    "position": [
+      0.0,
+      -1.55,
+      0.42
+    ],
+    "radius": 0.2,
+    "max_condition": 2500.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 7.0,
+    "max_damage": 110.0,
+    "max_charge": 50.0,
+    "min_firing_charge": 3.0,
+    "recharge_rate": 0.3,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 180.0,
+    "weapon_id": 0,
+    "forward": [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.698132,
+      0.698132
+    ],
+    "arc_height": [
+      -0.523599,
+      0.523599
+    ],
+    "normal_power": 0.0
+  }
+]

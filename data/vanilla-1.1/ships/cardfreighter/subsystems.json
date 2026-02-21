@@ -1,0 +1,150 @@
+[
+  {
+    "name": "Hull",
+    "type": "hull",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 1.0,
+    "max_condition": 4500.0,
+    "disabled_pct": 0.0,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 3.0
+  },
+  {
+    "name": "Impulse Engines",
+    "type": "impulse_engine",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.25,
+    "max_condition": 200.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Warp Core",
+    "type": "power",
+    "position": [
+      0.0,
+      0.6,
+      0.2
+    ],
+    "radius": 0.3,
+    "max_condition": 2000.0,
+    "disabled_pct": 0.75,
+    "is_critical": true,
+    "is_targetable": true,
+    "repair_complexity": 2.0
+  },
+  {
+    "name": "Engineering",
+    "type": "repair",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.25,
+    "max_condition": 200.0,
+    "disabled_pct": 0.1,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 1.0,
+    "max_repair_points": 6.0,
+    "num_repair_teams": 1
+  },
+  {
+    "name": "Sensor Array",
+    "type": "sensor",
+    "position": [
+      0.0,
+      1.0,
+      0.2
+    ],
+    "radius": 0.1,
+    "max_condition": 1500.0,
+    "disabled_pct": 0.75,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 1.0
+  },
+  {
+    "name": "Shield Generator",
+    "type": "shield",
+    "position": [
+      0.0,
+      0.75,
+      0.1
+    ],
+    "radius": 0.2,
+    "max_condition": 1000.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 4.0
+  },
+  {
+    "name": "Warp Engines",
+    "type": "warp_engine",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "radius": 0.25,
+    "max_condition": 200.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": false,
+    "repair_complexity": 3.0
+  },
+  {
+    "name": "Tractor Beam",
+    "type": "tractor_beam",
+    "position": [
+      0.0,
+      1.5,
+      -0.35
+    ],
+    "radius": 0.2,
+    "max_condition": 1500.0,
+    "disabled_pct": 0.5,
+    "is_critical": false,
+    "is_targetable": true,
+    "repair_complexity": 3.0,
+    "max_damage": 200.0,
+    "max_charge": 5.0,
+    "min_firing_charge": 3.0,
+    "recharge_rate": 0.3,
+    "discharge_rate": 1.0,
+    "max_damage_distance": 100.0,
+    "weapon_id": 7,
+    "forward": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "arc_width": [
+      -0.349066,
+      0.349066
+    ],
+    "arc_height": [
+      0.261799,
+      -2.094395
+    ],
+    "normal_power": 0.0
+  }
+]

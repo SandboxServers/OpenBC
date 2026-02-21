@@ -1,0 +1,36 @@
+{
+  "name": "CardFreighter",
+  "species_id": 16,
+  "faction": "Cardassian",
+  "hull_hp": 4500.0,
+  "mass": 80.0,
+  "rotational_inertia": 20000.0,
+  "max_speed": 3.0,
+  "max_accel": 0.8,
+  "max_angular_accel": 0.08,
+  "max_angular_velocity": 0.15,
+  "shield_hp": [
+    1000.0,
+    1000.0,
+    1000.0,
+    1000.0,
+    1000.0,
+    1000.0
+  ],
+  "shield_recharge": [
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0
+  ],
+  "can_cloak": false,
+  "has_tractor": true,
+  "torpedo_tubes": 0,
+  "phaser_banks": 0,
+  "pulse_weapons": 0,
+  "tractor_beams": 1,
+  "max_repair_points": 6.0,
+  "num_repair_teams": 1
+}

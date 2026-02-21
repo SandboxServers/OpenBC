@@ -1,0 +1,113 @@
+[
+  {
+    "format": "base",
+    "name": "Hull",
+    "max_condition": 9000
+  },
+  {
+    "format": "base",
+    "name": "Shield Generator",
+    "max_condition": 9000
+  },
+  {
+    "format": "power",
+    "name": "Warp Core",
+    "max_condition": 6000
+  },
+  {
+    "format": "powered",
+    "name": "Compressors",
+    "max_condition": 5000,
+    "normal_power": 200,
+    "children": [
+      {
+        "name": "Forward Beam"
+      },
+      {
+        "name": "Port Beam"
+      },
+      {
+        "name": "Star Beam"
+      },
+      {
+        "name": "Aft Beam"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Torpedoes",
+    "max_condition": 4000,
+    "normal_power": 70,
+    "children": [
+      {
+        "name": "Forward Torpedo"
+      },
+      {
+        "name": "Aft Torpedo"
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Impulse Engines",
+    "max_condition": 3000,
+    "normal_power": 70,
+    "children": [
+      {
+        "name": "Impulse 1",
+        "max_condition": 3000.0
+      },
+      {
+        "name": "Impulse 2",
+        "max_condition": 3000.0
+      },
+      {
+        "name": "Impulse 3",
+        "max_condition": 3000.0
+      },
+      {
+        "name": "Impulse 4",
+        "max_condition": 3000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Warp Engine",
+    "max_condition": 5000,
+    "normal_power": 0,
+    "children": [
+      {
+        "name": "Warp Engine 1",
+        "max_condition": 5000.0
+      }
+    ]
+  },
+  {
+    "format": "powered",
+    "name": "Sensor Array",
+    "max_condition": 6000,
+    "normal_power": 50
+  },
+  {
+    "format": "powered",
+    "name": "Repair Subsystem",
+    "max_condition": 6000,
+    "normal_power": 1
+  },
+  {
+    "format": "powered",
+    "name": "Tractors",
+    "max_condition": 3000,
+    "normal_power": 400,
+    "children": [
+      {
+        "name": "Ventral Tractor"
+      },
+      {
+        "name": "Dorsal Tractor"
+      }
+    ]
+  }
+]

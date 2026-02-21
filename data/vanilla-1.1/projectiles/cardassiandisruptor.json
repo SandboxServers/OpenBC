@@ -1,0 +1,12 @@
+{
+  "name": "Cardassian Disruptor",
+  "damage": 350.0,
+  "launch_speed": 42.0,
+  "power_cost": 10.0,
+  "guidance_lifetime": 0.0,
+  "max_angular_accel": 0.125,
+  "lifetime": 10.0,
+  "damage_radius_factor": 0.09,
+  "net_type_id": 10,
+  "script": "CardassianDisruptor"
+}

@@ -8,18 +8,47 @@
 #include <string.h>
 #include <math.h>
 
+#define REGISTRY_DIR  "data/vanilla-1.1"
 #define REGISTRY_PATH "data/vanilla-1.1.json"
 
 static bc_game_registry_t g_reg;
 
-/* === Load registry === */
+/* === Load registry (directory format) === */
 
 TEST(load_registry)
 {
-    ASSERT(bc_registry_load(&g_reg, REGISTRY_PATH));
+    ASSERT(bc_registry_load_dir(&g_reg, REGISTRY_DIR));
     ASSERT(g_reg.loaded);
     ASSERT_EQ(g_reg.ship_count, 16);
     ASSERT_EQ(g_reg.projectile_count, 15);
+}
+
+TEST(load_registry_power)
+{
+    /* Verify power.json fields load correctly for Akira (species_id=1) */
+    const bc_ship_class_t *akira = bc_registry_find_ship(&g_reg, 1);
+    ASSERT(akira != NULL);
+    ASSERT(fabsf(akira->power_output - 800.0f) < 1.0f);
+    ASSERT(akira->main_battery_limit > 0.0f);
+    ASSERT(akira->backup_battery_limit > 0.0f);
+    ASSERT(akira->main_conduit_capacity > 0.0f);
+    ASSERT(akira->backup_conduit_capacity > 0.0f);
+}
+
+/* === Load registry (monolith format) === */
+
+TEST(load_registry_monolith)
+{
+    bc_game_registry_t reg;
+    ASSERT(bc_registry_load(&reg, REGISTRY_PATH));
+    ASSERT(reg.loaded);
+    ASSERT_EQ(reg.ship_count, 16);
+    ASSERT_EQ(reg.projectile_count, 15);
+    /* Spot-check a ship to verify data integrity matches the dir load */
+    const bc_ship_class_t *akira = bc_registry_find_ship(&reg, 1);
+    ASSERT(akira != NULL);
+    ASSERT(strcmp(akira->name, "Akira") == 0);
+    ASSERT(fabsf(akira->hull_hp - 9000.0f) < 1.0f);
 }
 
 /* === Ship lookups === */
@@ -722,6 +751,8 @@ TEST(repair_no_duplicates)
 
 TEST_MAIN_BEGIN()
     RUN(load_registry);
+    RUN(load_registry_power);
+    RUN(load_registry_monolith);
     RUN(galaxy_stats);
     RUN(shuttle_stats);
     RUN(bop_cloak);

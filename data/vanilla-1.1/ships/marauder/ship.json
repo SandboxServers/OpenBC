@@ -1,0 +1,36 @@
+{
+  "name": "Marauder",
+  "species_id": 9,
+  "faction": "Ferengi",
+  "hull_hp": 9000.0,
+  "mass": 100.0,
+  "rotational_inertia": 9000.0,
+  "max_speed": 5.5,
+  "max_accel": 1.6,
+  "max_angular_accel": 0.19,
+  "max_angular_velocity": 0.36,
+  "shield_hp": [
+    6000.0,
+    4500.0,
+    3000.0,
+    4500.0,
+    3000.0,
+    3000.0
+  ],
+  "shield_recharge": [
+    8.0,
+    4.0,
+    4.0,
+    4.0,
+    4.0,
+    4.0
+  ],
+  "can_cloak": false,
+  "has_tractor": true,
+  "torpedo_tubes": 0,
+  "phaser_banks": 1,
+  "pulse_weapons": 2,
+  "tractor_beams": 2,
+  "max_repair_points": 36.0,
+  "num_repair_teams": 4
+}

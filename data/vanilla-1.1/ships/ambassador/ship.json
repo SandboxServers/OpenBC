@@ -1,0 +1,36 @@
+{
+  "name": "Ambassador",
+  "species_id": 2,
+  "faction": "Federation",
+  "hull_hp": 13000.0,
+  "mass": 100.0,
+  "rotational_inertia": 10000.0,
+  "max_speed": 5.5,
+  "max_accel": 1.0,
+  "max_angular_accel": 0.11,
+  "max_angular_velocity": 0.26,
+  "shield_hp": [
+    5000.0,
+    2500.0,
+    2500.0,
+    2500.0,
+    2500.0,
+    2500.0
+  ],
+  "shield_recharge": [
+    8.0,
+    8.0,
+    8.0,
+    8.0,
+    8.0,
+    8.0
+  ],
+  "can_cloak": false,
+  "has_tractor": true,
+  "torpedo_tubes": 4,
+  "phaser_banks": 8,
+  "pulse_weapons": 0,
+  "tractor_beams": 2,
+  "max_repair_points": 40.0,
+  "num_repair_teams": 3
+}

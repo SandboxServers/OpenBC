@@ -1,0 +1,36 @@
+{
+  "name": "Warbird",
+  "species_id": 8,
+  "faction": "Romulan",
+  "hull_hp": 24000.0,
+  "mass": 400.0,
+  "rotational_inertia": 20000.0,
+  "max_speed": 4.5,
+  "max_accel": 1.8,
+  "max_angular_accel": 0.07,
+  "max_angular_velocity": 0.2,
+  "shield_hp": [
+    4000.0,
+    4000.0,
+    4000.0,
+    4000.0,
+    4000.0,
+    4000.0
+  ],
+  "shield_recharge": [
+    8.0,
+    8.0,
+    8.0,
+    8.0,
+    8.0,
+    8.0
+  ],
+  "can_cloak": true,
+  "has_tractor": true,
+  "torpedo_tubes": 2,
+  "phaser_banks": 1,
+  "pulse_weapons": 4,
+  "tractor_beams": 2,
+  "max_repair_points": 28.0,
+  "num_repair_teams": 4
+}
