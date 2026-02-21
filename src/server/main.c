@@ -279,7 +279,7 @@ int main(int argc, char **argv)
     memset(&g_registry, 0, sizeof(g_registry));
     bc_torpedo_mgr_init(&g_torpedoes);
 
-    static bool data_is_dir = false;
+    bool data_is_dir = false;
 
     if (!data_path) {
         /* Use separate buffers so dir and json don't clobber each other. */
