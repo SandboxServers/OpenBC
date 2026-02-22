@@ -324,6 +324,34 @@ static void generate_damage_events(int target_slot,
     }
 }
 
+
+/* On collision death, stock BC sends ADD_TO_REPAIR_LIST for every subsystem
+ * whose condition is below maximum -- no bucket limiting.  This ensures the
+ * client's repair queue reflects all damaged subsystems at death time.
+ * bc_repair_add() deduplicates against subsystems already queued by
+ * generate_damage_events(), so only genuinely new entries get a network event. */
+static void generate_death_repair_events(int target_slot,
+                                          const bc_ship_class_t *cls)
+{
+    bc_peer_t *target = &g_peers.peers[target_slot];
+    bc_ship_state_t *ship = &target->ship;
+
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        if (ship->subsystem_hp[i] < cls->subsystems[i].max_condition) {
+            /* Try to add to repair queue -- false if already queued */
+            if (bc_repair_add(ship, (u8)i)) {
+                u8 evt[17];
+                int len = bc_build_python_subsystem_event(
+                    evt, sizeof(evt),
+                    BC_EVENT_ADD_TO_REPAIR,
+                    ship->subsys_obj_id[i],
+                    ship->repair_subsys_obj_id);
+                if (len > 0) bc_send_to_all(evt, len, true);
+            }
+        }
+    }
+}
+
 static f32 total_shields(const bc_ship_state_t *ship)
 {
     f32 sum = 0.0f;
@@ -1620,6 +1648,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                              object_owner_name(cev.source_object_id));
 
                     if (!target->ship.alive) {
+                        /* Death repair burst: stock sends ADD_TO_REPAIR_LIST
+                         * for every damaged subsystem at death (issue #61).
+                         * Must precede OBJECT_EXPLODING to match stock order. */
+                        generate_death_repair_events(target_slot, tcls);
+
                         /* Send OBJECT_EXPLODING PythonEvent */
                         {
                             i32 killer_id = 0;
@@ -1758,6 +1791,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                  peer_name(src_slot), sdmg);
 
                         if (!source->ship.alive) {
+                            /* Death repair burst (issue #61) */
+                            generate_death_repair_events(src_slot, scls);
+
                             /* Send OBJECT_EXPLODING PythonEvent */
                             {
                                 i32 killer_id = 0;

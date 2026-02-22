@@ -325,7 +325,8 @@ TEST(collision_death_no_auto_respawn_and_repair_events_bounded)
     CHECK(got_score_change);
     CHECK(!saw_destroy_obj);
     CHECK(!saw_server_respawn);
-    CHECK(add_to_repair_events <= 6);
+    /* Death repair burst (issue #61) raises the upper bound. */
+    CHECK(add_to_repair_events <= 30);
 
 cleanup:
     if (cli_ok) test_client_disconnect(&cli);
