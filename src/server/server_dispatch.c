@@ -1214,57 +1214,63 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             peer->spawn_len = payload_len;
         }
 
-        /* Always set object_id from known game_slot (deterministic) */
-        {
+        /* Track current ship object ownership.
+         * ObjCreateTeam can introduce a new object_id on respawn, so use
+         * the blob header ID when available (fallback: slot-derived ship ID). */
+        bc_ship_blob_header_t bhdr;
+        bool have_ship_blob = false;
+        if (opcode == BC_OP_OBJ_CREATE_TEAM && payload_len >= 4) {
+            const u8 *blob = payload + 3; /* [opcode][owner][team][blob...] */
+            int blob_len = payload_len - 3;
+            if (bc_parse_ship_blob_header(blob, blob_len, &bhdr)) {
+                peer->object_id = bhdr.object_id;
+                have_ship_blob = true;
+            }
+        }
+        if (!have_ship_blob) {
             int game_slot = peer_slot > 0 ? peer_slot - 1 : 0;
             peer->object_id = bc_make_ship_id(game_slot);
         }
 
         /* Initialize server-side ship state from the ship blob */
         if (g_registry_loaded && opcode == BC_OP_OBJ_CREATE_TEAM &&
-            payload_len >= 4) {
-            /* Ship blob starts after [opcode:1][owner:1][team:1] */
-            const u8 *blob = payload + 3;
-            int blob_len = payload_len - 3;
-            bc_ship_blob_header_t bhdr;
-            if (bc_parse_ship_blob_header(blob, blob_len, &bhdr)) {
-                int cidx = bc_registry_find_ship_index(&g_registry,
-                                                        bhdr.species_id);
-                if (cidx >= 0) {
-                    const bc_ship_class_t *cls =
-                        bc_registry_get_ship(&g_registry, cidx);
-                    u8 team_id = (header_ok && hdr.has_team) ? hdr.team_id : 0;
-                    if (header_ok && hdr.has_team && team_id < 2) {
-                        if (!peer->has_ship) {
-                            g_player_teams[peer_slot] = team_id;
-                        } else {
-                            LOG_WARN("cheat",
-                                     "slot=%d ObjCreateTeam team=%d ignored "
-                                     "(already has ship)",
-                                     peer_slot, team_id);
-                        }
+            have_ship_blob) {
+            int cidx = bc_registry_find_ship_index(&g_registry,
+                                                   bhdr.species_id);
+            if (cidx >= 0) {
+                const bc_ship_class_t *cls =
+                    bc_registry_get_ship(&g_registry, cidx);
+                u8 team_id = (header_ok && hdr.has_team) ? hdr.team_id : 0;
+                if (header_ok && hdr.has_team && team_id < 2) {
+                    if (!peer->has_ship) {
+                        g_player_teams[peer_slot] = team_id;
+                    } else {
+                        LOG_WARN("cheat",
+                                 "slot=%d ObjCreateTeam team=%d ignored "
+                                 "(already has ship)",
+                                 peer_slot, team_id);
                     }
-                    bc_ship_init(&peer->ship, cls, cidx,
-                                  bhdr.object_id,
-                                  (u8)peer_slot, team_id);
-                    peer->ship.pos.x = bhdr.pos_x;
-                    peer->ship.pos.y = bhdr.pos_y;
-                    peer->ship.pos.z = bhdr.pos_z;
-                    peer->class_index = cidx;
-                    peer->has_ship = true;
-                    peer->subsys_rr_idx = 0;
-                    memset(peer->last_fire_time, 0, sizeof(peer->last_fire_time));
-                    memset(peer->last_torpedo_time, 0, sizeof(peer->last_torpedo_time));
-                    peer->fire_violations = 0;
-                    peer->violation_window_start = 0;
-                    bc_ship_assign_subsystem_ids(&peer->ship, cls);
-                    LOG_INFO("game", "slot=%d ship initialized: %s (species=%d, hull=%.0f, repair_obj=0x%X)",
-                             peer_slot, cls->name, bhdr.species_id, cls->hull_hp,
-                             peer->ship.repair_subsys_obj_id);
-                } else {
-                    LOG_WARN("game", "slot=%d unknown species_id %d, no ship state",
-                             peer_slot, bhdr.species_id);
                 }
+                bc_ship_init(&peer->ship, cls, cidx,
+                             bhdr.object_id,
+                             (u8)peer_slot, team_id);
+                peer->ship.pos.x = bhdr.pos_x;
+                peer->ship.pos.y = bhdr.pos_y;
+                peer->ship.pos.z = bhdr.pos_z;
+                peer->class_index = cidx;
+                peer->has_ship = true;
+                peer->subsys_rr_idx = 0;
+                memset(peer->last_fire_time, 0, sizeof(peer->last_fire_time));
+                memset(peer->last_torpedo_time, 0, sizeof(peer->last_torpedo_time));
+                peer->fire_violations = 0;
+                peer->violation_window_start = 0;
+                bc_ship_assign_subsystem_ids(&peer->ship, cls);
+                LOG_INFO("game", "slot=%d ship initialized: %s (species=%d, hull=%.0f, repair_obj=0x%X)",
+                         peer_slot, cls->name, bhdr.species_id, cls->hull_hp,
+                         peer->ship.repair_subsys_obj_id);
+            } else {
+                LOG_WARN("game", "slot=%d unknown species_id %d, no ship state",
+                         peer_slot, bhdr.species_id);
             }
         }
 
@@ -1479,7 +1485,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             }
 
             /* Ownership: sender must control source or target */
-            i32 sender_oid = g_peers.peers[peer_slot].object_id;
+            i32 sender_oid = peer->has_ship ? peer->ship.object_id
+                                            : peer->object_id;
             bool sender_is_source = (sender_oid == cev.source_object_id);
             bool sender_is_target = (sender_oid == cev.target_object_id);
             if (!sender_is_source && !sender_is_target) {
