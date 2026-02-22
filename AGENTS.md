@@ -10,8 +10,8 @@ Everything below supplements CLAUDE.md with operational workflow and conventions
 
 This is a **clean room reimplementation**. These rules are absolute:
 
-- **NEVER** access, search for, or reference original Bridge Commander source code, decompiled code, binary data, or reverse-engineered repositories (GitHub or elsewhere).
-- **NEVER** reference binary addresses (`FUN_XXXXXXXX`, `DAT_XXXXXXXX`), struct field offsets, vtable layouts, or decompiled pseudocode.
+- **NEVER** access, search for, or reference original Bridge Commander source code, decompiled code, binary data, or reverse-engineered repositories. The `SandboxServers/STBC-Reverse-Engineering` repo and any other RE repositories are **strictly off-limits** from this codebase.
+- **NEVER** reference the original game's binary addresses (`FUN_XXXXXXXX`, `DAT_XXXXXXXX`), struct field offsets, vtable layouts, or decompiled pseudocode. OpenBC's own symbols and addresses are fine -- only the original game's internals are prohibited.
 - All protocol knowledge comes from `docs/` and observable wire behavior (packet traces). If it's not in the clean room docs, it must come from behavioral observation, not binary analysis.
 
 **Legal basis**: Oracle v. Google (2021), Sega v. Accolade (1992). See CLAUDE.md for full details.
@@ -58,6 +58,7 @@ Post your plan as a comment on the issue before starting implementation.
 
 - Follow existing code style and conventions (see below).
 - Keep changes scoped tightly to the issue. Do not refactor unrelated code, add unrelated features, or "improve" things outside scope.
+- **See something, say something.** If you observe bugs, code smells, or missing tests unrelated to your current issue, do not fix them inline. Instead, open a new issue describing the problem so it can be triaged and assigned separately.
 - Before each commit, run `git diff` to verify you are only changing what you intend.
 - Make small, logical commits with messages that explain *why*, not just *what*.
 
@@ -79,13 +80,18 @@ make all && make test
 
 The build must produce **zero warnings** (`-Wall -Wextra -Wpedantic`).
 
-If tests fail:
-- **Your changes caused it** -- fix it before proceeding.
-- **Pre-existing failure unrelated to your changes** -- note it in the PR description. Do not attempt to fix unrelated broken tests.
+**All tests must pass before you open a PR. No exceptions.** If a test is failing -- whether your changes caused it or not -- fix it before proceeding. Do not open a PR with a failing test suite.
 
 ### 6. Open a Pull Request
 
-Push your branch and open a PR against `main`:
+Before pushing, rebase onto the latest `main` to avoid merge conflicts. This is a fast-moving project -- always verify nothing merged while you were working:
+
+```bash
+git fetch origin
+git rebase origin/main
+```
+
+Resolve any conflicts, then push:
 
 ```bash
 git push -u origin agent/<issue-number>-<short-slug>
@@ -98,11 +104,14 @@ The PR will auto-populate from the repository's pull request template. Fill in e
 - **Testing** -- how you verified it works (test names, manual steps)
 - **Issue reference** -- `Closes #<number>`
 
-Request review from **@Cadacious**.
+When filing new issues (see step 4), use the most specific template available (bug, feature, etc.).
+
+Request review from **@SandboxServers/reviewers**.
 
 ### 7. When You Are Stuck
 
 - If blocked after **2 failed attempts** at the same approach, stop. Comment on the issue explaining what you tried and where you are stuck. Do not loop.
+- **Need protocol or behavioral analysis?** You can request help from the reverse engineering room. Open a new issue in the OpenBC repo describing what behavior or protocol detail you need clarified. A human will relay it to the RE room, where a separate Claude instance will analyze the original binary, produce documentation, and synthesize it into a clean room acceptable behavior document. You must **never** access the RE room or its repos directly.
 - If your change would modify files another agent is likely also touching, note the potential conflict in your PR description.
 - **Never** force-push, delete branches you did not create, or run destructive commands (`rm -rf`, `git clean -f`, `git reset --hard`) without explicit approval.
 
@@ -110,9 +119,14 @@ Request review from **@Cadacious**.
 
 ## Build & Test
 
+The build system supports native Linux/macOS and cross-compilation to Win32:
+
 ```bash
-# Build (cross-compiles from Linux/WSL2 to Win32 via MinGW)
+# Native build (auto-detects Linux/macOS)
 make all
+
+# Cross-compile to Win32 from Linux/WSL2
+make PLATFORM=Windows
 
 # Run all tests
 make test
@@ -121,7 +135,12 @@ make test
 make clean
 ```
 
-Toolchain: `i686-w64-mingw32-gcc` with `-Wall -Wextra -Wpedantic`. Zero warnings policy.
+| Platform | Toolchain | Notes |
+|---|---|---|
+| Linux / macOS | `cc` (system GCC or Clang) | Native build, auto-detected |
+| Windows (cross) | `i686-w64-mingw32-gcc` | Cross-compile from Linux/WSL2 |
+
+All platforms use `-std=c11 -Wall -Wextra -Wpedantic`. Zero warnings policy.
 
 ## Project Structure
 
@@ -134,8 +153,8 @@ Toolchain: `i686-w64-mingw32-gcc` with `-Wall -Wextra -Wpedantic`. Zero warnings
 
 ## Key Conventions
 
-- C (not C++). No external dependencies beyond MinGW's libc and Winsock2.
+- C (not C++). No external dependencies beyond libc and platform socket APIs (Winsock2 on Windows, BSD sockets on Linux/macOS).
 - Raw UDP networking, wire-compatible with stock BC 1.1 clients.
-- JSON data files drive all game configuration (ships, weapons, maps, rules).
+- **Data formats**: JSON for machine-generated/scraped data (ship registries, manifests). TOML for human-managed configuration.
 - Test fixtures in `tests/fixtures/` include `.pyc` stub files that must remain tracked.
 - Read `docs/` before implementing any protocol or game logic -- do not guess at wire formats.
