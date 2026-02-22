@@ -851,17 +851,26 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- Chat relay (reliable) --- */
     case BC_MSG_CHAT:
     case BC_MSG_TEAM_CHAT: {
+        u8 *chat_payload = (u8 *)payload;
+        u8 auth_sender_slot = (u8)(peer_slot > 0 ? peer_slot - 1 : 0);
+        if (payload_len >= 2 && chat_payload[1] != auth_sender_slot) {
+            u8 claimed_sender = chat_payload[1];
+            LOG_WARN("cheat", "slot=%d spoofed chat sender=%d, correcting",
+                     peer_slot, claimed_sender);
+            chat_payload[1] = auth_sender_slot;
+        }
+
         bc_chat_event_t ev;
-        if (bc_parse_chat_message(payload, payload_len, &ev)) {
+        if (bc_parse_chat_message(chat_payload, payload_len, &ev)) {
             LOG_INFO("chat", "[%s] %s: %s",
                      opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
-                     peer_name(ev.sender_slot), ev.message);
+                     peer_name(peer_slot), ev.message);
         } else {
             LOG_INFO("chat", "slot=%d %s len=%d",
                      peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
                      payload_len);
         }
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        bc_relay_to_others(peer_slot, chat_payload, payload_len, true);
         break;
     }
 
@@ -1131,15 +1140,23 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     case BC_OP_OBJ_CREATE_TEAM:
     case BC_OP_OBJ_CREATE: {
         bc_object_create_header_t hdr;
-        if (bc_parse_object_create_header(payload + 1, payload_len - 1, &hdr)) {
+        u8 auth_owner_slot = (u8)(peer_slot > 0 ? peer_slot - 1 : 0);
+        bool header_ok = bc_parse_object_create_header(payload, payload_len, &hdr);
+        if (header_ok) {
+            if (hdr.owner_slot != auth_owner_slot) {
+                LOG_WARN("cheat",
+                         "slot=%d spoofed ObjCreate owner=%d, rejecting",
+                         peer_slot, hdr.owner_slot);
+                break;
+            }
             if (hdr.has_team)
                 LOG_INFO("game", "%s spawned object (owner=%s, team=%d)",
                          peer_name(peer_slot),
-                         peer_name(hdr.owner_slot), hdr.team_id);
+                         peer_name(peer_slot), hdr.team_id);
             else
                 LOG_INFO("game", "%s spawned object (owner=%s)",
                          peer_name(peer_slot),
-                         peer_name(hdr.owner_slot));
+                         peer_name(peer_slot));
         } else {
             LOG_INFO("game", "%s spawned object", peer_name(peer_slot));
         }
@@ -1168,9 +1185,16 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 if (cidx >= 0) {
                     const bc_ship_class_t *cls =
                         bc_registry_get_ship(&g_registry, cidx);
-                    u8 team_id = hdr.has_team ? hdr.team_id : 0;
-                    if (hdr.has_team && team_id < 2) {
-                        g_player_teams[peer_slot] = team_id;
+                    u8 team_id = (header_ok && hdr.has_team) ? hdr.team_id : 0;
+                    if (header_ok && hdr.has_team && team_id < 2) {
+                        if (!peer->has_ship) {
+                            g_player_teams[peer_slot] = team_id;
+                        } else {
+                            LOG_WARN("cheat",
+                                     "slot=%d ObjCreateTeam team=%d ignored "
+                                     "(already has ship)",
+                                     peer_slot, team_id);
+                        }
                     }
                     bc_ship_init(&peer->ship, cls, cidx,
                                   bhdr.object_id,
