@@ -28,18 +28,6 @@
 #  include <windows.h>
 #endif
 
-/* Global auto-increment counter for subsystem object IDs (PythonEvent).
- * Each subsystem on every ship gets a sequential ID from this counter.
- *
- * Must match the client's auto-increment counter value at the time it
- * creates subsystem objects.  The client's counter starts at 1 but
- * advances through scene objects created during map loading (skybox,
- * asteroids, etc.) before any ship subsystems are constructed.
- *
- * Calibrated from stock dedi trace: repair subsystem has ID 0x1E (30)
- * and is the 15th subsystem assigned (counter + 14), so counter = 16. */
-i32 g_script_obj_counter = 16;
-
 /* --- GameSpy query handler --- */
 
 void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
@@ -1185,12 +1173,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                     memset(peer->last_torpedo_time, 0, sizeof(peer->last_torpedo_time));
                     peer->fire_violations = 0;
                     peer->violation_window_start = 0;
-                    bc_ship_assign_subsystem_ids(&peer->ship, cls,
-                                                  &g_script_obj_counter);
-                    LOG_INFO("game", "slot=%d ship initialized: %s (species=%d, hull=%.0f, repair_obj=0x%X, next_counter=%d)",
+                    bc_ship_assign_subsystem_ids(&peer->ship, cls);
+                    LOG_INFO("game", "slot=%d ship initialized: %s (species=%d, hull=%.0f, repair_obj=0x%X)",
                              peer_slot, cls->name, bhdr.species_id, cls->hull_hp,
-                             peer->ship.repair_subsys_obj_id,
-                             g_script_obj_counter);
+                             peer->ship.repair_subsys_obj_id);
                 } else {
                     LOG_WARN("game", "slot=%d unknown species_id %d, no ship state",
                              peer_slot, bhdr.species_id);

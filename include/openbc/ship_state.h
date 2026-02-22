@@ -75,8 +75,9 @@ typedef struct {
     u8         repair_queue[BC_MAX_SUBSYSTEMS];
     int        repair_count;
 
-    /* PythonEvent subsystem object IDs (sequential counter, NOT player-base IDs).
-     * Assigned by bc_ship_assign_subsystem_ids() after bc_ship_init(). */
+    /* PythonEvent subsystem object IDs.
+     * Assigned by bc_ship_assign_subsystem_ids() from this ship's object-ID
+     * allocation range (ship object ID + per-subsystem offsets). */
     i32        subsys_obj_id[BC_MAX_SUBSYSTEMS];
     i32        repair_subsys_obj_id;  /* the repair subsystem's object ID (-1 if none) */
 } bc_ship_state_t;
@@ -90,12 +91,10 @@ void bc_ship_init(bc_ship_state_t *ship,
                   u8 owner_slot,
                   u8 team_id);
 
-/* Assign sequential object IDs to each subsystem in serialization list order.
- * Must be called after bc_ship_init(). counter is a global auto-increment
- * that persists across all ship creations. */
+/* Assign subsystem object IDs in serialization-list order from this ship's
+ * player allocation range. Must be called after bc_ship_init(). */
 void bc_ship_assign_subsystem_ids(bc_ship_state_t *ship,
-                                   const bc_ship_class_t *cls,
-                                   i32 *counter);
+                                  const bc_ship_class_t *cls);
 
 /* Serialize ship state into an ObjectCreateTeam ship blob.
  * Returns bytes written, or -1 on error. */

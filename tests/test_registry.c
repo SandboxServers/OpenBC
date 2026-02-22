@@ -41,6 +41,24 @@ static int find_subsystem_by_type(const bc_ship_class_t *cls, const char *type)
     return -1;
 }
 
+static bool subsystem_ids_in_slot_range(const bc_ship_state_t *ship,
+                                        const bc_ship_class_t *cls,
+                                        int game_slot)
+{
+    i32 min_id = bc_make_ship_id(game_slot) + 1;
+    i32 max_id = bc_make_ship_id(game_slot + 1);
+    int assigned = 0;
+
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        i32 obj_id = ship->subsys_obj_id[i];
+        if (obj_id <= 0) continue;
+        if (obj_id < min_id || obj_id >= max_id) return false;
+        assigned++;
+    }
+
+    return assigned > 0;
+}
+
 /* === Load registry (directory format) === */
 
 TEST(load_registry)
@@ -244,6 +262,45 @@ TEST(ship_init_all_types)
         ASSERT(ship.alive);
         ASSERT(fabsf(ship.hull_hp - cls->hull_hp) < 1.0f);
     }
+}
+
+TEST(subsystem_ids_use_owner_slot_range)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 1);
+    bc_ship_assign_subsystem_ids(&ship, cls);
+
+    ASSERT(subsystem_ids_in_slot_range(&ship, cls, 0));
+
+    int repair_idx = find_subsystem_by_type(cls, "repair");
+    ASSERT(repair_idx >= 0);
+    ASSERT_EQ_INT(ship.repair_subsys_obj_id, ship.subsys_obj_id[repair_idx]);
+}
+
+TEST(subsystem_ids_are_scoped_per_player_slot)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship_a, ship_b;
+    bc_ship_init(&ship_a, cls, 2, bc_make_ship_id(0), 0, 0);
+    bc_ship_init(&ship_b, cls, 2, bc_make_ship_id(1), 1, 1);
+    bc_ship_assign_subsystem_ids(&ship_a, cls);
+    bc_ship_assign_subsystem_ids(&ship_b, cls);
+
+    ASSERT(subsystem_ids_in_slot_range(&ship_a, cls, 0));
+    ASSERT(subsystem_ids_in_slot_range(&ship_b, cls, 1));
+
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        if (ship_a.subsys_obj_id[i] <= 0 || ship_b.subsys_obj_id[i] <= 0)
+            continue;
+        ASSERT(ship_a.subsys_obj_id[i] != ship_b.subsys_obj_id[i]);
+    }
+
+    ASSERT(ship_a.repair_subsys_obj_id != ship_b.repair_subsys_obj_id);
 }
 
 TEST(ship_serialize_galaxy)
@@ -824,6 +881,8 @@ TEST_MAIN_BEGIN()
     RUN(galaxy_subsystem_phaser);
     RUN(ship_init_galaxy);
     RUN(ship_init_all_types);
+    RUN(subsystem_ids_use_owner_slot_range);
+    RUN(subsystem_ids_are_scoped_per_player_slot);
     RUN(ship_serialize_galaxy);
     RUN(ship_create_packet);
     RUN(move_tick_advances_position);

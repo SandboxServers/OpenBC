@@ -90,17 +90,25 @@ void bc_ship_init(bc_ship_state_t *ship,
 }
 
 void bc_ship_assign_subsystem_ids(bc_ship_state_t *ship,
-                                   const bc_ship_class_t *cls,
-                                   i32 *counter)
+                                  const bc_ship_class_t *cls)
 {
-    /* Assign IDs in ser_list order (matches hardpoint script LoadPropertySet order) */
+    i32 next_obj_id = ship->object_id + 1;
+
+    memset(ship->subsys_obj_id, 0, sizeof(ship->subsys_obj_id));
+
+    /* Assign IDs in ser_list order (matches hardpoint script LoadPropertySet order). */
     const bc_ss_list_t *sl = &cls->ser_list;
     for (int i = 0; i < sl->count; i++) {
-        ship->subsys_obj_id[sl->entries[i].hp_index] = (*counter)++;
+        int idx = sl->entries[i].hp_index;
+        if (idx >= 0 && idx < BC_MAX_SUBSYSTEMS)
+            ship->subsys_obj_id[idx] = next_obj_id;
+        next_obj_id++;
+
         for (int c = 0; c < sl->entries[i].child_count; c++) {
             int cidx = sl->entries[i].child_hp_index[c];
             if (cidx >= 0 && cidx < BC_MAX_SUBSYSTEMS)
-                ship->subsys_obj_id[cidx] = (*counter)++;
+                ship->subsys_obj_id[cidx] = next_obj_id;
+            next_obj_id++;
         }
     }
 
