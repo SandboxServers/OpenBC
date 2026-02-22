@@ -303,7 +303,7 @@ Observed timing from packet captures of a stock dedicated server:
 
 ## Related Documents
 
-- **[phase1-verified-protocol.md](phase1-verified-protocol.md)** -- Wire format details and hex dumps
+- **[protocol-reference.md](../protocol/protocol-reference.md)** -- Wire format details and hex dumps
 - **[checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md)** -- Hash algorithms and round details
 - **[gamespy-protocol.md](../protocol/gamespy-protocol.md)** -- Server discovery (runs before connect)
 - **[disconnect-flow.md](disconnect-flow.md)** -- Detailed disconnect cleanup

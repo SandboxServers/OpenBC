@@ -288,4 +288,4 @@ All four prompts will be saved to `docs/dirty-room-prompts.md` in the repo for s
 - `src/protocol/game_builders.c` -- message construction
 - `src/game/ship_data.c` -- JSON registry loader
 - `include/openbc/ship_data.h` -- ship class struct
-- `docs/phase1-api-surface.md` -- data registry spec (mentions TOML for human-authored)
+- `docs/game-systems/data-registry.md` -- data registry spec (mentions TOML for human-authored)

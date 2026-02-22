@@ -30,7 +30,7 @@ Three cleanup opcodes are sent to remaining clients:
 
 ### 1.1 Peer Timeout (~45 seconds)
 
-From the protocol specification in [phase1-verified-protocol.md](phase1-verified-protocol.md):
+From the protocol specification in [protocol-reference.md](../protocol/protocol-reference.md):
 
 > Clients that stop sending packets are disconnected after approximately 45 seconds.
 
@@ -54,7 +54,7 @@ The graceful disconnect reaches the same cleanup path as the timeout, but withou
 ### 1.3 Boot/Kick (Host-Initiated)
 
 The server can forcibly disconnect a player. This is triggered by:
-- **Anti-cheat**: Subsystem hash mismatch (the hash field in StateUpdate position data, see [phase1-verified-protocol.md Section 8](phase1-verified-protocol.md#8-stateupdate-deep-dive-opcode-0x1c))
+- **Anti-cheat**: Subsystem hash mismatch (the hash field in StateUpdate position data, see [phase1-verified-protocol.md Section 8](../protocol/protocol-reference.md#8-stateupdate-deep-dive-opcode-0x1c))
 - **Host action**: Manual kick from the lobby UI
 
 The server sends a boot message to the target peer, then performs the same cleanup as the other disconnect paths.

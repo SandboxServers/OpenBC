@@ -2,7 +2,7 @@
 
 Complete specification of the Bridge Commander UDP transport layer: message framing, reliable delivery, fragmentation, and reassembly. Derived from protocol analysis of stock BC dedicated server packet captures (30,000+ packets across multiple sessions).
 
-This document **supersedes** the transport section in `phase1-verified-protocol.md` Section 1, which had an incorrect header format (separate totalLen:1 + flags:1 bytes).
+This document **supersedes** the transport section in `protocol-reference.md` Section 1, which had an incorrect header format (separate totalLen:1 + flags:1 bytes).
 
 ---
 
@@ -338,7 +338,7 @@ Maximum UDP payload for BC: 512 bytes (buffer size). After peer_id (1) + msg_cou
 ## Related Documents
 
 - [transport-cipher.md](transport-cipher.md) — AlbyRules stream cipher (encryption/decryption)
-- [phase1-verified-protocol.md](phase1-verified-protocol.md) — Game-layer opcodes (carried inside type 0x32)
+- [protocol-reference.md](protocol-reference.md) — Game-layer opcodes (carried inside type 0x32)
 - [checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md) — Checksum exchange that demonstrates fragmentation
 - [join-flow.md](../network-flows/join-flow.md) — Complete join sequence showing transport message flow
 - [wire-format-audit.md](../network-flows/wire-format-audit.md) — Previous audit (transport section now superseded by this doc)

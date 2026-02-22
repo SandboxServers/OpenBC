@@ -258,5 +258,5 @@ The client iterates through the list and sends `\status\` queries directly to ea
 
 ## Related Documents
 
-- **[phase1-verified-protocol.md](phase1-verified-protocol.md)** -- Section 9 contains observed GameSpy wire data
+- **[protocol-reference.md](protocol-reference.md)** -- Section 9 contains observed GameSpy wire data
 - **[join-flow.md](../network-flows/join-flow.md)** -- Connection lifecycle including GameSpy discrimination

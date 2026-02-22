@@ -424,5 +424,5 @@ See [repair-system.md](repair-system.md) for complete behavioral spec including 
 ## Related Documents
 
 - **[ship-subsystems.md](ship-subsystems.md)** -- Subsystem index table and HP values
-- **[phase1-verified-protocol.md](phase1-verified-protocol.md)** -- Wire formats for all combat opcodes
+- **[protocol-reference.md](../protocol/protocol-reference.md)** -- Wire formats for all combat opcodes
 - **[server-authority.md](../architecture/server-authority.md)** -- Authority model (who computes what)

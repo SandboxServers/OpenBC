@@ -318,4 +318,4 @@ Every single piece of this existed in the Bridge Commander codebase. It was neve
 - **[ship-subsystems.md](../game-systems/ship-subsystems.md)** -- Subsystem types and configurations per ship
 - **[objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md)** -- Species tables (includes BORGCUBE, ENTERPRISE, ESCAPEPOD)
 - **[collision-detection-system.md](../game-systems/collision-detection-system.md)** -- Collision detection pipeline
-- **[phase1-verified-protocol.md](phase1-verified-protocol.md)** -- All network opcodes including 0x0E-0x10, 0x1F
+- **[protocol-reference.md](../protocol/protocol-reference.md)** -- All network opcodes including 0x0E-0x10, 0x1F

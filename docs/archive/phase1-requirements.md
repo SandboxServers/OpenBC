@@ -3,9 +3,9 @@
 ## Document Status
 - **Created**: 2026-02-07
 - **Revised**: 2026-02-15 (complete rewrite: standalone C server architecture, no Python/SWIG/flecs)
-- **Architecture**: RFC at [phase1-implementation-plan.md](phase1-implementation-plan.md)
-- **Wire protocol**: [phase1-verified-protocol.md](phase1-verified-protocol.md)
-- **Engine internals**: [phase1-engine-architecture.md](phase1-engine-architecture.md)
+- **Architecture**: RFC at [phase1-implementation-plan.md](../architecture/server-architecture.md)
+- **Wire protocol**: [phase1-verified-protocol.md](../protocol/protocol-reference.md)
+- **Engine internals**: [phase1-engine-architecture.md](../architecture/engine-reference.md)
 
 ---
 
@@ -133,7 +133,7 @@ Offset  Size  Field
 1       1     msg_count     (number of transport messages in this packet)
 2+      var   messages      (sequence of self-describing transport messages)
 ```
-Max 254 messages per packet. Default max packet size 512 bytes. See [phase1-verified-protocol.md](phase1-verified-protocol.md) for complete wire format.
+Max 254 messages per packet. Default max packet size 512 bytes. See [phase1-verified-protocol.md](../protocol/protocol-reference.md) for complete wire format.
 
 #### REQ-NET-05: Transport Message Types
 | Type | Name | Format | Size | Confidence |
@@ -149,7 +149,7 @@ Max 254 messages per packet. Default max packet size 512 bytes. See [phase1-veri
 Note: Types 0x00, 0x01, and 0x32 are confirmed via packet captures. Types 0x02-0x05 are inferred from behavioral analysis but have not been individually observed in network traces.
 
 #### REQ-NET-06: Three-Tier Send Queues
-Per peer: Priority Reliable (ACKs, retried 8x), Reliable (guaranteed, 360s timeout), Unreliable (fire-and-forget). See [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 3.
+Per peer: Priority Reliable (ACKs, retried 8x), Reliable (guaranteed, 360s timeout), Unreliable (fire-and-forget). See [phase1-verified-protocol.md](../protocol/protocol-reference.md) Section 3.
 
 #### REQ-NET-07: Reliable Delivery
 Sequence numbering (u16 wrapping), ACK generation, retry with timeout, disconnect after 8 priority retries, sequence window validation (0x4000 range).
@@ -386,7 +386,7 @@ The server MUST process the following incoming opcodes:
 | 0x2D | TEAM_CHAT_MESSAGE | Relay to teammates only |
 
 #### REQ-OPC-03: Relay Opcodes
-All remaining game opcodes MUST be relayed to all other connected peers as raw bytes without deserialization. The opcode space spans 0x00-0x2A with 28 active handlers -- the rest are unhandled. See [phase1-verified-protocol.md](phase1-verified-protocol.md) for the complete opcode table.
+All remaining game opcodes MUST be relayed to all other connected peers as raw bytes without deserialization. The opcode space spans 0x00-0x2A with 28 active handlers -- the rest are unhandled. See [phase1-verified-protocol.md](../protocol/protocol-reference.md) for the complete opcode table.
 
 #### REQ-OPC-04: Python Message Opcodes
 Python-level messages (opcode >= MAX_MESSAGE_TYPES = 0x2B) MUST be handled:
@@ -509,7 +509,7 @@ max_angular_velocity = 0.500
 max_angular_accel = 0.350
 ```
 
-The server MUST load ship definitions at startup and use them for object creation, collision detection, and damage calculation. See [Data Registry Specification](phase1-api-surface.md) for the complete ship physics table and schema.
+The server MUST load ship definitions at startup and use them for object creation, collision detection, and damage calculation. See [Data Registry Specification](../game-systems/data-registry.md) for the complete ship physics table and schema.
 
 #### REQ-DATA-02: Map Registry
 Map definitions loaded from TOML:
@@ -838,7 +838,7 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 - 4x256-byte StringHash lookup tables (extracted via hash manifest tool)
 - Version string `"60"`, hash `0x7E0CE243`
 - AlbyRules cipher key: `"AlbyRules!"` (10-byte XOR)
-- Complete wire format: [phase1-verified-protocol.md](phase1-verified-protocol.md)
+- Complete wire format: [phase1-verified-protocol.md](../protocol/protocol-reference.md)
 - 28 active game opcodes (jump table has 41 entries, many DEFAULT) with addresses and frequency counts
 - 8 Python message opcodes (0x2C-0x39)
 - MAX_MESSAGE_TYPES = 0x2B (43)
@@ -927,7 +927,7 @@ The original BC uses GameSpy for server discovery. Community-maintained replacem
 
 | Risk | Probability | Impact | Mitigation | Status |
 |------|-------------|--------|------------|--------|
-| Wire format mismatch | **LOW** | HIGH | **SOLVED**: Complete wire format verified from 30K+ packet traces. See [phase1-verified-protocol.md](phase1-verified-protocol.md) | Resolved |
+| Wire format mismatch | **LOW** | HIGH | **SOLVED**: Complete wire format verified from 30K+ packet traces. See [phase1-verified-protocol.md](../protocol/protocol-reference.md) | Resolved |
 | Hash algorithm mismatch | **LOW** | HIGH | **SOLVED**: Both StringHash (4-lane Pearson) and FileHash (rotate-XOR) fully verified with lookup tables extracted | Resolved |
 | ACK priority queue stall | **LOW** | HIGH | **SOLVED**: Three-tier queue system fully verified from protocol observation with timeouts and retry logic | Resolved |
 | Game opcode relay ordering | **LOW** | MEDIUM | **SOLVED**: Complete opcode table with jump table addresses and frequency counts | Resolved |

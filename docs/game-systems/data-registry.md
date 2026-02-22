@@ -1,4 +1,4 @@
-# OpenBC Phase 1: Data Registry Specification
+# OpenBC: Data Registry Specification
 
 ## Document Status
 - **Created**: 2026-02-15
@@ -358,89 +358,19 @@ Deliberately skips bytes 4-7 (.pyc modification timestamp) so that the same byte
 
 ## 6. Settings Packet (0x00)
 
-### 6.1 Source
-
-Verified from protocol analysis and behavioral observation of the Settings opcode handler.
-
-### 6.2 Verified Fields
-
-The Settings packet contains game configuration sent to each connecting client. Verified fields:
-
-- **Game time**: Float, time elapsed in current game
-- **Player slot**: Integer, assigned slot index for this client
-- **Map name**: String, the `Systems.{MapName}.{MapName}` load path (must match what the client expects)
-- **Pass/fail**: Result of checksum validation
-- **Collision toggle**: Bit-packed boolean, controls whether collision damage is enabled
-- **Friendly fire toggle**: Bit-packed boolean, controls whether friendly fire is enabled
-
-Both toggles are written as individual bits (not full bytes).
-
-### 6.3 Notes
-
-The complete field layout of the Settings packet requires further analysis from protocol captures. The fields listed above are the verified subset. Additional fields (time limit, frag limit, game mode) are present but their exact byte offsets need confirmation.
+> Wire format moved to [../protocol/protocol-reference.md](../protocol/protocol-reference.md) (Section 6.1).
 
 ---
 
 ## 7. ObjCreateTeam (0x03) Format
 
-### 7.1 Source
-
-Verified from protocol captures and behavioral analysis.
-
-### 7.2 Purpose
-
-Sent by the server when a player selects a ship. Creates the ship object for all clients. The packet contains the complete initial state of the ship including all subsystem health values.
-
-### 7.3 Ship Class Identification
-
-Ship classes are identified by their **subsystem data length fingerprint** -- different ship classes have different numbers of subsystems, which produces different packet sizes. The server uses subsystem count from the ship data registry to construct the correct-length packet.
-
-### 7.4 Subsystem Health Encoding
-
-Each subsystem's health is encoded as a single byte (0-255 mapped to 0.0-1.0 condition). At creation time, all subsystems start at full health (0xFF = 1.0).
-
-### 7.5 Notes
-
-Key fields include: object ID, team assignment, species/net type, position, orientation, and the variable-length subsystem health array.
+> Wire format moved to [../wire-formats/objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md).
 
 ---
 
 ## 8. StateUpdate (0x1C) Format
 
-### 8.1 Source
-
-Verified from protocol analysis and packet captures.
-
-### 8.2 Dirty-Flag Bitmask
-
-The StateUpdate message uses a bitmask byte to indicate which fields are present:
-
-| Bit | Flag | Field | Direction |
-|-----|------|-------|-----------|
-| 0x01 | Position | DeltaVector3 or full Vector3 | Both |
-| 0x02 | Orientation | DeltaQuaternion | Both |
-| 0x04 | Speed | LogFloat16 forward speed | Both |
-| 0x08 | Angular velocity | Angular rotation rates | Both |
-| 0x20 | Subsystem health | Round-robin subsystem byte | S->C only |
-| 0x80 | Weapon status | Weapon firing state | C->S only |
-
-### 8.3 Direction Split
-
-- **Client -> Server (0x80 WPN)**: Clients send weapon status flags to the server
-- **Server -> Client (0x20 SUB)**: Server sends subsystem health updates to clients
-
-### 8.4 Subsystem Source
-
-The subsystem list for StateUpdate serialization comes from the ship object's internal subsystem linked list. Subsystems are serialized in round-robin fashion -- one subsystem per StateUpdate tick, cycling through the full list.
-
-### 8.5 Compressed Types
-
-- **DeltaVector3**: 3-byte delta-encoded position (when changes are small enough to fit)
-- **DeltaQuaternion**: 6-byte compressed rotation
-- **LogFloat16**: 2-byte logarithmic float for speed values
-- **Subsystem health**: 1 byte (0-255 mapped to 0.0-1.0)
-
-Full codec specifications are in [phase1-verified-protocol.md](phase1-verified-protocol.md).
+> Wire format moved to [../wire-formats/stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md). Subsystem details in [ship-subsystems.md](ship-subsystems.md).
 
 ---
 

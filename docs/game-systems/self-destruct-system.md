@@ -296,4 +296,4 @@ respawn handling is needed for self-destruct.
 - **[explosion-wire-format.md](../wire-formats/explosion-wire-format.md)** — Explosion opcode 0x29 (not used by self-destruct)
 - **[disconnect-flow.md](../network-flows/disconnect-flow.md)** — Player removal flow (shares cleanup opcodes)
 - **[gamemode-system.md](../planning/gamemode-system.md)** — Scoring rules for self-destruct in different game modes
-- **[phase1-verified-protocol.md](phase1-verified-protocol.md)** — Full wire protocol reference
+- **[protocol-reference.md](../protocol/protocol-reference.md)** — Full wire protocol reference

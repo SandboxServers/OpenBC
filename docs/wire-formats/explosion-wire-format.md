@@ -236,6 +236,6 @@ All CF16 fields share the same scale table and precision characteristics documen
 
 ## Related Documents
 
-- **[phase1-verified-protocol.md](phase1-verified-protocol.md)** -- Full wire protocol reference (Section 17: Explosion)
+- **[protocol-reference.md](../protocol/protocol-reference.md)** -- Full wire protocol reference (Section 17: Explosion)
 - **[combat-system.md](../game-systems/combat-system.md)** -- How explosion damage feeds into the damage pipeline
 - **[stateupdate-wire-format.md](stateupdate-wire-format.md)** -- StateUpdate fields that also use CF16

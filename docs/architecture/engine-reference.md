@@ -1,10 +1,10 @@
-# OpenBC Phase 1: Bridge Commander Protocol Architecture Reference
+# OpenBC: Bridge Commander Protocol Architecture Reference
 
 ## Document Status
 - **Created**: 2026-02-15, **Updated**: 2026-02-17 (clean room audit: all binary addresses and struct offsets removed)
 - **Source**: Observable protocol behavior, packet captures, readable Python scripts
 - **Purpose**: Provide implementors with a clear understanding of BC's original engine layers, so OpenBC can reimplement the protocol-relevant parts. OpenBC is a standalone C server with data-driven configuration -- it does not embed Python, use SWIG, or replicate the original engine's class hierarchy. This document describes the behavioral architecture that OpenBC must be wire-compatible with.
-- **Cross-reference**: [phase1-verified-protocol.md](phase1-verified-protocol.md) for wire format, [phase1-implementation-plan.md](phase1-implementation-plan.md) for OpenBC's architecture
+- **Cross-reference**: [protocol-reference.md](../protocol/protocol-reference.md) for wire format, [server-architecture.md](server-architecture.md) for OpenBC's architecture
 
 ---
 
@@ -113,7 +113,7 @@ Internal behavior:
 
 ### TGMessage
 
-Network message container. See [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 2 for wire format.
+Network message container. See [protocol-reference.md](../protocol/protocol-reference.md) Section 2 for wire format.
 
 Important methods exposed to Python:
 | Python Method | Purpose |
@@ -127,7 +127,7 @@ Important methods exposed to Python:
 
 Binary serialization stream with position-tracked byte buffer and bit-packing state.
 
-Read/Write functions documented in [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 11.
+Read/Write functions documented in [protocol-reference.md](../protocol/protocol-reference.md) Section 11.
 
 ### TGTimerManager
 
@@ -170,7 +170,7 @@ Game session manager. Contains player slots and game state:
 | readyForNewPlayers | Accept connections flag |
 | maxPlayers | Maximum player count |
 
-Registers 28 event handlers for all game events (see [phase1-verified-protocol.md](phase1-verified-protocol.md) Section 12).
+Registers 28 event handlers for all game events (see [protocol-reference.md](../protocol/protocol-reference.md) Section 12).
 
 ### Player Slots
 
