@@ -89,9 +89,9 @@ int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason);
  *   [0x17][factory=0x866:i32][event_code:i32][src:i32][tgt:i32][wire_peer:u8]
  *
  * Join (new player):  event_code=BC_EVENT_NEW_PLAYER, src=0, tgt=ship_id
- * Disconnect:         event_code=BC_EVENT_PLAYER_REMOVED, src=tgt=ship_id
+ * Disconnect:         event_code=BC_EVENT_PLAYER_REMOVED, src=0, tgt=ship_id
  *
- * wire_peer_id is the 0-based game slot.
+ * wire_peer_id is the wire slot (peer_slot + 1), matching GetNetID().
  * Returns bytes written (18), or -1 on error. */
 int bc_delete_player_ui_build(u8 *buf, int buf_size,
                                i32 event_code, i32 src_obj_id,

@@ -328,12 +328,13 @@ void bc_handle_peer_disconnect(int slot)
         /* 2. DeletePlayerUI (0x17) -- remove from scoreboard */
         {
             u8 gs = (u8)(slot > 0 ? slot - 1 : 0);
+            u8 wp = (u8)(slot + 1);  /* wire_slot */
             i32 sid = g_peers.peers[slot].has_ship
                     ? g_peers.peers[slot].ship.object_id
                     : bc_make_ship_id(gs);
             len = bc_delete_player_ui_build(payload, sizeof(payload),
                                              BC_EVENT_PLAYER_REMOVED,
-                                             sid, sid, gs);
+                                             0, sid, wp);
             if (len > 0) bc_relay_to_others(slot, payload, len, true);
         }
 

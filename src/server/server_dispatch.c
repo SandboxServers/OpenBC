@@ -1187,16 +1187,20 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
         /* DeletePlayerUI (0x17) with new-player event code.
          * Adds the player to the engine's internal player list, which
-         * the scoreboard UI reads from.  Must come after MissionInit. */
+         * the scoreboard UI reads from.  Must come after MissionInit.
+         *
+         * wire_peer_id is the wire slot (peer_slot + 1), matching
+         * GetNetID() and the score system's player ID domain. */
         {
             u8 gs_join = (u8)(peer_slot > 0 ? peer_slot - 1 : 0);
+            u8 wp_join = (u8)(peer_slot + 1);  /* wire_slot */
             i32 sid_join = bc_make_ship_id(gs_join);
 
             /* Tell all other in-game peers about the joining player */
             u8 dpkt[20];
             int dlen = bc_delete_player_ui_build(
                 dpkt, sizeof(dpkt),
-                BC_EVENT_NEW_PLAYER, 0, sid_join, gs_join);
+                BC_EVENT_NEW_PLAYER, 0, sid_join, wp_join);
             if (dlen > 0)
                 bc_relay_to_others(peer_slot, dpkt, dlen, true);
 
@@ -1205,11 +1209,12 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 if (i == peer_slot) continue;
                 if (g_peers.peers[i].state < PEER_IN_GAME) continue;
                 u8 gs = (u8)(i > 0 ? i - 1 : 0);
+                u8 wp = (u8)(i + 1);  /* wire_slot */
                 i32 sid = bc_make_ship_id(gs);
                 u8 epkt[20];
                 int elen = bc_delete_player_ui_build(
                     epkt, sizeof(epkt),
-                    BC_EVENT_NEW_PLAYER, 0, sid, gs);
+                    BC_EVENT_NEW_PLAYER, 0, sid, wp);
                 if (elen > 0)
                     bc_queue_reliable(peer_slot, epkt, elen);
             }
