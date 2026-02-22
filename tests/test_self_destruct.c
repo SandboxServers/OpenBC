@@ -488,8 +488,8 @@ cleanup:
                    __FILE__, __LINE__, log_path);
             fail++;
         }
-        if (log_file_contains(log_path, "collision ownership fail")) {
-            printf("FAIL\n    %s:%d: found ownership failure log in %s\n",
+        if (log_file_contains(log_path, "slot=1 collision ownership fail")) {
+            printf("FAIL\n    %s:%d: found slot-1 ownership failure log in %s\n",
                    __FILE__, __LINE__, log_path);
             fail++;
         }
