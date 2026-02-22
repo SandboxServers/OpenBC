@@ -276,6 +276,63 @@ static void send_settings_and_gameinit(int peer_slot)
      * When we receive it, we respond with MissionInit (see handle_game_message). */
 }
 
+/* ---------------------------------------------------------------------------
+ * Per-IP connection rate limiter (issue #49)
+ *
+ * Defends against connect/disconnect churn: a malicious actor rapidly
+ * cycling through slots to exhaust the peer table or waste server CPU.
+ *
+ * Strategy: record an IP when its peer *disconnects*, then refuse a new
+ * connection from that same IP if it arrives within BC_CONNECT_RATE_LIMIT_MS.
+ * This means:
+ *   - Fresh connections (no prior disconnect) are never blocked, so multiple
+ *     simultaneous clients sharing one NAT IP (or localhost in integration
+ *     tests) can all connect without interference.
+ *   - Only the specific churn pattern -- connect, disconnect, reconnect fast
+ *     -- is suppressed, which is exactly the threat described in issue #40.
+ *
+ * The ring buffer holds the last BC_CONNECT_RATE_SLOTS disconnected IPs.
+ * With 16 slots and a 2-second window this comfortably covers every
+ * realistic scenario (BC_MAX_PLAYERS is 7).
+ * ---------------------------------------------------------------------------
+ */
+#define BC_CONNECT_RATE_LIMIT_MS  2000  /* 2-second cooldown after disconnect */
+#define BC_CONNECT_RATE_SLOTS     16    /* ring-buffer size; ≥ BC_MAX_PLAYERS  */
+
+typedef struct {
+    u32 ip;              /* network-byte-order IPv4 address           */
+    u32 disconnect_ms;   /* bc_ms_now() value at the time of removal  */
+} bc_connect_attempt_t;
+
+static bc_connect_attempt_t g_connect_history[BC_CONNECT_RATE_SLOTS];
+static int                  g_connect_history_idx = 0;
+
+/* Record that `ip' just disconnected so we can rate-limit its next connect. */
+static void record_disconnect_ip(u32 ip, u32 now_ms)
+{
+    g_connect_history[g_connect_history_idx].ip           = ip;
+    g_connect_history[g_connect_history_idx].disconnect_ms = now_ms;
+    g_connect_history_idx = (g_connect_history_idx + 1) % BC_CONNECT_RATE_SLOTS;
+}
+
+/*
+ * Returns true if `ip' disconnected within the last BC_CONNECT_RATE_LIMIT_MS
+ * milliseconds and should therefore be refused a new connection slot.
+ *
+ * Note: u32 subtraction wraps correctly even when bc_ms_now() rolls over
+ * because unsigned arithmetic is modular on all C11 platforms.
+ */
+static bool connect_rate_limited(u32 ip, u32 now_ms)
+{
+    for (int i = 0; i < BC_CONNECT_RATE_SLOTS; i++) {
+        if (g_connect_history[i].ip == ip &&
+            (now_ms - g_connect_history[i].disconnect_ms) < BC_CONNECT_RATE_LIMIT_MS) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void bc_handle_peer_disconnect(int slot)
 {
     if (g_peers.peers[slot].state == PEER_EMPTY) return;
@@ -350,6 +407,10 @@ void bc_handle_peer_disconnect(int slot)
     g_peers.peers[slot].respawn_timer = 0.0f;
     g_peers.peers[slot].respawn_class = -1;
 
+    /* Rate-limit guard: stamp this IP so a rapid reconnect is rejected.
+     * Must be called before bc_peers_remove() while the addr is still valid. */
+    record_disconnect_ip(g_peers.peers[slot].addr.ip, bc_ms_now());
+
     bc_peers_remove(&g_peers, slot);
     LOG_INFO("net", "Player removed: %s (slot %d), %d remaining",
              addr_str, slot, g_peers.count - 1);
@@ -367,6 +428,15 @@ void bc_handle_connect(const bc_addr_t *from, int len)
     int slot = bc_peers_find(&g_peers, from);
     if (slot >= 0) {
         LOG_WARN("net", "Duplicate connect from %s (slot %d)", addr_str, slot);
+        return;
+    }
+
+    /* Rate limit: reject rapid reconnects from IPs that recently disconnected.
+     * Silently drop -- no BootPlayer reply -- to avoid giving the attacker
+     * timing feedback they could use to tune the churn interval. */
+    if (connect_rate_limited(from->ip, bc_ms_now())) {
+        LOG_DEBUG("net", "Rate limited connect from %s (reconnected too soon)",
+                  addr_str);
         return;
     }
 
