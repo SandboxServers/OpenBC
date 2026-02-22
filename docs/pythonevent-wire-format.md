@@ -86,7 +86,7 @@ populated when the ship's subsystem list is created during InitObject deserializ
 
 ---
 
-## Three Event Classes
+## Four Event Classes
 
 ### 1. SubsystemEvent (factory_id = 0x00000101)
 
@@ -139,17 +139,76 @@ Offset  Size  Type    Field            Notes
 See [set-phaser-level-wire-format.md](set-phaser-level-wire-format.md) for detailed
 analysis of CharEvent usage.
 
+### 3. ObjPtrEvent (factory_id = 0x0000010C)
+
+Extends SubsystemEvent with a single int32 third object reference — a network object ID
+for a third party (e.g. the weapon subsystem that fired). This is the highest-volume
+event class during combat, accounting for ~45% of all PythonEvent messages.
+
+```
+Offset  Size  Type    Field            Notes
+------  ----  ----    -----            -----
+0       1     u8      opcode           0x06
+1       4     i32     factory_id       0x0000010C
+5       4     i32     event_type       See table below
+9       4     i32     source_obj_id    Source object
+13      4     i32     dest_obj_id      Related object
+17      4     i32     obj_ptr          Third network object reference
+```
+
+**Total**: 21 bytes (fixed).
+
+The `obj_ptr` field carries a network object ID resolved via the same hash table as
+`source_obj_id` and `dest_obj_id`. It is NOT a char byte like CharEvent (+1 byte) —
+it is a full 4-byte int32.
+
+**Network-forwarded event types** (cross the wire via opcode 0x06/0x0D or 0x09):
+
+| Event Type | Name | obj_ptr Contains | Opcode |
+|-----------|------|-----------------|--------|
+| `0x0080007C` | WEAPON_FIRED | Target ID or 0 | 0x06/0x0D |
+| `0x00800081` | PHASER_STARTED_FIRING | Target ID | 0x06/0x0D |
+| `0x00800083` | PHASER_STOPPED_FIRING | Target ID | 0x06/0x0D |
+| `0x0080007D` | TRACTOR_BEAM_STARTED_FIRING | Target ID | 0x06/0x0D |
+| `0x0080007F` | TRACTOR_BEAM_STOPPED_FIRING | Target ID | 0x06/0x0D |
+| `0x00800076` | REPAIR_INCREASE_PRIORITY | Subsystem ID | 0x11 |
+| `0x008000DC` | STOP_FIRING_AT_TARGET_NOTIFY | Target ID or 0 | 0x09 (host-only) |
+
+**Local-only event types** (never sent over the network, documented for completeness):
+
+| Event Type | Name | obj_ptr Contains |
+|-----------|------|-----------------|
+| `0x0080000E` | SET_PLAYER | New player ship ID |
+| `0x00800058` | TARGET_WAS_CHANGED | **Previous** target ID (not the new one) |
+| `0x0080006B` | SUBSYSTEM_HIT | Subsystem's own ID |
+| `0x00800085` | TRACTOR_TARGET_DOCKED | Docked ship ID |
+| `0x00800088` | SENSORS_SHIP_IDENTIFIED | Identified ship ID |
+
+### Dual-Fire Pattern
+
+Weapon fire functions create **two** ObjPtrEvent messages simultaneously:
+
+- **Phaser fire**: PHASER_STARTED_FIRING (0x81) + WEAPON_FIRED (0x7C)
+- **Tractor fire**: TRACTOR_BEAM_STARTED_FIRING (0x7D) + WEAPON_FIRED (0x7C)
+- **Torpedo fire**: WEAPON_FIRED (0x7C) only
+
+A complete phaser or tractor cycle (fire → stop) therefore generates **4 ObjPtrEvent
+messages**: start-specific + WEAPON_FIRED on fire, stopped-specific + STOP_AT_TARGET
+on stop. This dual-fire pattern explains why ObjPtrEvent accounts for ~45% of all
+combat PythonEvent traffic.
+
 ### Class Hierarchy
 
 ```
 Event (base, factory 0x02)
   └── SubsystemEvent (factory 0x101)
-        └── CharEvent (factory 0x105)
+        ├── CharEvent (factory 0x105)
+        └── ObjPtrEvent (factory 0x10C)
 ```
 
 The `IsA` check reports true for all IDs in the ancestry chain.
 
-### 3. ObjectExplodingEvent (factory_id = 0x00008129)
+### 4. ObjectExplodingEvent (factory_id = 0x00008129)
 
 Carries ship destruction notifications. Extends the base event with a firing player
 ID (who killed the ship) and an explosion lifetime (visual effect duration).
@@ -347,7 +406,18 @@ DF 00 80 00           event_type = 0x008000DF (ADD_TO_REPAIR_LIST)
 Note: subsystem object IDs are small sequential integers from the global counter, not
 player-base IDs like ship objects.
 
-### Example 2: OBJECT_EXPLODING (25 bytes)
+### Example 2: WEAPON_FIRED (21 bytes)
+
+```
+06                    opcode = 0x06 (PythonEvent)
+0C 01 00 00           factory_id = 0x0000010C (ObjPtrEvent)
+7C 00 80 00           event_type = 0x0080007C (WEAPON_FIRED)
+FF FF FF 3F           source_obj = 0x3FFFFFFF (Player 0's ship)
+00 00 00 00           dest_obj = NULL
+3E 00 C0 3F           obj_ptr = 0x3FC0003E (weapon subsystem object ID)
+```
+
+### Example 3: OBJECT_EXPLODING (25 bytes)
 
 ```
 06                    opcode = 0x06 (PythonEvent)
@@ -359,7 +429,7 @@ FF FF FF FF           dest_obj = sentinel (-1)
 00 00 80 3F           lifetime = 1.0f (1 second explosion)
 ```
 
-### Example 3: REPAIR_COMPLETED (17 bytes)
+### Example 4: REPAIR_COMPLETED (17 bytes)
 
 ```
 06                    opcode = 0x06 (PythonEvent)
@@ -462,21 +532,6 @@ All three producers use the same message construction:
 If a client sends an opcode 0x06 to the host (script events), the host should:
 1. Forward to all other peers (excluding sender)
 2. Process locally
-
----
-
-## Undocumented Event Codes
-
-### Event Code 268 (0x010C)
-
-An undocumented event code that accounts for approximately **45% of all PythonEvent
-messages** during combat sessions. Observed as both opcode 0x06 (server-to-client)
-and opcode 0x0D (client-to-server). This is the single most common event type during
-active weapon combat.
-
-The purpose of this event code is currently unknown. Implementations should reserve
-this event code in the event system. Full implementation is blocked until the event's
-purpose is identified through further analysis.
 
 ---
 

@@ -118,6 +118,7 @@ int bc_build_restart_game(u8 *buf, int buf_size);
 
 /* PythonEvent factory IDs */
 #define BC_FACTORY_SUBSYSTEM_EVENT  0x00000101
+#define BC_FACTORY_OBJ_PTR_EVENT    0x0000010C
 #define BC_FACTORY_OBJECT_EXPLODING 0x00008129
 
 /* PythonEvent type constants */
@@ -126,12 +127,33 @@ int bc_build_restart_game(u8 *buf, int buf_size);
 #define BC_EVENT_REPAIR_CANNOT      0x00800075
 #define BC_EVENT_OBJECT_EXPLODING   0x0080004E
 
+/* ObjPtrEvent network event types (factory BC_FACTORY_OBJ_PTR_EVENT).
+ * Account for ~45% of combat PythonEvent traffic (see pythonevent-wire-format.md).
+ * obj_ptr meaning varies by event type (target ID, subsystem ID, etc.).
+ * Phaser/tractor fire each generate two events: start-specific + WEAPON_FIRED. */
+#define BC_EVENT_WEAPON_FIRED       0x0080007C  /* obj_ptr = target ID or 0 */
+#define BC_EVENT_PHASER_STARTED     0x00800081  /* obj_ptr = target ID */
+#define BC_EVENT_PHASER_STOPPED     0x00800083  /* obj_ptr = target ID */
+#define BC_EVENT_TRACTOR_STARTED    0x0080007D  /* obj_ptr = target ID */
+#define BC_EVENT_TRACTOR_STOPPED    0x0080007F  /* obj_ptr = target ID */
+#define BC_EVENT_REPAIR_PRIORITY    0x00800076  /* obj_ptr = subsystem ID */
+#define BC_EVENT_STOP_AT_TARGET     0x008000DC  /* obj_ptr = target ID or 0; host-only (opcode 0x09) */
+
 /* SubsystemEvent: [0x06][factory=0x101:i32][event_type:i32][source:i32][dest:i32]
  * 17 bytes total. Used for ADD_TO_REPAIR_LIST, REPAIR_COMPLETED, etc. */
 int bc_build_python_subsystem_event(u8 *buf, int buf_size,
                                      i32 event_type,
                                      i32 source_obj_id,
                                      i32 dest_obj_id);
+
+/* ObjPtrEvent: [0x06][factory=0x010C:i32][event_type:i32][source:i32][dest:i32][obj_ptr:i32]
+ * 21 bytes total. Carries weapon-fire and tractor/repair-priority events.
+ * obj_ptr is the network object ID of a third referenced object (e.g. the weapon). */
+int bc_build_python_obj_ptr_event(u8 *buf, int buf_size,
+                                   i32 event_type,
+                                   i32 source_obj_id,
+                                   i32 dest_obj_id,
+                                   i32 obj_ptr);
 
 /* ObjectExplodingEvent: [0x06][factory=0x8129:i32][event_type=0x4E:i32]
  *   [source:i32][dest=-1:i32][killer_id:i32][lifetime:f32]
