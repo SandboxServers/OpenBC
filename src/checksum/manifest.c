@@ -84,6 +84,11 @@ bool bc_manifest_load(bc_manifest_t *manifest, const char *path)
 
     size_t nread = fread(text, 1, (size_t)size, fp);
     fclose(fp);
+    if (nread != (size_t)size) {
+        LOG_ERROR("manifest", "partial read of '%s' (%zu/%ld bytes)", path, nread, size);
+        free(text);
+        return false;
+    }
     text[nread] = '\0';
 
     /* Parse JSON */
