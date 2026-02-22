@@ -100,14 +100,11 @@ void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
 /* Stock BC ship-death OBJECT_EXPLODING event visual lifetime. */
 static const f32 BC_SHIP_DEATH_EXPLODING_EVENT_LIFETIME_SEC = 9.5f;
 
-/* MissionInit byte[1] is total slots, including dedicated ghost slot 0.
- * GameSpy maxplayers excludes that slot, so MissionInit = GameSpy + 1. */
+/* Stock BC emits a fixed MissionInit playerLimit byte (0x08).
+ * This value is protocol-facing and does not mirror GameSpy maxplayers. */
 static int bc_mission_init_total_slots(void)
 {
-    int human_slots = g_info.maxplayers;
-    if (human_slots < 1) human_slots = 1;
-    if (human_slots > 8) human_slots = 8;
-    return human_slots + 1;
+    return BC_MISSION_INIT_PLAYER_LIMIT;
 }
 
 /* Return a player's name for log output. Falls back to "slot N" if unnamed. */
@@ -1325,7 +1322,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         bc_relay_to_others(peer_slot, payload, payload_len, true);
         /* Respond with MissionInit (0x35) -- tells client which star system
          * to load and what the match rules are.
-         * Byte[1] is total slots (human slots + dedicated ghost slot 0). */
+         * Byte[1] is stock's fixed player-limit byte (0x08). */
         u8 mi[32];
         i32 end_time = (g_round_end_time >= 0.0f) ? (i32)g_round_end_time : 0;
         int total_slots = bc_mission_init_total_slots();
