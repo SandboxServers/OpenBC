@@ -149,7 +149,7 @@ TEST(objcreate_owner_spoof_is_rejected)
     bool c1_ok = false;
     int fail = 0;
     const int port = ID_PORT_BASE + 1;
-    const char *log_path = "server_test_29883.log";
+    const char *log_path = "server_test_29885.log";
 
     bc_test_server_t srv;
     bc_test_client_t c0, c1;
