@@ -3,6 +3,7 @@
 
 #include "openbc/types.h"
 #include "openbc/net.h"
+#include "openbc/opcodes.h"
 
 /*
  * GameSpy query/response handler (QR1 protocol).
@@ -43,8 +44,9 @@ typedef struct {
     int  timelimit;            /* Minutes, 0 = no limit */
     int  fraglimit;            /* Kills, 0 = no limit */
     /* Player list for GameSpy \player_N\ entries.
-     * player_names[0] = "Dedicated Server" (always present). */
-    char player_names[8][32];
+     * player_names[0] = "Dedicated Server" (always present).
+     * Sized to BC_MAX_PLAYERS so every peer slot has a name entry. */
+    char player_names[BC_MAX_PLAYERS][32];
     int  player_count;         /* Number of entries in player_names[] */
 } bc_server_info_t;
 

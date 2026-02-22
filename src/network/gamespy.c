@@ -146,7 +146,7 @@ int bc_gamespy_build_response(u8 *out, int out_size,
 
     /* Append \player_N\ entries (stock order: after rules, before \final\).
      * Stock trace: \player_0\Dedicated Server\final\ */
-    for (int i = 0; i < info->player_count && i < 8; i++) {
+    for (int i = 0; i < info->player_count && i < BC_MAX_PLAYERS; i++) {
         int added = snprintf((char *)out + written,
                               (size_t)(out_size - written),
                               "\\player_%d\\%s", i, info->player_names[i]);

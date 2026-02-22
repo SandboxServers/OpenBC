@@ -293,7 +293,7 @@ static void send_settings_and_gameinit(int peer_slot)
  *
  * The ring buffer holds the last BC_CONNECT_RATE_SLOTS disconnected IPs.
  * With 16 slots and a 2-second window this comfortably covers every
- * realistic scenario (BC_MAX_PLAYERS is 7).
+ * realistic scenario (BC_MAX_PLAYERS is 9).
  * ---------------------------------------------------------------------------
  */
 #define BC_CONNECT_RATE_LIMIT_MS  2000  /* 2-second cooldown after disconnect */

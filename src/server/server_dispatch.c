@@ -54,7 +54,7 @@ void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     /* Rebuild player list: player_0 = "Dedicated Server" (always),
      * then one entry per connected human player. */
     g_info.player_count = 1;  /* slot 0 = dedi, already set at init */
-    for (int i = 1; i < BC_MAX_PLAYERS && g_info.player_count < 8; i++) {
+    for (int i = 1; i < BC_MAX_PLAYERS && g_info.player_count < BC_MAX_PLAYERS; i++) {
         if (g_peers.peers[i].state != PEER_EMPTY) {
             snprintf(g_info.player_names[g_info.player_count],
                      sizeof(g_info.player_names[0]),
