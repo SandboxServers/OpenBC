@@ -24,6 +24,24 @@ typedef enum {
     PEER_IN_GAME,             /* Actively playing */
 } peer_state_t;
 
+/*
+ * MAINTENANCE HAZARD -- GCC -O2 DEAD-STORE ELIMINATION
+ *
+ * i686-w64-mingw32-gcc -O2 silently drops stores into this struct that
+ * follow a memset() when it can prove the destination is already zero.
+ * bc_peers_add() and bc_peers_remove() use volatile byte-copy loops to
+ * force the writes through.
+ *
+ * Adding ANY new field to bc_peer_t, or to any type embedded here
+ * (bc_ship_state_t, bc_outbox_t, bc_reliable_queue_t, etc.), can retrigger
+ * this bug on the next Win32 -O2 build -- the new field may silently read
+ * back as zero when it should have been written.  After adding fields:
+ *   1. Rebuild with i686-w64-mingw32-gcc -O2
+ *   2. Verify peer state is intact after bc_peers_add() on a real client connect
+ *   3. If the new field is a non-zero sentinel, add a volatile write for it in
+ *      bc_peers_add() and bc_peers_remove() in peer.c
+ * See peer.c for the volatile workaround and CLAUDE.md for the full history.
+ */
 typedef struct {
     peer_state_t      state;
     bc_addr_t         addr;
