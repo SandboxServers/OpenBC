@@ -78,4 +78,19 @@ int bc_gamespy_build_validate(u8 *out, int out_size,
 void bc_gsmsalg(char *dst, const char *challenge,
                 const char *secret_key, int enctype);
 
+/* Sanitize a player name for safe embedding in a GameSpy QR1 response.
+ *
+ * GameSpy QR1 uses backslash (\) as the key-value delimiter, so a raw
+ * player name that contains backslashes can inject extra key-value pairs
+ * into the response -- e.g. a name like "Eve\numplayers\99" would corrupt
+ * the numplayers field seen by LAN browsers and master servers.
+ *
+ * This function copies src into dst (up to dst_size-1 bytes), silently
+ * dropping every character that is a backslash or an ASCII control
+ * character (< 0x20).  The result is always NUL-terminated.
+ *
+ * Call this whenever a network-supplied name is stored into
+ * bc_server_info_t.player_names[] before building a GameSpy response. */
+void bc_gamespy_sanitize_name(char *dst, size_t dst_size, const char *src);
+
 #endif /* OPENBC_GAMESPY_H */

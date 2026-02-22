@@ -723,6 +723,148 @@ cleanup:
 }
 
 /* ======================================================================
+ * Unit tests: bc_gamespy_sanitize_name (security: QR1 injection prevention)
+ *
+ * A player name that contains a backslash (\) can inject extra key-value
+ * pairs into a GameSpy QR1 response, because backslash is the QR1 field
+ * delimiter.  For example, the raw name:
+ *
+ *   "Eve\numplayers\99"
+ *
+ * would produce a \player_N\ entry of the form:
+ *
+ *   \player_1\Eve\numplayers\99
+ *
+ * which a compliant QR1 parser reads as TWO key-value pairs:
+ *   player_1  = "Eve"
+ *   numplayers = "99"
+ *
+ * bc_gamespy_sanitize_name() eliminates this by stripping all backslashes
+ * and ASCII control characters before the name enters the response buffer.
+ * ====================================================================== */
+
+TEST(sanitize_normal_name_unchanged)
+{
+    /* A plain ASCII name with no special characters must pass through intact. */
+    char dst[32];
+    bc_gamespy_sanitize_name(dst, sizeof(dst), "Picard");
+    ASSERT(strcmp(dst, "Picard") == 0);
+}
+
+TEST(sanitize_strips_backslash)
+{
+    /* Backslash is the QR1 key-value delimiter; it must be removed. */
+    char dst[32];
+    bc_gamespy_sanitize_name(dst, sizeof(dst), "Eve\\numplayers\\99");
+    ASSERT(strcmp(dst, "Evenumplayers99") == 0);
+}
+
+TEST(sanitize_strips_leading_backslash)
+{
+    /* A name that starts with a backslash is especially dangerous because it
+     * would terminate the previous key's value immediately.  Must be stripped. */
+    char dst[32];
+    bc_gamespy_sanitize_name(dst, sizeof(dst), "\\injected");
+    ASSERT(strcmp(dst, "injected") == 0);
+}
+
+TEST(sanitize_strips_control_chars)
+{
+    /* ASCII control characters (< 0x20) are not valid in display names and
+     * can confuse parsers that treat NUL/CR/LF as record terminators. */
+    char dst[32];
+    /* 0x01 (SOH), 0x0A (LF), 0x0D (CR), 0x1F (US) -- all must be stripped. */
+    bc_gamespy_sanitize_name(dst, sizeof(dst), "A\x01" "B\x0A" "C\x0D" "D\x1F" "E");
+    ASSERT(strcmp(dst, "ABCDE") == 0);
+}
+
+TEST(sanitize_empty_src)
+{
+    /* An empty source string yields an empty destination. */
+    char dst[32];
+    dst[0] = 'X';  /* pre-poison to verify NUL-termination */
+    bc_gamespy_sanitize_name(dst, sizeof(dst), "");
+    ASSERT(dst[0] == '\0');
+}
+
+TEST(sanitize_only_backslashes)
+{
+    /* A name composed entirely of backslashes collapses to an empty string. */
+    char dst[32];
+    bc_gamespy_sanitize_name(dst, sizeof(dst), "\\\\\\");
+    ASSERT(dst[0] == '\0');
+}
+
+TEST(sanitize_truncates_to_dst_size)
+{
+    /* Names that exceed dst_size must be silently truncated, not overflowed. */
+    char dst[8];   /* can hold 7 chars + NUL */
+    bc_gamespy_sanitize_name(dst, sizeof(dst), "ABCDEFGHIJ");
+    ASSERT(strlen(dst) == 7);
+    ASSERT(strcmp(dst, "ABCDEFG") == 0);
+}
+
+TEST(sanitize_zero_dst_size_noop)
+{
+    /* dst_size == 0 must be a safe no-op (no write at all). */
+    char dst[4] = "XYZ";
+    bc_gamespy_sanitize_name(dst, 0, "hello");
+    /* dst must be unchanged */
+    ASSERT(dst[0] == 'X' && dst[1] == 'Y' && dst[2] == 'Z');
+}
+
+TEST(sanitize_injection_not_in_response)
+{
+    /* End-to-end injection test: confirm that a name crafted to spoof
+     * numplayers does NOT produce a second numplayers key in the response.
+     *
+     * Attack vector: player name = "Eve\numplayers\99"
+     * Without sanitization: response contains \numplayers\99 after the player
+     * entry, overwriting the real numplayers value as seen by QR1 parsers.
+     * With sanitization:    the response numplayers value equals the real count. */
+    bc_server_info_t info;
+    gs_test_info(&info, "Test", "DM", 1, 6);
+
+    /* Manually populate player_names[] as server_dispatch.c would -- but using
+     * the sanitizer, which is what the fix requires. */
+    bc_gamespy_sanitize_name(info.player_names[1], sizeof(info.player_names[0]),
+                              "Eve\\numplayers\\99");
+    info.player_count = 2;
+
+    u8 buf[1024];
+    int len = bc_gamespy_build_response(buf, sizeof(buf), &info, NULL, 0);
+    ASSERT(len > 0);
+
+    /* The real numplayers must still be "1", not "99". */
+    ASSERT(gs_has_value((char *)buf, len, "numplayers", "1"));
+
+    /* The sanitized player name "Evenumplayers99" must appear once. */
+    int vlen = 0;
+    const char *player_val = gs_find_value((char *)buf, len, "player_1", &vlen);
+    ASSERT(player_val != NULL);
+    ASSERT(vlen == (int)strlen("Evenumplayers99"));
+    ASSERT(memcmp(player_val, "Evenumplayers99", (size_t)vlen) == 0);
+}
+
+TEST(sanitize_hostname_spoof_attempt)
+{
+    /* A name designed to inject a fake hostname field must be blocked. */
+    bc_server_info_t info;
+    gs_test_info(&info, "RealHost", "DM", 1, 6);
+
+    bc_gamespy_sanitize_name(info.player_names[1], sizeof(info.player_names[0]),
+                              "Bad\\hostname\\FakeHost");
+    info.player_count = 2;
+
+    u8 buf[1024];
+    int len = bc_gamespy_build_response(buf, sizeof(buf), &info, NULL, 0);
+    ASSERT(len > 0);
+
+    /* The legitimate hostname must be "RealHost", not "FakeHost". */
+    ASSERT(gs_has_value((char *)buf, len, "hostname", "RealHost"));
+}
+
+/* ======================================================================
  * Test runner
  * ====================================================================== */
 
@@ -741,6 +883,18 @@ TEST_MAIN_BEGIN()
     /* Unit tests: secure challenge */
     RUN(is_secure_detection);
     RUN(extract_secure_challenge);
+
+    /* Unit tests: name sanitizer (security -- issue #47) */
+    RUN(sanitize_normal_name_unchanged);
+    RUN(sanitize_strips_backslash);
+    RUN(sanitize_strips_leading_backslash);
+    RUN(sanitize_strips_control_chars);
+    RUN(sanitize_empty_src);
+    RUN(sanitize_only_backslashes);
+    RUN(sanitize_truncates_to_dst_size);
+    RUN(sanitize_zero_dst_size_noop);
+    RUN(sanitize_injection_not_in_response);
+    RUN(sanitize_hostname_spoof_attempt);
 
     /* Unit tests: gsmsalg + validate */
     RUN(gsmsalg_produces_output);
