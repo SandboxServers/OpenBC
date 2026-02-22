@@ -27,7 +27,7 @@ Key properties:
 - Encrypt and decrypt are **not symmetric** (plaintext feedback timing differs)
 - Sign extension on input bytes (MOVSX behavior)
 
-See **[transport-cipher.md](transport-cipher.md)** for the complete algorithm specification.
+See **[transport-cipher.md](protocol/transport-cipher.md)** for the complete algorithm specification.
 
 ### Raw UDP Packet Format
 
@@ -204,7 +204,7 @@ From the trace, clients that stop sending packets are disconnected after approxi
 
 ## 3. Connection and Join Flow
 
-The full connection flow from UDP connect through gameplay. For the checksum exchange details, see [checksum-handshake-protocol.md](checksum-handshake-protocol.md).
+The full connection flow from UDP connect through gameplay. For the checksum exchange details, see [checksum-handshake-protocol.md](wire-formats/checksum-handshake-protocol.md).
 
 ### Observed Sequence (First Player)
 
@@ -350,7 +350,7 @@ Complete table of observed game-level opcodes. Frequency data from the "Battle o
 
 **Notes:**
 - Opcodes 0x04 and 0x05 are dead -- never observed on wire in any trace
-- Opcodes 0x20-0x27 are handled by a separate checksum/file dispatcher (see [checksum-handshake-protocol.md](checksum-handshake-protocol.md))
+- Opcodes 0x20-0x27 are handled by a separate checksum/file dispatcher (see [checksum-handshake-protocol.md](wire-formats/checksum-handshake-protocol.md))
 - Opcode 0x28 is the checksum-complete signal sent after all 5 checksum rounds pass
 - StateUpdate (0x1C) accounts for ~97% of all game messages by volume
 
@@ -1046,10 +1046,10 @@ Network:      UDP (single shared socket for game + GameSpy)
 
 ## Related Documents
 
-- **[transport-cipher.md](transport-cipher.md)** -- Complete AlbyRules cipher algorithm (key schedule, PRNG, plaintext feedback)
-- **[gamespy-protocol.md](gamespy-protocol.md)** -- GameSpy LAN discovery, master server registration, challenge-response crypto
-- **[join-flow.md](join-flow.md)** -- Connection lifecycle state machine (connect through gameplay)
-- **[combat-system.md](combat-system.md)** -- Damage pipeline, shields, cloaking, tractor beams, repair system
-- **[ship-subsystems.md](ship-subsystems.md)** -- Fixed subsystem index table, HP values, StateUpdate serialization
-- **[checksum-handshake-protocol.md](checksum-handshake-protocol.md)** -- Checksum exchange details and hash algorithms
-- **[disconnect-flow.md](disconnect-flow.md)** -- Player disconnect detection and cleanup
+- **[transport-cipher.md](protocol/transport-cipher.md)** -- Complete AlbyRules cipher algorithm (key schedule, PRNG, plaintext feedback)
+- **[gamespy-protocol.md](protocol/gamespy-protocol.md)** -- GameSpy LAN discovery, master server registration, challenge-response crypto
+- **[join-flow.md](network-flows/join-flow.md)** -- Connection lifecycle state machine (connect through gameplay)
+- **[combat-system.md](game-systems/combat-system.md)** -- Damage pipeline, shields, cloaking, tractor beams, repair system
+- **[ship-subsystems.md](game-systems/ship-subsystems.md)** -- Fixed subsystem index table, HP values, StateUpdate serialization
+- **[checksum-handshake-protocol.md](wire-formats/checksum-handshake-protocol.md)** -- Checksum exchange details and hash algorithms
+- **[disconnect-flow.md](network-flows/disconnect-flow.md)** -- Player disconnect detection and cleanup
