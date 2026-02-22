@@ -325,13 +325,21 @@ static void generate_damage_events(int target_slot,
 /* On collision death, stock BC sends ADD_TO_REPAIR_LIST for every subsystem
  * whose condition is below maximum -- no bucket limiting.  This ensures the
  * client's repair queue reflects all damaged subsystems at death time.
- * bc_repair_add() deduplicates against subsystems already queued by
- * generate_damage_events(), so only genuinely new entries get a network event. */
+ *
+ * Issue #85: clear the repair queue first.  Prior collision hits (via
+ * generate_damage_events()) and the periodic bc_repair_auto_queue() tick
+ * silently pre-populate the queue.  bc_repair_add() rejects duplicates,
+ * so pre-queued subsystems would suppress the death-burst events the client
+ * expects (~13 per death).  The ship is dead -- the old queue is irrelevant. */
 static void generate_death_repair_events(int target_slot,
                                           const bc_ship_class_t *cls)
 {
     bc_peer_t *target = &g_peers.peers[target_slot];
     bc_ship_state_t *ship = &target->ship;
+
+    /* Reset the repair queue so every damaged subsystem produces a fresh
+     * ADD_TO_REPAIR_LIST event at death (issue #85). */
+    ship->repair_count = 0;
 
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         if (ship->subsystem_hp[i] < cls->subsystems[i].max_condition) {
