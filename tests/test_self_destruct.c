@@ -61,6 +61,33 @@ static int build_env_collision_effect(u8 *buf, int buf_size,
     return (int)b.pos;
 }
 
+static void write_i32_le(u8 *p, i32 v)
+{
+    u32 x = (u32)v;
+    p[0] = (u8)(x);
+    p[1] = (u8)(x >> 8);
+    p[2] = (u8)(x >> 16);
+    p[3] = (u8)(x >> 24);
+}
+
+static bool log_file_contains(const char *path, const char *needle)
+{
+    FILE *fp = fopen(path, "r");
+    if (!fp) return false;
+
+    char line[1024];
+    bool found = false;
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, needle)) {
+            found = true;
+            break;
+        }
+    }
+
+    fclose(fp);
+    return found;
+}
+
 TEST(self_destruct_pipeline_matches_stock)
 {
     bool net_ok = false;
@@ -364,8 +391,118 @@ cleanup:
 #undef CHECK
 }
 
+TEST(respawn_collision_uses_new_object_id)
+{
+    bool net_ok = false;
+    bool srv_ok = false;
+    bool cli_ok = false;
+    int fail = 0;
+
+    const u16 port = SD_PORT + 3;
+    const i32 respawn_obj = 0x40000021;
+    char log_path[64];
+    snprintf(log_path, sizeof(log_path), "server_test_%u.log", (unsigned)port);
+    remove(log_path);
+
+    bc_test_server_t srv;
+    bc_test_client_t cli;
+    memset(&srv, 0, sizeof(srv));
+    memset(&cli, 0, sizeof(cli));
+
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        fail++; \
+        goto cleanup; \
+    } \
+} while (0)
+
+    CHECK(bc_net_init());
+    net_ok = true;
+
+    CHECK(test_server_start(&srv, port, MANIFEST_PATH));
+    srv_ok = true;
+
+    CHECK(test_client_connect(&cli, port, "RespawnCollision", 0, GAME_DIR));
+    cli_ok = true;
+
+    /* Initial spawn uses stock slot-0 ship ID (0x3FFFFFFF). */
+    {
+        u8 spawn[256];
+        int slen = bc_build_object_create_team(spawn, sizeof(spawn), 0, 2,
+                                               TEST_SHIP_DATA,
+                                               (int)sizeof(TEST_SHIP_DATA));
+        CHECK(slen > 0);
+        CHECK(test_client_send_reliable(&cli, spawn, slen));
+    }
+    Sleep(150);
+    test_client_drain(&cli, 200);
+
+    /* Self-destruct clears has_ship but leaves mapping state behind. */
+    {
+        const u8 host_msg[1] = { BC_OP_HOST_MSG };
+        CHECK(test_client_send_reliable(&cli, host_msg, (int)sizeof(host_msg)));
+    }
+    Sleep(200);
+    test_client_drain(&cli, 250);
+
+    /* Respawn with a new ship object ID from the same player range. */
+    {
+        u8 respawn_blob[sizeof(TEST_SHIP_DATA)];
+        u8 respawn_pkt[256];
+        memcpy(respawn_blob, TEST_SHIP_DATA, sizeof(respawn_blob));
+        write_i32_le(respawn_blob + 4, respawn_obj);
+
+        int rlen = bc_build_object_create_team(respawn_pkt, sizeof(respawn_pkt),
+                                               0, 2,
+                                               respawn_blob,
+                                               (int)sizeof(respawn_blob));
+        CHECK(rlen > 0);
+        CHECK(test_client_send_reliable(&cli, respawn_pkt, rlen));
+    }
+    Sleep(150);
+    test_client_drain(&cli, 250);
+
+    /* Environment collision against the respawned object ID. */
+    {
+        u8 coll[64];
+        int clen = build_env_collision_effect(coll, sizeof(coll),
+                                              respawn_obj,
+                                              1000000.0f);
+        CHECK(clen > 0);
+        CHECK(test_client_send_reliable(&cli, coll, clen));
+    }
+
+    Sleep(300);
+    test_client_drain(&cli, 300);
+
+cleanup:
+    if (cli_ok) test_client_disconnect(&cli);
+    Sleep(100);
+    if (srv_ok) test_server_stop(&srv);
+    if (net_ok) bc_net_shutdown();
+
+    if (fail == 0) {
+        if (!log_file_contains(log_path, "Collision:")) {
+            printf("FAIL\n    %s:%d: expected collision processing log in %s\n",
+                   __FILE__, __LINE__, log_path);
+            fail++;
+        }
+        if (log_file_contains(log_path, "collision ownership fail")) {
+            printf("FAIL\n    %s:%d: found ownership failure log in %s\n",
+                   __FILE__, __LINE__, log_path);
+            fail++;
+        }
+    }
+
+    ASSERT(fail == 0);
+
+#undef CHECK
+}
+
 TEST_MAIN_BEGIN()
     RUN(self_destruct_pipeline_matches_stock);
     RUN(collision_death_no_auto_respawn_and_repair_events_bounded);
     RUN(mission_init_total_slots_matches_server_limit);
+    RUN(respawn_collision_uses_new_object_id);
 TEST_MAIN_END()
