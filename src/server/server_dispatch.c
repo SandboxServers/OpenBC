@@ -1350,13 +1350,18 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             u8 wp_join = (u8)(peer_slot + 1);  /* wire_slot */
             i32 sid_join = bc_make_ship_id(gs_join);
 
-            /* Tell all other in-game peers about the joining player */
             u8 dpkt[20];
             int dlen = bc_delete_player_ui_build(
                 dpkt, sizeof(dpkt),
                 BC_EVENT_NEW_PLAYER, 0, sid_join, wp_join);
-            if (dlen > 0)
+            if (dlen > 0) {
+                /* Send to the joining player themselves -- populates their
+                 * own entry in the engine's internal player list so the
+                 * scoreboard UI can display them via GetPlayerList(). */
+                bc_queue_reliable(peer_slot, dpkt, dlen);
+                /* Tell all other in-game peers about the joining player */
                 bc_relay_to_others(peer_slot, dpkt, dlen, true);
+            }
 
             /* Tell the joining player about each existing in-game peer */
             for (int i = 1; i < BC_MAX_PLAYERS; i++) {
