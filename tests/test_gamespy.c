@@ -365,6 +365,38 @@ TEST(build_validate_deterministic)
     ASSERT(memcmp(buf1, buf2, (size_t)len1) == 0);
 }
 
+/* Verify player_names[] array is large enough for all peer slots and that
+ * the response builder emits every entry without overflow. */
+TEST(player_names_covers_all_slots)
+{
+    bc_server_info_t info;
+    gs_test_info(&info, "SlotTest", "DM", BC_MAX_PLAYERS - 1, BC_MAX_PLAYERS - 1);
+
+    /* Fill every slot: index 0 = dedi, indices 1..(BC_MAX_PLAYERS-1) = humans */
+    snprintf(info.player_names[0], sizeof(info.player_names[0]),
+             "Dedicated Server");
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+        snprintf(info.player_names[i], sizeof(info.player_names[i]),
+                 "Player%d", i);
+    }
+    info.player_count = BC_MAX_PLAYERS;
+
+    u8 buf[2048];
+    const u8 query[] = "\\status\\";
+    int len = bc_gamespy_build_response(buf, sizeof(buf), &info,
+                                        query, (int)sizeof(query) - 1);
+    ASSERT(len > 0);
+
+    /* Every player entry must appear in the response */
+    ASSERT(gs_has_value((char *)buf, len, "player_0", "Dedicated Server"));
+    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+        char key[16], val[16];
+        snprintf(key, sizeof(key), "player_%d", i);
+        snprintf(val, sizeof(val), "Player%d", i);
+        ASSERT(gs_has_value((char *)buf, len, key, val));
+    }
+}
+
 /* ======================================================================
  * Integration tests: server responds to GameSpy queries
  * ====================================================================== */
@@ -904,6 +936,7 @@ TEST_MAIN_BEGIN()
     RUN(gsmsalg_empty_challenge);
     RUN(build_validate_response);
     RUN(build_validate_deterministic);
+    RUN(player_names_covers_all_slots);
 
     /* Integration tests */
     RUN(server_responds_to_lan_query);
