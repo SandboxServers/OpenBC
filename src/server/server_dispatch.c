@@ -602,9 +602,8 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
 
         process_ship_kill(shooter_slot, target_slot, false);
 
-        /* Clear victim ship state */
+        /* Clear victim ship state (keep spawn_payload as respawn template) */
         target->has_ship = false;
-        target->spawn_len = 0;
         if (!g_game_ended) {
             target->respawn_timer = 5.0f;
             target->respawn_class = target->class_index;
@@ -702,8 +701,8 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
 
         process_ship_kill(shooter_slot, target_slot, false);
 
+        /* Keep spawn_payload as respawn template; only clear has_ship */
         target->has_ship = false;
-        target->spawn_len = 0;
         if (!g_game_ended) {
             target->respawn_timer = 5.0f;
             target->respawn_class = target->class_index;
@@ -1273,9 +1272,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         /* Score: death for self, no killer player (killer_slot=-1). */
         process_ship_kill(-1, peer_slot, true);
 
-        /* Clear ship state and schedule respawn */
+        /* Clear ship state and schedule respawn (keep spawn_payload as template) */
         peer->has_ship = false;
-        peer->spawn_len = 0;
         if (!g_game_ended) {
             peer->respawn_timer = 5.0f;
             peer->respawn_class = peer->class_index;
@@ -1464,8 +1462,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             if (blen > 0)
                                 bc_send_to_all(boom, blen, true);
                         }
+                        /* Keep spawn_payload as respawn template; only clear has_ship */
                         target->has_ship = false;
-                        target->spawn_len = 0;
                         if (!g_game_ended) {
                             target->respawn_timer = 5.0f;
                             target->respawn_class = target->class_index;
@@ -1600,8 +1598,8 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 if (blen2 > 0)
                                     bc_send_to_all(boom2, blen2, true);
                             }
+                            /* Keep spawn_payload as respawn template; only clear has_ship */
                             source->has_ship = false;
-                            source->spawn_len = 0;
                             if (!g_game_ended) {
                                 source->respawn_timer = 5.0f;
                                 source->respawn_class =
