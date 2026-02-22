@@ -785,7 +785,8 @@ TEST(full_join_flow_multi_client)
             }
 
             CHECK(got_mission);
-            CHECK_EQ(mission_total_slots, 9);
+            /* MissionInit byte[1] includes dedicated slot 0. */
+            CHECK_EQ(mission_total_slots, BC_MAX_PLAYERS);
         }
 
         cl->connected = true;

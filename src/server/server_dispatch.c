@@ -1444,6 +1444,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             }
 
             int cc = cev.contact_count > 0 ? cev.contact_count : 1;
+            /* Clamp collision_force to reject implausible client values.
+             * Largest ship masses are hundreds; 100000 is a generous cap
+             * that preserves real collisions while blocking exploit spikes. */
+            if (cev.collision_force < 0.0f) cev.collision_force = 0.0f;
+            if (cev.collision_force > 100000.0f) cev.collision_force = 100000.0f;
 
             /* Apply damage to the target ship */
             int target_slot = find_peer_by_object(cev.target_object_id);
