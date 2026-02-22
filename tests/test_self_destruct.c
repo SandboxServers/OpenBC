@@ -3,6 +3,7 @@
 #include "openbc/game_builders.h"
 #include "openbc/buffer.h"
 #include "openbc/opcodes.h"
+#include "openbc/player_ids.h"
 
 #include <math.h>
 #include <string.h>
@@ -39,6 +40,43 @@ static f32 read_f32_le(const u8 *p)
     return v;
 }
 
+static bool parse_score_change(const u8 *msg, int msg_len,
+                               i32 *killer_id, i32 *killer_kills,
+                               i32 *killer_score, i32 *victim_id,
+                               i32 *victim_deaths, u8 *extra_count)
+{
+    int pos = 1;
+
+    if (!msg || msg_len < 10) return false;
+    if (msg[0] != BC_MSG_SCORE_CHANGE) return false;
+    if (!killer_id || !killer_kills || !killer_score ||
+        !victim_id || !victim_deaths || !extra_count) return false;
+
+    if (msg_len < pos + 4) return false;
+    *killer_id = read_i32_le(msg + pos);
+    pos += 4;
+
+    *killer_kills = 0;
+    *killer_score = 0;
+    if (*killer_id != 0) {
+        if (msg_len < pos + 8) return false;
+        *killer_kills = read_i32_le(msg + pos);
+        pos += 4;
+        *killer_score = read_i32_le(msg + pos);
+        pos += 4;
+    }
+
+    if (msg_len < pos + 9) return false;
+    *victim_id = read_i32_le(msg + pos);
+    pos += 4;
+    *victim_deaths = read_i32_le(msg + pos);
+    pos += 4;
+    *extra_count = msg[pos++];
+
+    if (msg_len < pos + (int)(*extra_count) * 8) return false;
+    return true;
+}
+
 static int build_env_collision_effect(u8 *buf, int buf_size,
                                       i32 target_object_id,
                                       f32 collision_force)
@@ -68,6 +106,11 @@ static void write_i32_le(u8 *p, i32 v)
     p[1] = (u8)(x >> 8);
     p[2] = (u8)(x >> 16);
     p[3] = (u8)(x >> 24);
+}
+
+static void write_f32_le(u8 *p, f32 v)
+{
+    memcpy(p, &v, sizeof(v));
 }
 
 static bool log_file_contains(const char *path, const char *needle)
@@ -345,6 +388,174 @@ cleanup:
 #undef CHECK
 }
 
+TEST(weapon_kill_emits_score_change)
+{
+    bool net_ok = false;
+    bool srv_ok = false;
+    bool killer_ok = false;
+    bool victim_ok = false;
+    int fail = 0;
+
+    const u16 port = SD_PORT + 4;
+    const i32 killer_ship_id = bc_make_ship_id(0);
+    const i32 victim_ship_id = bc_make_ship_id(1);
+    const i32 expected_killer_id = bc_player_id_from_game_slot(0);
+    const i32 expected_victim_id = bc_player_id_from_game_slot(1);
+
+    bc_test_server_t srv;
+    bc_test_client_t killer;
+    bc_test_client_t victim;
+
+    memset(&srv, 0, sizeof(srv));
+    memset(&killer, 0, sizeof(killer));
+    memset(&victim, 0, sizeof(victim));
+
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        fail++; \
+        goto cleanup; \
+    } \
+} while (0)
+
+    CHECK(bc_net_init());
+    net_ok = true;
+
+    CHECK(test_server_start(&srv, port, MANIFEST_PATH));
+    srv_ok = true;
+
+    CHECK(test_client_connect(&killer, port, "WeaponKiller", 0, GAME_DIR));
+    killer_ok = true;
+    CHECK(test_client_connect(&victim, port, "WeaponVictim", 1, GAME_DIR));
+    victim_ok = true;
+
+    /* Build weapon test spawns from known-good captured wire blob format.
+     * species_id is blob byte[8], pos starts at byte[9]. */
+    {
+        u8 spawn_blob[sizeof(TEST_SHIP_DATA)];
+        u8 spawn_pkt[256];
+        memcpy(spawn_blob, TEST_SHIP_DATA, sizeof(spawn_blob));
+        write_i32_le(spawn_blob + 4, killer_ship_id);  /* object_id */
+        write_f32_le(spawn_blob + 9, -10.0f);          /* pos.x */
+        write_f32_le(spawn_blob + 13, 0.0f);           /* pos.y */
+        write_f32_le(spawn_blob + 17, 0.0f);           /* pos.z */
+
+        int slen = bc_build_object_create_team(spawn_pkt, sizeof(spawn_pkt),
+                                               0, 2,
+                                               spawn_blob,
+                                               (int)sizeof(spawn_blob));
+        CHECK(slen > 0);
+        CHECK(test_client_send_reliable(&killer, spawn_pkt, slen));
+    }
+    {
+        u8 spawn_blob[sizeof(TEST_SHIP_DATA)];
+        u8 spawn_pkt[256];
+        memcpy(spawn_blob, TEST_SHIP_DATA, sizeof(spawn_blob));
+        write_i32_le(spawn_blob + 4, victim_ship_id);  /* object_id */
+        spawn_blob[8] = 0x0F;                          /* species_id = Shuttle */
+        write_f32_le(spawn_blob + 9, 0.0f);            /* pos.x */
+        write_f32_le(spawn_blob + 13, 0.0f);           /* pos.y */
+        write_f32_le(spawn_blob + 17, 0.0f);           /* pos.z */
+
+        int slen = bc_build_object_create_team(spawn_pkt, sizeof(spawn_pkt),
+                                               1, 4,
+                                               spawn_blob,
+                                               (int)sizeof(spawn_blob));
+        CHECK(slen > 0);
+        CHECK(test_client_send_reliable(&victim, spawn_pkt, slen));
+    }
+
+    Sleep(250);
+    test_client_drain(&killer, 200);
+    test_client_drain(&victim, 200);
+
+    bool got_killer_score_change = false;
+    i32 killer_id = 0;
+    i32 killer_kills = 0;
+    i32 killer_score = 0;
+    i32 killed_id = 0;
+    i32 killed_deaths = 0;
+    u8 extra_count = 0;
+
+    /* Fire beams until the victim dies and SCORE_CHANGE is emitted. */
+    for (int attempt = 0; attempt < 20 && !got_killer_score_change; attempt++) {
+        u8 beam[64];
+        int blen = bc_build_beam_fire(beam, sizeof(beam),
+                                      killer_ship_id, 0x01,
+                                      0.0f, 0.0f, 1.0f,
+                                      true, victim_ship_id);
+        CHECK(blen > 0);
+        CHECK(test_client_send_reliable(&killer, beam, blen));
+
+        u32 wait_start = bc_ms_now();
+        while ((int)(bc_ms_now() - wait_start) < 700) {
+            int msg_len = 0;
+            const u8 *msg = test_client_recv_msg(&killer, &msg_len, 100);
+            if (!msg || msg_len <= 0) continue;
+            if (msg[0] != BC_MSG_SCORE_CHANGE) continue;
+
+            CHECK(parse_score_change(msg, msg_len,
+                                     &killer_id, &killer_kills,
+                                     &killer_score, &killed_id,
+                                     &killed_deaths, &extra_count));
+            got_killer_score_change = true;
+            break;
+        }
+    }
+
+    CHECK(got_killer_score_change);
+    CHECK(killer_id == expected_killer_id);
+    CHECK(killer_kills == 1);
+    CHECK(killer_score > 0);
+    CHECK(killed_id == expected_victim_id);
+    CHECK(killed_deaths == 1);
+    CHECK(extra_count == 0);
+
+    /* SCORE_CHANGE must be broadcast to all clients, including victim. */
+    {
+        i32 v_killer_id = 0;
+        i32 v_killer_kills = 0;
+        i32 v_killer_score = 0;
+        i32 v_killed_id = 0;
+        i32 v_killed_deaths = 0;
+        u8 v_extra_count = 0;
+        bool got_victim_score_change = false;
+        u32 wait_start = bc_ms_now();
+
+        while ((int)(bc_ms_now() - wait_start) < 2000) {
+            int msg_len = 0;
+            const u8 *msg = test_client_recv_msg(&victim, &msg_len, 100);
+            if (!msg || msg_len <= 0) continue;
+            if (msg[0] != BC_MSG_SCORE_CHANGE) continue;
+
+            CHECK(parse_score_change(msg, msg_len,
+                                     &v_killer_id, &v_killer_kills,
+                                     &v_killer_score, &v_killed_id,
+                                     &v_killed_deaths, &v_extra_count));
+            got_victim_score_change = true;
+            break;
+        }
+
+        CHECK(got_victim_score_change);
+        CHECK(v_killer_id == killer_id);
+        CHECK(v_killer_kills == killer_kills);
+        CHECK(v_killer_score == killer_score);
+        CHECK(v_killed_id == killed_id);
+        CHECK(v_killed_deaths == killed_deaths);
+        CHECK(v_extra_count == extra_count);
+    }
+
+cleanup:
+    if (victim_ok) test_client_disconnect(&victim);
+    if (killer_ok) test_client_disconnect(&killer);
+    Sleep(100);
+    if (srv_ok) test_server_stop(&srv);
+    if (net_ok) bc_net_shutdown();
+    ASSERT(fail == 0);
+
+#undef CHECK
+}
+
 TEST(mission_init_total_slots_matches_server_limit)
 {
     bool net_ok = false;
@@ -511,6 +722,7 @@ cleanup:
 TEST_MAIN_BEGIN()
     RUN(self_destruct_pipeline_matches_stock);
     RUN(collision_death_no_auto_respawn_and_repair_events_bounded);
+    RUN(weapon_kill_emits_score_change);
     RUN(mission_init_total_slots_matches_server_limit);
     RUN(respawn_collision_uses_new_object_id);
 TEST_MAIN_END()
