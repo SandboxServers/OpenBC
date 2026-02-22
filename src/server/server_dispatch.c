@@ -738,6 +738,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     if (msg->type == BC_TRANSPORT_RELIABLE &&
         (msg->flags & BC_RELIABLE_FLAG_FRAGMENT)) {
+        bool had_active = peer->fragment.active;
         if (bc_fragment_receive(&peer->fragment, payload, payload_len)) {
             /* Complete reassembled message */
             payload = peer->fragment.buf;
@@ -745,8 +746,17 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             LOG_DEBUG("fragment", "slot=%d reassembled %d bytes from %d fragments",
                       peer_slot, payload_len, peer->fragment.frags_expected);
             bc_fragment_reset(&peer->fragment);
+        } else if (!peer->fragment.active) {
+            /* Buffer was reset by bc_fragment_receive -- an error occurred
+             * (invalid total_frags, first fragment too large, or reassembly
+             * overflow).  The specific reason is logged inside transport.c;
+             * this provides the peer slot for log correlation. */
+            LOG_WARN("fragment", "slot=%d fragment error, reassembly aborted "
+                     "(had_active=%d pkt_len=%d)",
+                     peer_slot, had_active, payload_len);
+            return;
         } else {
-            /* Still waiting for more fragments */
+            /* Still accumulating fragments -- not yet complete */
             return;
         }
     }

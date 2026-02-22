@@ -984,6 +984,40 @@ TEST(delete_player_build)
 
 /* === Reliable delivery tests === */
 
+TEST(reliable_queue_full)
+{
+    /* bc_reliable_add returns false when all BC_RELIABLE_QUEUE_SIZE slots
+     * are occupied -- verified to surface the LOG_WARN path in bc_queue_reliable */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+
+    u8 payload[] = { 0x20, 0x01 };
+    for (int i = 0; i < BC_RELIABLE_QUEUE_SIZE; i++) {
+        ASSERT(bc_reliable_add(&q, payload, 2, (u16)i, 1000));
+    }
+    ASSERT_EQ_INT(q.count, BC_RELIABLE_QUEUE_SIZE);
+
+    /* One more should fail -- queue is full */
+    ASSERT(!bc_reliable_add(&q, payload, 2, BC_RELIABLE_QUEUE_SIZE, 1000));
+    ASSERT_EQ_INT(q.count, BC_RELIABLE_QUEUE_SIZE);  /* count unchanged */
+}
+
+TEST(reliable_oversized_payload)
+{
+    /* bc_reliable_add rejects payloads > BC_RELIABLE_MAX_PAYLOAD */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+
+    u8 big[BC_RELIABLE_MAX_PAYLOAD + 1];
+    memset(big, 0xBB, sizeof(big));
+    ASSERT(!bc_reliable_add(&q, big, BC_RELIABLE_MAX_PAYLOAD + 1, 0, 1000));
+    ASSERT_EQ_INT(q.count, 0);
+
+    /* Exactly at the limit should succeed */
+    ASSERT(bc_reliable_add(&q, big, BC_RELIABLE_MAX_PAYLOAD, 1, 1000));
+    ASSERT_EQ_INT(q.count, 1);
+}
+
 TEST(reliable_add_and_ack)
 {
     bc_reliable_queue_t q;
@@ -1033,6 +1067,85 @@ TEST(reliable_retransmit)
     ASSERT(idx >= 0);
     ASSERT_EQ(q.entries[idx].seq, 0x0005);
     ASSERT_EQ_INT(q.entries[idx].retries, 1);
+}
+
+/* === Fragment reassembly error-path tests === */
+
+TEST(fragment_invalid_total_frags)
+{
+    /* total_frags < 2 on the first fragment must be rejected and reset the buffer */
+    bc_fragment_buf_t frag;
+    bc_fragment_reset(&frag);
+
+    /* Claim only 1 total fragment -- invalid, fragmentation implies >= 2 */
+    u8 f0[] = { 0, 1, 0xAA, 0xBB };
+    ASSERT(!bc_fragment_receive(&frag, f0, 4));
+    ASSERT(!frag.active);        /* Buffer must have been reset */
+    ASSERT_EQ_INT(frag.buf_len, 0);
+
+    /* total_frags == 0 also invalid */
+    u8 f1[] = { 0, 0, 0xCC };
+    ASSERT(!bc_fragment_receive(&frag, f1, 3));
+    ASSERT(!frag.active);
+}
+
+TEST(fragment_first_too_large)
+{
+    /* First fragment data exceeding BC_FRAGMENT_BUF_SIZE must be rejected */
+    bc_fragment_buf_t frag;
+    bc_fragment_reset(&frag);
+
+    /* Build a first-fragment with data_len = BC_FRAGMENT_BUF_SIZE + 1 */
+    int oversized = BC_FRAGMENT_BUF_SIZE + 1;
+    u8 *f0 = malloc((size_t)(oversized + 2));
+    ASSERT(f0 != NULL);
+    f0[0] = 0;  /* frag_idx */
+    f0[1] = 3;  /* total_frags -- valid, but data itself is too large */
+    memset(f0 + 2, 0xCC, (size_t)oversized);
+
+    ASSERT(!bc_fragment_receive(&frag, f0, oversized + 2));
+    ASSERT(!frag.active);   /* Buffer reset on error */
+    ASSERT_EQ_INT(frag.buf_len, 0);
+    free(f0);
+
+    /* Exactly at the limit should succeed */
+    u8 *f1 = malloc((size_t)(BC_FRAGMENT_BUF_SIZE + 2));
+    ASSERT(f1 != NULL);
+    f1[0] = 0;
+    f1[1] = 2;
+    memset(f1 + 2, 0xDD, BC_FRAGMENT_BUF_SIZE);
+    ASSERT(!bc_fragment_receive(&frag, f1, BC_FRAGMENT_BUF_SIZE + 2));
+    ASSERT(frag.active);  /* Accepted -- waiting for fragment 1 */
+    ASSERT_EQ_INT(frag.buf_len, BC_FRAGMENT_BUF_SIZE);
+    free(f1);
+}
+
+TEST(fragment_overflow_on_continuation)
+{
+    /* Continuation fragment that would overflow BC_FRAGMENT_BUF_SIZE
+     * must be rejected and reset the buffer */
+    bc_fragment_buf_t frag;
+    bc_fragment_reset(&frag);
+
+    /* First fragment: nearly fills the buffer */
+    int first_data = BC_FRAGMENT_BUF_SIZE - 10;
+    u8 *f0 = malloc((size_t)(first_data + 2));
+    ASSERT(f0 != NULL);
+    f0[0] = 0;  /* frag_idx */
+    f0[1] = 2;  /* total_frags */
+    memset(f0 + 2, 0xAA, (size_t)first_data);
+    ASSERT(!bc_fragment_receive(&frag, f0, first_data + 2));
+    ASSERT(frag.active);
+    ASSERT_EQ_INT(frag.buf_len, first_data);
+    free(f0);
+
+    /* Continuation fragment: 11 bytes of data would push buf_len over limit */
+    u8 f1[12];
+    f1[0] = 1;  /* frag_idx */
+    memset(f1 + 1, 0xBB, 11);
+    ASSERT(!bc_fragment_receive(&frag, f1, 12));
+    ASSERT(!frag.active);   /* Buffer reset on overflow */
+    ASSERT_EQ_INT(frag.buf_len, 0);
 }
 
 /* === Fragment reassembly tests === */
@@ -1272,6 +1385,59 @@ TEST(outbox_overflow)
     ASSERT(bc_outbox_add_unreliable(&outbox, small, 1));
 }
 
+TEST(outbox_flush_resets_for_retry)
+{
+    /* After bc_outbox_flush_to_buf the outbox is empty and a fresh add
+     * succeeds -- this is the flush-and-retry contract that bc_queue_reliable
+     * and bc_queue_unreliable depend on */
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    /* Fill outbox with two large messages */
+    u8 payload[200];
+    memset(payload, 0xAA, sizeof(payload));
+    ASSERT(bc_outbox_add_unreliable(&outbox, payload, 200));
+    ASSERT(bc_outbox_add_unreliable(&outbox, payload, 200));
+    ASSERT(!bc_outbox_add_unreliable(&outbox, payload, 200));  /* now full */
+
+    /* Flush */
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
+    ASSERT(len > 0);
+    ASSERT(!bc_outbox_pending(&outbox));  /* outbox is now empty */
+
+    /* Retry add must now succeed */
+    ASSERT(bc_outbox_add_unreliable(&outbox, payload, 200));
+}
+
+TEST(outbox_oversized_payload_rejected)
+{
+    /* The wire format stores totalLen as a u8, so msg_len > 255 is rejected
+     * regardless of available outbox space.  For unreliable: 3 + len > 255
+     * means len > 252.  For reliable: 5 + len > 255 means len > 250. */
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    u8 big[256];
+    memset(big, 0xBB, sizeof(big));
+
+    /* Unreliable: 253 bytes → msg_len=256 > 255 → rejected */
+    ASSERT(!bc_outbox_add_unreliable(&outbox, big, 253));
+    ASSERT(!bc_outbox_pending(&outbox));
+
+    /* Unreliable: 252 bytes → msg_len=255 → accepted */
+    ASSERT(bc_outbox_add_unreliable(&outbox, big, 252));
+
+    bc_outbox_init(&outbox);  /* reset */
+
+    /* Reliable: 251 bytes → msg_len=256 > 255 → rejected */
+    ASSERT(!bc_outbox_add_reliable(&outbox, big, 251, 0));
+    ASSERT(!bc_outbox_pending(&outbox));
+
+    /* Reliable: 250 bytes → msg_len=255 → accepted */
+    ASSERT(bc_outbox_add_reliable(&outbox, big, 250, 0));
+}
+
 TEST(outbox_empty_flush)
 {
     bc_outbox_t outbox;
@@ -1492,7 +1658,11 @@ TEST_MAIN_BEGIN()
     RUN(checksum_resp_validate_dir_mismatch);
     RUN(checksum_resp_validate_file_missing);
 
-    /* Fragment reassembly */
+    /* Fragment reassembly -- error paths */
+    RUN(fragment_invalid_total_frags);
+    RUN(fragment_first_too_large);
+    RUN(fragment_overflow_on_continuation);
+    /* Fragment reassembly -- happy paths */
     RUN(fragment_three_part_reassembly);
     RUN(fragment_two_part_reassembly);
     RUN(fragment_reset);
@@ -1506,6 +1676,8 @@ TEST_MAIN_BEGIN()
     RUN(delete_player_build);
 
     /* Reliable delivery */
+    RUN(reliable_queue_full);
+    RUN(reliable_oversized_payload);
     RUN(reliable_add_and_ack);
     RUN(reliable_timeout_detection);
     RUN(reliable_retransmit);
@@ -1520,6 +1692,8 @@ TEST_MAIN_BEGIN()
     RUN(outbox_single_unreliable);
     RUN(outbox_multi_message);
     RUN(outbox_overflow);
+    RUN(outbox_flush_resets_for_retry);
+    RUN(outbox_oversized_payload_rejected);
     RUN(outbox_empty_flush);
     RUN(outbox_reliable_seq_format);
     RUN(outbox_keepalive);

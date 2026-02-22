@@ -46,8 +46,7 @@ static bool resolve_address(const char *host_port, bc_addr_t *out)
     }
     *colon = '\0';
     const char *host = buf;
-    u16 port = (u16)atoi(colon + 1);
-    if (port == 0) {
+    if (atoi(colon + 1) == 0) {
         LOG_ERROR("master", "Invalid port in: %s", host_port);
         return false;
     }
@@ -66,8 +65,6 @@ static bool resolve_address(const char *host_port, bc_addr_t *out)
     out->ip = sin->sin_addr.s_addr;
     out->port = sin->sin_port;
     freeaddrinfo(result);
-
-    (void)port;
     return true;
 }
 

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <errno.h>
 
 #ifdef _WIN32
 #  include <windows.h>
@@ -38,8 +39,8 @@ void bc_log_init(bc_log_level_t level, const char *log_file_path)
     if (log_file_path) {
         g_log_file = fopen(log_file_path, "w");
         if (!g_log_file) {
-            fprintf(stderr, "Warning: could not open log file: %s\n",
-                    log_file_path);
+            fprintf(stderr, "Warning: could not open log file: %s (%s)\n",
+                    log_file_path, strerror(errno));
         }
     }
 }
@@ -124,50 +125,31 @@ void bc_log_packet_trace(const bc_packet_t *pkt, int slot, const char *label)
                 oname = bc_opcode_name(opcode);
             }
 
-            const char *frag = (msg->flags & BC_RELIABLE_FLAG_FRAGMENT)
-                                ? "[FRAG]" : "";
-
-            if (oname) {
-                LOG_TRACE("pkt", "  [%d] Reliable seq=0x%04X flags=0x%02X%s "
-                          "opcode=0x%02X(%s) len=%d [%s]",
-                          i, msg->seq, msg->flags, frag,
-                          opcode, oname, msg->payload_len, hex);
+            /* flags==0x00: unreliable game data (no seq, no ack).
+             * Any other flags value: reliable, has a valid seq number. */
+            if (msg->flags == 0x00) {
+                if (oname) {
+                    LOG_TRACE("pkt", "  [%d] Unreliable flags=0x00 "
+                              "opcode=0x%02X(%s) len=%d [%s]",
+                              i, opcode, oname, msg->payload_len, hex);
+                } else {
+                    LOG_TRACE("pkt", "  [%d] Unreliable flags=0x00 len=%d [%s]",
+                              i, msg->payload_len, hex);
+                }
             } else {
-                LOG_TRACE("pkt", "  [%d] Reliable seq=0x%04X flags=0x%02X%s "
-                          "len=%d [%s]",
-                          i, msg->seq, msg->flags, frag,
-                          msg->payload_len, hex);
-            }
-            continue;
-        }
-
-        /* Type 0x32 with flags=0x00 is unreliable game data -- decode opcode */
-        if (msg->type == BC_TRANSPORT_RELIABLE && msg->flags == 0x00) {
-            char hex[128];
-            int hpos = 0;
-            int show = msg->payload_len < 32 ? msg->payload_len : 32;
-            for (int j = 0; j < show; j++)
-                hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
-                                 "%02X ", msg->payload[j]);
-            if (msg->payload_len > 32)
-                hpos += snprintf(hex + hpos, (size_t)(sizeof(hex) - hpos),
-                                 "...");
-            if (hpos > 0 && hex[hpos - 1] == ' ') hex[--hpos] = '\0';
-
-            const char *oname = NULL;
-            u8 opcode = 0;
-            if (msg->payload_len > 0) {
-                opcode = msg->payload[0];
-                oname = bc_opcode_name(opcode);
-            }
-
-            if (oname) {
-                LOG_TRACE("pkt", "  [%d] Unreliable flags=0x00 "
-                          "opcode=0x%02X(%s) len=%d [%s]",
-                          i, opcode, oname, msg->payload_len, hex);
-            } else {
-                LOG_TRACE("pkt", "  [%d] Unreliable flags=0x00 len=%d [%s]",
-                          i, msg->payload_len, hex);
+                const char *frag = (msg->flags & BC_RELIABLE_FLAG_FRAGMENT)
+                                    ? "[FRAG]" : "";
+                if (oname) {
+                    LOG_TRACE("pkt", "  [%d] Reliable seq=0x%04X flags=0x%02X%s "
+                              "opcode=0x%02X(%s) len=%d [%s]",
+                              i, msg->seq, msg->flags, frag,
+                              opcode, oname, msg->payload_len, hex);
+                } else {
+                    LOG_TRACE("pkt", "  [%d] Reliable seq=0x%04X flags=0x%02X%s "
+                              "len=%d [%s]",
+                              i, msg->seq, msg->flags, frag,
+                              msg->payload_len, hex);
+                }
             }
             continue;
         }
