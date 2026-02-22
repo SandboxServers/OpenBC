@@ -1,7 +1,9 @@
-/* Issue #61: death repair burst unit tests.
+/* Issue #61 + #85: death repair burst unit tests.
  * Verifies that collision death sends ADD_TO_REPAIR_LIST for all damaged
- * subsystems without bucket limiting, and that bc_repair_add() deduplication
- * prevents double-sends for subsystems already queued. */
+ * subsystems without bucket limiting.  Issue #85: the death burst sends
+ * events unconditionally for every damaged subsystem, regardless of whether
+ * bc_repair_add() rejects the add as a duplicate.  The repair queue is
+ * preserved (not cleared) so prior damage state is maintained. */
 
 #include "test_util.h"
 #include "openbc/ship_data.h"
@@ -21,9 +23,9 @@ TEST(load_registry)
     ASSERT(g_reg.ship_count > 0);
 }
 
-/* Death burst covers all damaged subsystems, not just bucket-limited ones.
- * Pre-damage 10 subsystems, queue 3 (simulating bucket limiting), then
- * verify the death burst picks up the remaining 7. */
+/* Death burst covers all damaged subsystems regardless of pre-queued state.
+ * Pre-damage 10 subsystems, queue 3 (simulating bucket-limited damage events),
+ * then verify the death burst produces 10 events (unconditional send). */
 TEST(death_burst_covers_all_damaged)
 {
     const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3); /* Galaxy */
@@ -54,25 +56,26 @@ TEST(death_burst_covers_all_damaged)
     }
     ASSERT_EQ(ship.repair_count, 3);
 
-    /* Death burst: iterate all subsystems, add damaged ones to repair queue.
-     * This mimics the generate_death_repair_events() logic. */
+    /* Death burst: iterate all subsystems, send event unconditionally for
+     * each damaged subsystem.  bc_repair_add() is called for queue
+     * maintenance but does NOT gate the event send (issue #85). */
     int death_burst_events = 0;
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         if (ship.subsystem_hp[i] < cls->subsystems[i].max_condition) {
-            if (bc_repair_add(&ship, (u8)i)) {
-                death_burst_events++;
-            }
+            bc_repair_add(&ship, (u8)i);  /* queue maintenance */
+            death_burst_events++;          /* event always sent */
         }
     }
 
-    /* 10 damaged - 3 pre-queued = 7 new events from death burst */
-    ASSERT_EQ(death_burst_events, 7);
+    /* All 10 damaged subsystems should produce events */
+    ASSERT_EQ(death_burst_events, 10);
+    /* Queue should contain all 10 (3 pre-queued + 7 newly added) */
     ASSERT_EQ(ship.repair_count, 10);
 }
 
-/* When all damaged subsystems are already queued, the death burst should
- * produce zero additional events (deduplication). */
-TEST(death_burst_deduplicates)
+/* Issue #85: even when ALL damaged subsystems are already queued, the death
+ * burst should still produce events for every one (unconditional send). */
+TEST(death_burst_ignores_prequeued)
 {
     const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
     ASSERT(cls != NULL);
@@ -91,22 +94,25 @@ TEST(death_burst_deduplicates)
     }
     ASSERT(total_damaged > 0);
 
-    /* Queue ALL damaged subsystems (simulating pre-death events covered all) */
+    /* Queue ALL damaged subsystems (simulating aggressive pre-queuing from
+     * prior generate_damage_events() calls + bc_repair_auto_queue() ticks) */
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         if (ship.subsystem_hp[i] < cls->subsystems[i].max_condition)
             bc_repair_add(&ship, (u8)i);
     }
     ASSERT_EQ(ship.repair_count, total_damaged);
 
-    /* Death burst should produce zero new events */
+    /* Death burst sends events unconditionally -- pre-queued state doesn't
+     * suppress events (issue #85). */
     int death_burst_events = 0;
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         if (ship.subsystem_hp[i] < cls->subsystems[i].max_condition) {
-            if (bc_repair_add(&ship, (u8)i))
-                death_burst_events++;
+            bc_repair_add(&ship, (u8)i);  /* dedup is fine for queue */
+            death_burst_events++;          /* event always sent */
         }
     }
-    ASSERT_EQ(death_burst_events, 0);
+    ASSERT_EQ(death_burst_events, total_damaged);
+    /* Queue unchanged (all were already queued) */
     ASSERT_EQ(ship.repair_count, total_damaged);
 }
 
@@ -126,12 +132,12 @@ TEST(death_burst_skips_undamaged)
         ship.subsystem_hp[1] = cls->subsystems[1].max_condition * 0.5f;
     }
 
-    /* Death burst should only produce 2 events */
+    /* Death burst: only 2 damaged subsystems should produce events */
     int death_burst_events = 0;
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         if (ship.subsystem_hp[i] < cls->subsystems[i].max_condition) {
-            if (bc_repair_add(&ship, (u8)i))
-                death_burst_events++;
+            bc_repair_add(&ship, (u8)i);
+            death_burst_events++;
         }
     }
     ASSERT_EQ(death_burst_events, 2);
@@ -182,10 +188,103 @@ TEST(death_burst_uses_valid_subsystem_ids)
     ASSERT_EQ(evt[0], 0x06); /* PythonEvent opcode */
 }
 
+/* Issue #85 regression: first-ship scenario.  The first ship takes many
+ * collision hits before dying.  Each hit adds subsystems to the repair queue
+ * via generate_damage_events() (bucket-limited), and bc_repair_auto_queue()
+ * silently adds more each tick.  Without the fix, the death burst only
+ * produced events for subsystems NOT already in the queue (~1 event).
+ * With the fix, events are sent unconditionally for ALL damaged subsystems
+ * regardless of prior queue state. */
+TEST(first_ship_deficit_regression)
+{
+    /* Use Sovereign (species 5) -- the ship from the original bug report */
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 5);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 0, 0x3FFFFFFF, 1, 0); /* base player ID */
+    bc_ship_assign_subsystem_ids(&ship, cls);
+    ASSERT_EQ(ship.repair_count, 0);
+
+    /* Simulate multiple collision hits damaging subsystems progressively.
+     * Each "hit" damages a few subsystems and adds them to the queue
+     * (mimicking generate_damage_events bucket behavior). */
+    int total_with_max_cond = 0;
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        if (cls->subsystems[i].max_condition > 0.0f)
+            total_with_max_cond++;
+    }
+
+    /* Hit 1: damage first third of subsystems, queue 2 (bucket limited) */
+    int third = total_with_max_cond / 3;
+    if (third < 2) third = 2;
+    int damaged = 0;
+    for (int i = 0; i < cls->subsystem_count && damaged < third; i++) {
+        if (cls->subsystems[i].max_condition > 0.0f) {
+            ship.subsystem_hp[i] = cls->subsystems[i].max_condition * 0.6f;
+            damaged++;
+        }
+    }
+    /* Bucket-limited: queue first 2 from this hit */
+    int queued = 0;
+    for (int i = 0; i < cls->subsystem_count && queued < 2; i++) {
+        if (ship.subsystem_hp[i] < cls->subsystems[i].max_condition) {
+            bc_repair_add(&ship, (u8)i);
+            queued++;
+        }
+    }
+
+    /* Simulate bc_repair_auto_queue() ticks adding more silently */
+    bc_repair_auto_queue(&ship, cls);
+    int after_auto_1 = ship.repair_count;
+    ASSERT(after_auto_1 >= 2); /* at least the 2 we manually added */
+
+    /* Hit 2: damage more subsystems */
+    damaged = 0;
+    for (int i = 0; i < cls->subsystem_count && damaged < third * 2; i++) {
+        if (cls->subsystems[i].max_condition > 0.0f) {
+            ship.subsystem_hp[i] = cls->subsystems[i].max_condition * 0.4f;
+            damaged++;
+        }
+    }
+    bc_repair_auto_queue(&ship, cls);
+
+    /* Hit 3: damage all subsystems (the killing blow) */
+    int all_damaged = 0;
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        if (cls->subsystems[i].max_condition > 0.0f) {
+            ship.subsystem_hp[i] = cls->subsystems[i].max_condition * 0.2f;
+            all_damaged++;
+        }
+    }
+    bc_repair_auto_queue(&ship, cls);
+
+    /* Many subsystems are now pre-queued. This is the first-ship bug state. */
+    int pre_queued = ship.repair_count;
+    ASSERT(pre_queued > 0);
+
+    /* Death burst sends events unconditionally (the fix).
+     * Queue is NOT cleared -- repair state is preserved. */
+    int death_burst_events = 0;
+    for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        if (ship.subsystem_hp[i] < cls->subsystems[i].max_condition) {
+            bc_repair_add(&ship, (u8)i);  /* queue maintenance */
+            death_burst_events++;          /* event always sent */
+        }
+    }
+
+    /* All damaged subsystems should produce events, NOT just 1 */
+    ASSERT_EQ(death_burst_events, all_damaged);
+    ASSERT(death_burst_events > 1); /* the bug was exactly 1 event */
+    /* Queue should be >= pre_queued (may have grown if some weren't queued) */
+    ASSERT(ship.repair_count >= pre_queued);
+}
+
 TEST_MAIN_BEGIN()
     RUN(load_registry);
     RUN(death_burst_covers_all_damaged);
-    RUN(death_burst_deduplicates);
+    RUN(death_burst_ignores_prequeued);
     RUN(death_burst_skips_undamaged);
     RUN(death_burst_uses_valid_subsystem_ids);
+    RUN(first_ship_deficit_regression);
 TEST_MAIN_END()

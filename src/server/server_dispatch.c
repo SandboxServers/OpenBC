@@ -325,8 +325,15 @@ static void generate_damage_events(int target_slot,
 /* On collision death, stock BC sends ADD_TO_REPAIR_LIST for every subsystem
  * whose condition is below maximum -- no bucket limiting.  This ensures the
  * client's repair queue reflects all damaged subsystems at death time.
- * bc_repair_add() deduplicates against subsystems already queued by
- * generate_damage_events(), so only genuinely new entries get a network event. */
+ *
+ * Issue #85: send the event unconditionally for every damaged subsystem.
+ * Prior collision hits (via generate_damage_events()) and the periodic
+ * bc_repair_auto_queue() tick may have already queued some subsystems.
+ * bc_repair_add() rejects those duplicates, which is correct for queue
+ * maintenance, but the death-burst network event must still be sent so
+ * clients see the full ~13-event burst regardless of prior queue state.
+ * Still call bc_repair_add() for any not yet queued to keep the queue
+ * accurate (subsystems may have been damaged but not yet queued). */
 static void generate_death_repair_events(int target_slot,
                                           const bc_ship_class_t *cls)
 {
@@ -335,16 +342,16 @@ static void generate_death_repair_events(int target_slot,
 
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         if (ship->subsystem_hp[i] < cls->subsystems[i].max_condition) {
-            /* Try to add to repair queue -- false if already queued */
-            if (bc_repair_add(ship, (u8)i)) {
-                u8 evt[17];
-                int len = bc_build_python_subsystem_event(
-                    evt, sizeof(evt),
-                    BC_EVENT_ADD_TO_REPAIR,
-                    ship->subsys_obj_id[i],
-                    ship->repair_subsys_obj_id);
-                if (len > 0) bc_send_to_all(evt, len, true);
-            }
+            /* Add to repair queue if not already there (queue maintenance) */
+            bc_repair_add(ship, (u8)i);
+            /* Always send the event -- death burst is unconditional (#85) */
+            u8 evt[17];
+            int len = bc_build_python_subsystem_event(
+                evt, sizeof(evt),
+                BC_EVENT_ADD_TO_REPAIR,
+                ship->subsys_obj_id[i],
+                ship->repair_subsys_obj_id);
+            if (len > 0) bc_send_to_all(evt, len, true);
         }
     }
 }
