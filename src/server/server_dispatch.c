@@ -1615,7 +1615,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
                     bc_combat_apply_damage(&target->ship, tcls, dmg,
                                            collision_radius, scaled_impact,
-                                           false, 1.0f);
+                                           false, 1.5f);
 
                     f32 target_shield_after = total_shields(&target->ship);
                     f32 target_hull_after = target->ship.hull_hp;
@@ -1753,7 +1753,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
                         bc_combat_apply_damage(&source->ship, scls, sdmg,
                                                src_coll_radius, src_scaled,
-                                               false, 1.0f);
+                                               false, 1.5f);
 
                         f32 source_shield_after = total_shields(&source->ship);
                         f32 source_hull_after = source->ship.hull_hp;

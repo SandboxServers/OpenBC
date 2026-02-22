@@ -65,26 +65,32 @@ int bc_combat_shield_facing(const bc_ship_state_t *target,
                             bc_vec3_t impact_dir);
 
 /* Find all subsystems whose AABB overlaps the damage volume.
- * Each subsystem AABB = [pos - radius, pos + radius] per axis.
+ * Each subsystem AABB expanded by search_radius: [pos - r*sr, pos + r*sr].
  * Damage AABB = [impact - damage_radius, impact + damage_radius].
+ * search_radius scales each subsystem's effective bounding radius (1.0 = normal,
+ * 1.5 = find subsystems within 1.5x their radius from the damage origin).
  * Returns count of overlapping subsystems written to out_indices. */
 int bc_combat_find_hit_subsystems(const bc_ship_class_t *cls,
                                   bc_vec3_t local_impact, f32 damage_radius,
+                                  f32 search_radius,
                                   int *out_indices, int max_out);
 
 /* Apply damage to target with shield absorption.
  * impact_dir = normalized direction from attacker to target.
  * area_effect: true = damage/6 per shield facing, false = single facing.
  * damage_radius: used for subsystem AABB overlap test (scaled by target's
- * damage_radius_multiplier; if multiplier is 0.0, subsystem damage skipped).
- * shield_scale: multiplier on shield absorption capacity (1.0 = normal,
- * 1.5 = collision shields absorb 50% more before overflow). */
+ * damage_radius_multiplier; pass 0.0 to skip subsystem damage).
+ * search_radius: spatial search expansion factor for subsystem hit detection.
+ *   Each subsystem's bounding radius is scaled by this value in the AABB test.
+ *   1.0 = normal (weapons); 1.5 = collision path (wider spatial search).
+ * Pipeline: shields absorb first; hit subsystems absorb from overflow
+ * independently (each up to min(overflow, ss_hp)); hull gets remainder. */
 void bc_combat_apply_damage(bc_ship_state_t *target,
                             const bc_ship_class_t *cls,
                             f32 damage, f32 damage_radius,
                             bc_vec3_t impact_dir,
                             bool area_effect,
-                            f32 shield_scale);
+                            f32 search_radius);
 
 /* Path 1 — Direct collision: raw * 0.1 + 0.1, cap 0.5 (fractional). */
 f32 bc_combat_collision_damage_path1(f32 collision_energy, f32 ship_mass,

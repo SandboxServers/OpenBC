@@ -295,7 +295,7 @@ static void nb_apply_damage(battle_player_t *target, battle_player_t *attacker,
     };
     int hit_indices[BC_MAX_SUBSYSTEMS];
     int hit_count = bc_combat_find_hit_subsystems(target->cls, local, 1.0f,
-                                                   hit_indices, BC_MAX_SUBSYSTEMS);
+                                                   1.0f, hit_indices, BC_MAX_SUBSYSTEMS);
     int ss_idx = (hit_count > 0) ? hit_indices[0] : -1;
 
     if (ss_idx >= 0 && ss_idx < target->subsys_count &&
