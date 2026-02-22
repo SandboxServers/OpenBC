@@ -2,6 +2,7 @@
 
 **Date**: 2026-02-21
 **Severity**: HIGH (3 of 5 anomalies are HIGH)
+**Status**: ALL 5 ANOMALIES FIXED (PR #34). See issue #38 for remaining combat death issues.
 **Affected System**: Ship death pipeline, self-destruct handling
 **Verified Against**: Stock dedicated server packet traces (proxy DLL instrumentation)
 

@@ -179,11 +179,15 @@ Size: 4-8 bytes. The `endTime` field is the absolute game clock value at which t
 
 Sent on kill events.
 
-> **Known anomaly**: In stock dedicated server traces, SCORE_CHANGE is sent for collision
-> kills but NOT for weapon kills. A 33.5-minute session with 59 weapon kills produced
-> zero SCORE_CHANGE messages. This may be a stock server bug — the kill handler may not
-> be triggered for all death paths. Implementations should ensure SCORE_CHANGE is sent
-> for ALL kill types (collision, weapon, explosion, self-destruct).
+> **Known anomaly (verified 2026-02-22)**: In stock dedicated server traces, SCORE_CHANGE
+> is sent for collision kills and self-destructs but **NOT** for weapon kills. A 33.5-minute
+> 3-player session ("Battle of Valentine's Day") with 55 weapon kills produced zero
+> SCORE_CHANGE messages, while the same session's 4 self-destructs each produced
+> SCORE_CHANGE correctly. A separate 28-second collision test confirmed collision kills
+> also produce SCORE_CHANGE. This is a stock server bug — the ObjectKilledHandler is not
+> triggered by the weapon kill death path on dedicated servers. Implementations should
+> send SCORE_CHANGE for ALL kill types (collision, weapon, explosion, self-destruct),
+> improving on stock behavior.
 
 ```
 [byte:0x36]
