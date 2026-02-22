@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ID_PORT_BASE   29882
+#define ID_PORT_BASE   29884
 #define MANIFEST_PATH  "tests/fixtures/manifest.json"
 #define GAME_DIR       "tests/fixtures/"
 
