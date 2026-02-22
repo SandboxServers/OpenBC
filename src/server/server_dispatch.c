@@ -190,6 +190,45 @@ f32 bc_powered_efficiency(const bc_ship_state_t *ship,
     return min_eff;
 }
 
+/* Queue one subsystem-health window (flag 0x20) for a ship to all clients.
+ * rr_idx is the health round-robin cursor to serialize from. */
+static int queue_health_update_window(int target_slot, u8 rr_idx, u8 *next_idx_out)
+{
+    bc_peer_t *target = &g_peers.peers[target_slot];
+    if (!target->has_ship || !target->ship.alive) return 0;
+
+    const bc_ship_class_t *cls =
+        bc_registry_get_ship(&g_registry, target->class_index);
+    if (!cls) return 0;
+
+    /* Send from the requested round-robin position; cursor is NOT advanced.
+     * Owner gets is_own_ship=true (no power_pct in Powered entries),
+     * remote observers get is_own_ship=false (with power_pct). */
+    u8 hbuf_own[128], hbuf_rmt[128];
+    u8 next_own, next_rmt;
+    int hlen_own = bc_ship_build_health_update(
+        &target->ship, cls, g_game_time,
+        rr_idx, &next_own, true,
+        hbuf_own, sizeof(hbuf_own));
+    int hlen_rmt = bc_ship_build_health_update(
+        &target->ship, cls, g_game_time,
+        rr_idx, &next_rmt, false,
+        hbuf_rmt, sizeof(hbuf_rmt));
+
+    if (next_idx_out) *next_idx_out = next_own;
+
+    for (int j = 1; j < BC_MAX_PLAYERS; j++) {
+        if (g_peers.peers[j].state < PEER_LOBBY) continue;
+        if (j == target_slot && hlen_own > 0) {
+            bc_queue_unreliable(j, hbuf_own, hlen_own);
+        } else if (j != target_slot && hlen_rmt > 0) {
+            bc_queue_unreliable(j, hbuf_rmt, hlen_rmt);
+        }
+    }
+
+    return (hlen_own > 0 || hlen_rmt > 0) ? 1 : 0;
+}
+
 /* Send an immediate subsystem health update (flag 0x20) for a ship to all
  * clients.  Called after server-authoritative damage (collisions, beams,
  * torpedoes) so clients see the HP change without waiting for the periodic
@@ -204,36 +243,47 @@ static void send_health_update_immediate(int target_slot)
     bc_peer_t *target = &g_peers.peers[target_slot];
     if (!target->has_ship || !target->ship.alive) return;
 
-    const bc_ship_class_t *cls =
-        bc_registry_get_ship(&g_registry, target->class_index);
-    if (!cls) return;
-
-    /* Send from current round-robin position; cursor is NOT advanced.
-     * Owner gets is_own_ship=true (no power_pct in Powered entries),
-     * remote observers get is_own_ship=false (with power_pct). */
-    u8 hbuf_own[128], hbuf_rmt[128];
-    u8 next_own, next_rmt;
-    int hlen_own = bc_ship_build_health_update(
-        &target->ship, cls, g_game_time,
-        target->subsys_rr_idx, &next_own, true,
-        hbuf_own, sizeof(hbuf_own));
-    int hlen_rmt = bc_ship_build_health_update(
-        &target->ship, cls, g_game_time,
-        target->subsys_rr_idx, &next_rmt, false,
-        hbuf_rmt, sizeof(hbuf_rmt));
-
-    for (int j = 1; j < BC_MAX_PLAYERS; j++) {
-        if (g_peers.peers[j].state < PEER_LOBBY) continue;
-        if (j == target_slot && hlen_own > 0) {
-            bc_queue_unreliable(j, hbuf_own, hlen_own);
-        } else if (j != target_slot && hlen_rmt > 0) {
-            bc_queue_unreliable(j, hbuf_rmt, hlen_rmt);
-        }
-    }
+    u8 next_idx = target->subsys_rr_idx;
+    if (queue_health_update_window(target_slot, target->subsys_rr_idx, &next_idx) <= 0)
+        return;
 
     LOG_DEBUG("health", "slot=%d immediate health (rr=%d)",
               target_slot, target->subsys_rr_idx);
     /* NOTE: subsys_rr_idx is NOT updated -- periodic tick owns the cursor */
+}
+
+/* Queue a full 0x20 health round-robin cycle for one ship, then optionally
+ * flush the owner immediately to keep local HUD feedback responsive. */
+static int send_health_update_full_cycle(int target_slot, bool flush_owner)
+{
+    bc_peer_t *target = &g_peers.peers[target_slot];
+    if (!target->has_ship || !target->ship.alive) return 0;
+
+    const bc_ship_class_t *cls =
+        bc_registry_get_ship(&g_registry, target->class_index);
+    if (!cls || cls->ser_list.count <= 0) return 0;
+
+    u8 start_idx = target->subsys_rr_idx;
+    u8 cursor = start_idx;
+    int sent_packets = 0;
+    int safety = cls->ser_list.count + 1;
+
+    do {
+        u8 next_idx = cursor;
+        if (queue_health_update_window(target_slot, cursor, &next_idx) <= 0)
+            break;
+        sent_packets++;
+        if (next_idx == cursor) break;
+        cursor = next_idx;
+    } while (cursor != start_idx && sent_packets <= safety);
+
+    if (flush_owner && g_peers.peers[target_slot].state >= PEER_LOBBY)
+        bc_flush_peer(target_slot);
+
+    LOG_DEBUG("health",
+              "slot=%d full health burst packets=%d rr_start=%d",
+              target_slot, sent_packets, start_idx);
+    return sent_packets;
 }
 
 /* Snapshot pre-damage HP, compare after, generate ADD_TO_REPAIR_LIST PythonEvents
@@ -1256,17 +1306,24 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         LOG_INFO("combat", "%s self-destructed", peer_name(peer_slot));
 
         /* Force-kill: zero all subsystem HP (cascading reactor failure),
-         * then set hull to 0 and mark the ship dead. */
+         * then set hull to 0. We intentionally broadcast zero-health 0x20
+         * updates before flipping alive=false so the owner's HUD bars can
+         * drain immediately instead of waiting on periodic round-robin. */
         f32 hp_snap[BC_MAX_SUBSYSTEMS];
         memcpy(hp_snap, peer->ship.subsystem_hp, sizeof(hp_snap));
 
         for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++)
             peer->ship.subsystem_hp[i] = 0.0f;
         peer->ship.hull_hp = 0.0f;
-        peer->ship.alive   = false;
 
         /* Generate ADD_TO_REPAIR_LIST PythonEvents for every destroyed subsystem */
         generate_damage_events(peer_slot, hp_snap, cls);
+
+        /* Push a full health window burst now (all-zero subsystem conditions)
+         * and flush owner immediately for responsive local visual feedback. */
+        send_health_update_full_cycle(peer_slot, true);
+
+        peer->ship.alive = false;
 
         /* OBJECT_EXPLODING PythonEvent -- killer_id=0 (no attacker) */
         {

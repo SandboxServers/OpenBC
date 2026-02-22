@@ -88,8 +88,11 @@ TEST(self_destruct_pipeline_matches_stock)
 
     bool got_exploding = false;
     bool got_score_change = false;
+    bool got_zero_health_feedback = false;
     bool saw_destroy_obj = false;
     bool saw_server_respawn = false;
+    bool exploding_before_health_feedback = false;
+    int zero_health_delay_ms = -1;
     const i32 ship_id = bc_make_ship_id(0);
 
     /* Observe for >5s to catch old auto-respawn timer behavior. */
@@ -111,11 +114,25 @@ TEST(self_destruct_pipeline_matches_stock)
             got_score_change = true;
             continue;
         }
+        if (msg[0] == BC_OP_STATE_UPDATE && msg_len >= 12) {
+            i32 object_id = read_i32_le(msg + 1);
+            if (object_id == ship_id && msg[9] == 0x20) {
+                /* [start_idx][first_condition] for 0x20 payload. */
+                if (msg[11] == 0) {
+                    got_zero_health_feedback = true;
+                    if (zero_health_delay_ms < 0)
+                        zero_health_delay_ms = (int)(bc_ms_now() - start);
+                }
+            }
+            continue;
+        }
         if (msg[0] == BC_OP_PYTHON_EVENT && msg_len >= 25) {
             i32 factory_id = read_i32_le(msg + 1);
             i32 event_type = read_i32_le(msg + 5);
             if (factory_id == BC_FACTORY_OBJECT_EXPLODING &&
                 event_type == BC_EVENT_OBJECT_EXPLODING) {
+                if (!got_zero_health_feedback)
+                    exploding_before_health_feedback = true;
                 i32 source_obj = read_i32_le(msg + 9);
                 i32 dest_obj = read_i32_le(msg + 13);
                 f32 lifetime = read_f32_le(msg + 21);
@@ -127,6 +144,9 @@ TEST(self_destruct_pipeline_matches_stock)
         }
     }
 
+    CHECK(got_zero_health_feedback);
+    CHECK(zero_health_delay_ms >= 0 && zero_health_delay_ms <= 400);
+    CHECK(!exploding_before_health_feedback);
     CHECK(got_exploding);
     CHECK(got_score_change);
     CHECK(!saw_destroy_obj);
@@ -142,7 +162,7 @@ cleanup:
 #undef CHECK
 }
 
-TEST(mission_init_total_slots_stock_value)
+TEST(mission_init_total_slots_matches_server_limit)
 {
     bool net_ok = false;
     bool srv_ok = false;
@@ -183,7 +203,7 @@ TEST(mission_init_total_slots_stock_value)
                                                   &msg_len, 2000);
         CHECK(msg != NULL);
         CHECK(msg_len >= 2);
-        CHECK(msg[1] == 9); /* stock dedicated totalSlots */
+        CHECK(msg[1] == BC_MAX_PLAYERS); /* human slots + dedicated slot 0 */
     }
 
 cleanup:
@@ -198,5 +218,5 @@ cleanup:
 
 TEST_MAIN_BEGIN()
     RUN(self_destruct_pipeline_matches_stock);
-    RUN(mission_init_total_slots_stock_value);
+    RUN(mission_init_total_slots_matches_server_limit);
 TEST_MAIN_END()
