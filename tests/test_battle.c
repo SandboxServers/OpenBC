@@ -785,7 +785,8 @@ TEST(full_join_flow_multi_client)
             }
 
             CHECK(got_mission);
-            /* MissionInit byte[1] includes dedicated slot 0. */
+            /* MissionInit byte[1] should match server slot limit
+             * (including dedicated ghost slot 0). */
             CHECK_EQ(mission_total_slots, BC_MAX_PLAYERS);
         }
 
