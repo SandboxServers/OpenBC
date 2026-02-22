@@ -85,9 +85,17 @@ int bc_ui_collision_build(u8 *buf, int buf_size, bool collision_enabled);
 int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason);
 
 /* Build a DeletePlayerUI payload (opcode 0x17).
- * game_slot: the 0-based game slot of the departing player.
- * Returns bytes written, or -1 on error. */
-int bc_delete_player_ui_build(u8 *buf, int buf_size, u8 game_slot);
+ * 18-byte event structure:
+ *   [0x17][factory=0x866:i32][event_code:i32][src:i32][tgt:i32][wire_peer:u8]
+ *
+ * Join (new player):  event_code=BC_EVENT_NEW_PLAYER, src=0, tgt=ship_id
+ * Disconnect:         event_code=BC_EVENT_PLAYER_REMOVED, src=0, tgt=ship_id
+ *
+ * wire_peer_id is the wire slot (peer_slot + 1), matching GetNetID().
+ * Returns bytes written (18), or -1 on error. */
+int bc_delete_player_ui_build(u8 *buf, int buf_size,
+                               i32 event_code, i32 src_obj_id,
+                               i32 tgt_obj_id, u8 wire_peer_id);
 
 /* Build a DeletePlayerAnim payload (opcode 0x18).
  * player_name: the departing player's name (for "X has left" notification).

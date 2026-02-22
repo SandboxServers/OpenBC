@@ -6,6 +6,7 @@
 #include "openbc/manifest.h"
 #include "openbc/handshake.h"
 #include "openbc/opcodes.h"
+#include "openbc/game_builders.h"
 #include <string.h>
 #include <math.h>
 
@@ -967,11 +968,46 @@ TEST(delete_player_build)
     u8 buf[64];
     int len;
 
-    /* DeletePlayerUI: [0x17][game_slot] */
-    len = bc_delete_player_ui_build(buf, sizeof(buf), 2);
-    ASSERT_EQ_INT(len, 2);
+    /* DeletePlayerUI: 18-byte event format
+     * [0x17][factory=0x866:i32][event_code:i32][src:i32][tgt:i32][wire_peer:u8] */
+    i32 ship_id = bc_make_ship_id(2);
+    len = bc_delete_player_ui_build(buf, sizeof(buf),
+                                     BC_EVENT_NEW_PLAYER, 0, ship_id, 2);
+    ASSERT_EQ_INT(len, 18);
     ASSERT_EQ(buf[0], BC_OP_DELETE_PLAYER_UI);
-    ASSERT_EQ(buf[1], 2);
+    /* Factory 0x00000866 LE */
+    ASSERT_EQ(buf[1], 0x66);
+    ASSERT_EQ(buf[2], 0x08);
+    ASSERT_EQ(buf[3], 0x00);
+    ASSERT_EQ(buf[4], 0x00);
+    /* Event code 0x008000F1 LE */
+    ASSERT_EQ(buf[5], 0xF1);
+    ASSERT_EQ(buf[6], 0x00);
+    ASSERT_EQ(buf[7], 0x80);
+    ASSERT_EQ(buf[8], 0x00);
+    /* src_obj_id = 0 */
+    ASSERT_EQ(buf[9],  0x00);
+    ASSERT_EQ(buf[10], 0x00);
+    ASSERT_EQ(buf[11], 0x00);
+    ASSERT_EQ(buf[12], 0x00);
+    /* tgt_obj_id = ship_id (LE) */
+    ASSERT_EQ(buf[13], (u8)(ship_id & 0xFF));
+    ASSERT_EQ(buf[14], (u8)((ship_id >> 8) & 0xFF));
+    ASSERT_EQ(buf[15], (u8)((ship_id >> 16) & 0xFF));
+    ASSERT_EQ(buf[16], (u8)((ship_id >> 24) & 0xFF));
+    /* wire_peer_id */
+    ASSERT_EQ(buf[17], 2);
+
+    /* Disconnect event code */
+    len = bc_delete_player_ui_build(buf, sizeof(buf),
+                                     BC_EVENT_PLAYER_REMOVED,
+                                     ship_id, ship_id, 2);
+    ASSERT_EQ_INT(len, 18);
+    /* Event code 0x00060005 LE */
+    ASSERT_EQ(buf[5], 0x05);
+    ASSERT_EQ(buf[6], 0x00);
+    ASSERT_EQ(buf[7], 0x06);
+    ASSERT_EQ(buf[8], 0x00);
 
     /* DeletePlayerAnim: [0x18][name_len:u16][name:bytes] */
     len = bc_delete_player_anim_build(buf, sizeof(buf), "Cady");

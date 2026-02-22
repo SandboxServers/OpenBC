@@ -1,5 +1,6 @@
 #include "openbc/handshake.h"
 #include "openbc/opcodes.h"
+#include "openbc/game_builders.h"
 #include "openbc/log.h"
 #include <string.h>
 #include <stdio.h>
@@ -157,18 +158,28 @@ int bc_bootplayer_build(u8 *buf, int buf_size, u8 reason)
     return 2;
 }
 
-int bc_delete_player_ui_build(u8 *buf, int buf_size, u8 game_slot)
+int bc_delete_player_ui_build(u8 *buf, int buf_size,
+                               i32 event_code, i32 src_obj_id,
+                               i32 tgt_obj_id, u8 wire_peer_id)
 {
-    /* Wire format from trace (18 bytes):
-     *   [0x17][connection_data:17]
-     * Observed at join time: 17 66 08 00 00 F1 00 80 00 00 00 00 00 91 07 00 00 02
-     * The exact meaning of bytes 1-16 is not fully decoded, but the last byte
-     * appears to be the game slot.  We emit a minimal but correct packet:
-     *   [0x17][game_slot:u8] */
-    if (buf_size < 2) return -1;
-    buf[0] = BC_OP_DELETE_PLAYER_UI;
-    buf[1] = game_slot;
-    return 2;
+    /* Wire format (18 bytes, from stock dedi trace):
+     *   [0x17]                 opcode (1 byte)
+     *   [factory:i32]          factory class ID, always 0x00000866 (4 bytes LE)
+     *   [event_code:i32]       0x008000F1 (join) or 0x00060005 (disconnect)
+     *   [src_obj_id:i32]       source object ID (4 bytes LE)
+     *   [tgt_obj_id:i32]       target object ID (4 bytes LE)
+     *   [wire_peer_id:u8]      0-based game slot (1 byte) */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_DELETE_PLAYER_UI)) return -1;
+    if (!bc_buf_write_i32(&b, (i32)BC_FACTORY_DELETE_PLAYER_UI)) return -1;
+    if (!bc_buf_write_i32(&b, event_code)) return -1;
+    if (!bc_buf_write_i32(&b, src_obj_id)) return -1;
+    if (!bc_buf_write_i32(&b, tgt_obj_id)) return -1;
+    if (!bc_buf_write_u8(&b, wire_peer_id)) return -1;
+
+    return (int)b.pos;
 }
 
 int bc_delete_player_anim_build(u8 *buf, int buf_size,
