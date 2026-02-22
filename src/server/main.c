@@ -853,8 +853,7 @@ int main(int argc, char **argv)
                     rp->class_index = rp->respawn_class;
                     rp->has_ship = true;
                     rp->subsys_rr_idx = 0;
-                    bc_ship_assign_subsystem_ids(&rp->ship, rcls,
-                                                  &g_script_obj_counter);
+                    bc_ship_assign_subsystem_ids(&rp->ship, rcls);
 
                     /* Build respawn ObjCreateTeam by patching the cached
                      * initial-spawn payload with the new position.  This
