@@ -176,7 +176,7 @@ All critical protocol analysis is complete, verified against the stock dedicated
 - Damage pipeline documented: collision, weapon, and explosion paths through subsystem distribution
 - All findings from packet captures, behavioral observation, and readable game scripts; no original source code was used
 
-See the [verified protocol reference](docs/phase1-verified-protocol.md) for the complete wire format specification. The [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) repository contains a functional DDraw proxy server used for protocol verification and packet capture.
+See the [verified protocol reference](docs/protocol/protocol-reference.md) for the complete wire format specification. The [STBC-Dedicated-Server](https://github.com/cadacious/STBC-Dedicated-Server) repository contains a functional DDraw proxy server used for protocol verification and packet capture.
 
 ## Game Data and Mods
 
@@ -193,32 +193,31 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 ## Documentation
 
 **Design & Architecture:**
-- [Server Architecture RFC](docs/phase1-implementation-plan.md) -- Standalone server design: network, checksum, game state, physics, data registry, mod system
-- [Requirements](docs/phase1-requirements.md) -- Functional and non-functional requirements
-- [Engine Architecture](docs/phase1-engine-architecture.md) -- Original BC engine architecture (behavioral reference)
-- [Data Registry](docs/phase1-api-surface.md) -- Ship, map, rules, and manifest data schemas
-- [Server Authority](docs/server-authority.md) -- Authority model: what the server computes vs. relays
+- [Server Architecture RFC](docs/architecture/server-architecture.md) -- Standalone server design: network, checksum, game state, physics, data registry, mod system
+- [Engine Architecture](docs/architecture/engine-reference.md) -- Original BC engine architecture (behavioral reference)
+- [Data Registry](docs/game-systems/data-registry.md) -- Ship, map, rules, and manifest data schemas
+- [Server Authority](docs/architecture/server-authority.md) -- Authority model: what the server computes vs. relays
 
 **Protocol & Wire Format:**
-- [Verified Protocol](docs/phase1-verified-protocol.md) -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery, compressed types
-- [Transport Layer](docs/transport-layer.md) -- UDP transport: packet framing, message types, reliability, cipher integration
-- [Transport Cipher](docs/transport-cipher.md) -- AlbyRules PRNG cipher: key schedule, cross-multiplication, plaintext feedback
-- [GameSpy Protocol](docs/gamespy-protocol.md) -- LAN discovery, master server heartbeat, challenge-response
-- [Join Flow](docs/join-flow.md) -- Connection lifecycle: connect, checksums, lobby, gameplay
-- [Checksum Handshake](docs/checksum-handshake-protocol.md) -- Hash algorithms, 5-round checksum exchange
-- [Disconnect Flow](docs/disconnect-flow.md) -- Player disconnect detection and cleanup
-- [Wire Format Audit](docs/wire-format-audit.md) -- Audit of wire format implementation vs spec
-- Wire format specs: [ObjCreate](docs/objcreate-wire-format.md), [StateUpdate](docs/stateupdate-wire-format.md), [CollisionEffect](docs/collision-effect-wire-format.md), [Explosion](docs/explosion-wire-format.md)
-- [ObjCreate Unknown Species](docs/objcreate-unknown-species.md) -- Behavior when species index exceeds client ship table
+- [Verified Protocol](docs/protocol/protocol-reference.md) -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery, compressed types
+- [Transport Layer](docs/protocol/transport-layer.md) -- UDP transport: packet framing, message types, reliability, cipher integration
+- [Transport Cipher](docs/protocol/transport-cipher.md) -- AlbyRules PRNG cipher: key schedule, cross-multiplication, plaintext feedback
+- [GameSpy Protocol](docs/protocol/gamespy-protocol.md) -- LAN discovery, master server heartbeat, challenge-response
+- [Join Flow](docs/network-flows/join-flow.md) -- Connection lifecycle: connect, checksums, lobby, gameplay
+- [Checksum Handshake](docs/wire-formats/checksum-handshake-protocol.md) -- Hash algorithms, 5-round checksum exchange
+- [Disconnect Flow](docs/network-flows/disconnect-flow.md) -- Player disconnect detection and cleanup
+- [Wire Format Audit](docs/network-flows/wire-format-audit.md) -- Audit of wire format implementation vs spec
+- Wire format specs: [ObjCreate](docs/wire-formats/objcreate-wire-format.md), [StateUpdate](docs/wire-formats/stateupdate-wire-format.md), [CollisionEffect](docs/wire-formats/collision-effect-wire-format.md), [Explosion](docs/wire-formats/explosion-wire-format.md)
+- [ObjCreate Unknown Species](docs/bugs/objcreate-unknown-species.md) -- Behavior when species index exceeds client ship table
 
 **Game Systems:**
-- [Combat System](docs/combat-system.md) -- Damage pipeline, shields, cloaking, tractor beams, repair
-- [Power & Reactor System](docs/power-system.md) -- Reactor, batteries, conduits, consumer draw, power wire format
-- [Repair System](docs/repair-system.md) -- Repair queue, priority toggle, PythonEvent wire format
-- [Ship Subsystems](docs/ship-subsystems.md) -- Fixed subsystem index table, HP values, StateUpdate serialization
-- [Collision Detection](docs/collision-detection-system.md) -- Collision damage scaling, dual damage paths
-- [Collision Shield Interaction](docs/collision-shield-interaction.md) -- Shield absorption during collisions
-- [PythonEvent Wire Format](docs/pythonevent-wire-format.md) -- Factory IDs, event types, subsystem and explosion events
+- [Combat System](docs/game-systems/combat-system.md) -- Damage pipeline, shields, cloaking, tractor beams, repair
+- [Power & Reactor System](docs/game-systems/power-system.md) -- Reactor, batteries, conduits, consumer draw, power wire format
+- [Repair System](docs/game-systems/repair-system.md) -- Repair queue, priority toggle, PythonEvent wire format
+- [Ship Subsystems](docs/game-systems/ship-subsystems.md) -- Fixed subsystem index table, HP values, StateUpdate serialization
+- [Collision Detection](docs/game-systems/collision-detection-system.md) -- Collision damage scaling, dual damage paths
+- [Collision Shield Interaction](docs/game-systems/collision-shield-interaction.md) -- Shield absorption during collisions
+- [PythonEvent Wire Format](docs/wire-formats/pythonevent-wire-format.md) -- Factory IDs, event types, subsystem and explosion events
 
 **Testing & Tools:**
 - [Test Suite](tests/README.md) -- 11 test suites, test frameworks, adding new tests

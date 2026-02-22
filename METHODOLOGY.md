@@ -69,7 +69,7 @@ The following documents form the complete specification set consumed by the clea
 | `stateupdate-wire-format.md` | Position and state synchronization format |
 | `objcreate-wire-format.md` | Ship creation message format |
 | `collision-effect-wire-format.md` | Collision damage report format |
-| `phase1-verified-protocol.md` | Complete protocol reference (opcodes, formats, handshake) |
+| `protocol/protocol-reference.md` | Complete protocol reference (opcodes, formats, handshake) |
 
 Each document describes observable behavior and wire-level data formats. None contain decompiled code or binary-specific implementation details.
 

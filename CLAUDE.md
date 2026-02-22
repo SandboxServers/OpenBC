@@ -28,33 +28,20 @@ This is a **clean room reimplementation** of the Bridge Commander multiplayer pr
 
 Open-source, standalone multiplayer server for Star Trek: Bridge Commander (2002). Clean-room reimplementation that speaks the BC 1.1 wire protocol -- stock clients connect and play without modification. Ships with zero copyrighted content: all game data is provided via hash manifests and data registries.
 
-## Architecture
+## Documentation Map
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                    OpenBC Server                         │
-│                                                          │
-│  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌───────────┐  │
-│  │ Network  │  │ Checksum │  │  Game   │  │   Mod     │  │
-│  │  Layer   │──│ Validator│──│  State  │──│  Loader   │  │
-│  │ (UDP)    │  │(Manifest)│  │ Engine  │  │           │  │
-│  └────┬─────┘  └──────────┘  └────┬────┘  └─────┬─────┘  │
-│       │                          │              │         │
-│  ┌────┴─────┐  ┌──────────┐  ┌───┴────┐  ┌─────┴─────┐  │
-│  │ Protocol │  │  Opcode  │  │Physics │  │   Data    │  │
-│  │  Codec   │  │ Handlers │  │  Sim   │  │ Registry  │  │
-│  │(wire fmt)│  │(28 actv) │  │        │  │(ships,etc)│  │
-│  └──────────┘  └──────────┘  └────────┘  └───────────┘  │
-└──────────────────────────────────────────────────────────┘
-        ▲                                        ▲
-        │ UDP packets                            │ JSON
-        ▼                                        │
-  ┌───────────┐                          ┌───────────────┐
-  │ Stock BC  │                          │  Mod Packs    │
-  │  Client   │                          │ (data + hash  │
-  │  (1.1)    │                          │  manifests)   │
-  └───────────┘                          └───────────────┘
-```
+All design documents live in `docs/` organized by topic. See [docs/README.md](docs/README.md) for the full index.
+
+| Directory | Contents | Start here |
+|-----------|----------|------------|
+| `docs/architecture/` | Server design, engine reference, authority model | `server-architecture.md` |
+| `docs/protocol/` | Wire protocol, transport, cipher, GameSpy | `protocol-reference.md` |
+| `docs/wire-formats/` | Per-opcode wire format specs | `checksum-handshake-protocol.md` |
+| `docs/game-systems/` | Combat, power, repair, subsystems, collisions | `combat-system.md` |
+| `docs/network-flows/` | Join flow, disconnect, wire format audit | `join-flow.md` |
+| `docs/planning/` | Game modes, extensibility, cut content | `gamemode-system.md` |
+| `docs/bugs/` | Bug analyses and postmortems | -- |
+| `docs/archive/` | Historical planning docs | `phase1-requirements.md` |
 
 ## Design Principles
 
@@ -120,47 +107,6 @@ docs/              # Design documents and protocol reference
 - **flecs-ecs-architect** -- ECS design reference (historical)
 - **python-migration** -- Python compatibility reference (historical)
 - **mod-compat-tester** -- Community mod compatibility testing
-
-## Planning Documents
-
-- **[Server Architecture RFC](docs/phase1-implementation-plan.md)** -- Standalone server design: network, checksum, game state, physics, data registry, mod system
-- **[Requirements](docs/phase1-requirements.md)** -- Functional/non-functional requirements
-- **[Verified Protocol](docs/phase1-verified-protocol.md)** -- Complete wire protocol: opcodes, packet formats, handshake, reliable delivery
-- **[Engine Architecture](docs/phase1-engine-architecture.md)** -- Protocol architecture that OpenBC must replicate (behavioral reference)
-- **[Data Registry](docs/phase1-api-surface.md)** -- Ship, map, rules, and manifest data schemas
-
-## Protocol & System Documentation
-
-- **[Transport Cipher](docs/transport-cipher.md)** -- AlbyRules PRNG cipher: key schedule, cross-multiplication, plaintext feedback
-- **[GameSpy Protocol](docs/gamespy-protocol.md)** -- LAN discovery, master server heartbeat, challenge-response crypto (gsmsalg)
-- **[Join Flow](docs/join-flow.md)** -- Connection lifecycle: connect → checksums → lobby → gameplay
-- **[Combat System](docs/combat-system.md)** -- Damage pipeline, shields, cloaking, tractor beams, repair system
-- **[Ship Subsystems](docs/ship-subsystems.md)** -- Fixed subsystem index table, HP values, StateUpdate serialization
-- **[Checksum Handshake](docs/checksum-handshake-protocol.md)** -- Hash algorithms, 5-round checksum exchange
-- **[Disconnect Flow](docs/disconnect-flow.md)** -- Player disconnect detection and cleanup
-- **[Server Authority](docs/server-authority.md)** -- Authority model (who computes what)
-- **[Wire Format Audit](docs/wire-format-audit.md)** -- Audit of wire format implementation vs spec
-
-## Verified Protocol Facts
-
-All critical protocol knowledge is documented in the clean room docs. Key verified facts:
-
-- **Wire protocol**: AlbyRules PRNG cipher ("AlbyRules!" 10-byte key), raw UDP, three-tier send queues (unreliable/reliable/priority)
-- **Hash algorithms**: StringHash (4-lane Pearson) for filenames, FileHash (rotate-XOR) for file contents
-- **Game opcodes**: 28 active opcodes (see `phase1-verified-protocol.md` Section 5)
-- **Script messages**: MAX_MESSAGE_TYPES = 0x2B; CHAT=0x2C, TEAM_CHAT=0x2D, MISSION_INIT=0x35, SCORE_CHANGE=0x36, SCORE=0x37, END_GAME=0x38, RESTART=0x39
-- **Ship creation**: ObjectCreateTeam (0x03), destruction: DestroyObject (0x14)
-- **Handshake**: connect -> GameSpy peek -> 4 checksum rounds -> Settings (0x00) -> GameInit (0x01) -> EnterSet (0x1F) -> NewPlayerInGame (0x2A)
-- **AlbyRules cipher**: Stream cipher with PRNG-derived keystream + plaintext feedback. Byte 0 (direction flag) is NEVER encrypted. Per-packet reset. PRNG: LCG cross-multiplication (mult=0x4E35, add=0x15A), 5 rounds per key schedule. API: `alby_cipher_encrypt()` / `alby_cipher_decrypt()`
-- **CF16 codec**: encode uses `(value - lo) / (hi - lo) * 4096`; decode uses `lo + (mantissa / 4095.0f) * (hi - lo)`. The 4096/4095 asymmetry is intentional.
-- **Connect handshake**: Server responds to Connect(0x03) with Connect(0x03), NOT ConnectAck(0x05). Format: `[0x03][0x06][0xC0][0x00][0x00][slot]`. ConnectAck(0x05) means disconnect/shutdown only.
-- **Player slots**: BC_MAX_PLAYERS=7 (slot 0=Dedicated Server, slots 1-6=humans). Wire slot = array index + 1. Direction byte = wire slot. All loops skip slot 0. GameSpy numplayers = count - 1.
-- **NewPlayerInGame (0x2A)**: 2 bytes `[0x2A][0x20]` (trailing space, not a length byte)
-- **Transport type 0x32**: Dual-use -- reliable (flags & 0x80, 5-byte header) AND unreliable (flags==0x00, 3-byte header). Parser must bifurcate; only ACK reliable messages.
-- **Checksum file tree format**: `[file_count:u16][files…][subdir_count:u8][all_name_hashes…][all_trees…]`. subdir_count is u8 (NOT u16), names-first-then-trees (NOT interleaved). Always present even when zero. dir_hash uses leaf directory name only (no trailing separator).
-- **GameSpy**: gamename="bcommander", secret key="Nm3aZ9", LAN query port=6500, master heartbeat port=27900. Server listens on two sockets (game port + query port).
-- **Reliable sequencing**: internal counter increments by 1; wire format `[seqHi=counter][seqLo=0]` → wire value increments by 256. ACK byte = seqHi.
-- **UDP batching**: One UDP packet can contain multiple transport messages. Consumers must iterate all (see `cached_pkt` pattern in `tests/test_harness.h`).
 
 ## Implementation Gotchas
 
