@@ -1679,22 +1679,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 bc_send_to_all(expl, elen, true);
                         }
 
-                        /* Send Explosion (0x29) -- visual kill effect.
-                         * Stock BC does NOT send DestroyObject (0x14) for
-                         * ship deaths. The old ship is implicitly replaced
-                         * when the respawn ObjCreateTeam arrives. */
-                        {
-                            u8 boom[16];
-                            int blen = bc_build_explosion(
-                                boom, sizeof(boom),
-                                target->ship.object_id,
-                                target->ship.pos.x,
-                                target->ship.pos.y,
-                                target->ship.pos.z,
-                                dmg, collision_radius);
-                            if (blen > 0)
-                                bc_send_to_all(boom, blen, true);
-                        }
+                        /* No Explosion (0x29) for collision kills.
+                         * Stock BC only sends ObjectExplodingEvent for
+                         * collision-induced deaths; Explosion is reserved
+                         * for weapon kills (beam/torpedo).  See issue #60. */
+
                         /* Disable server auto-respawn; respawn is client-driven. */
                         target->has_ship = false;
                         target->respawn_timer = 0.0f;
@@ -1819,21 +1808,9 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                     bc_send_to_all(expl2, elen2, true);
                             }
 
-                            /* Send Explosion (0x29) -- visual kill effect.
-                             * Stock BC does NOT send DestroyObject (0x14)
-                             * for ship deaths. */
-                            {
-                                u8 boom2[16];
-                                int blen2 = bc_build_explosion(
-                                    boom2, sizeof(boom2),
-                                    source->ship.object_id,
-                                    source->ship.pos.x,
-                                    source->ship.pos.y,
-                                    source->ship.pos.z,
-                                    sdmg, src_coll_radius);
-                                if (blen2 > 0)
-                                    bc_send_to_all(boom2, blen2, true);
-                            }
+                            /* No Explosion (0x29) for collision kills.
+                             * See target-side comment above (issue #60). */
+
                             /* Disable server auto-respawn; respawn is client-driven. */
                             source->has_ship = false;
                             source->respawn_timer = 0.0f;

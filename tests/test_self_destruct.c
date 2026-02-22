@@ -277,6 +277,7 @@ TEST(collision_death_no_auto_respawn_and_repair_events_bounded)
     bool got_score_change = false;
     bool saw_destroy_obj = false;
     bool saw_server_respawn = false;
+    bool saw_explosion_0x29 = false;
     int add_to_repair_events = 0;
     const i32 ship_id = bc_make_ship_id(0);
 
@@ -297,6 +298,11 @@ TEST(collision_death_no_auto_respawn_and_repair_events_bounded)
         }
         if (msg[0] == BC_MSG_SCORE_CHANGE) {
             got_score_change = true;
+            continue;
+        }
+        /* Issue #60: collision kills must NOT produce Explosion (0x29). */
+        if (msg[0] == BC_OP_EXPLOSION) {
+            saw_explosion_0x29 = true;
             continue;
         }
         if (msg[0] == BC_OP_PYTHON_EVENT && msg_len >= 17) {
@@ -325,6 +331,7 @@ TEST(collision_death_no_auto_respawn_and_repair_events_bounded)
     CHECK(got_score_change);
     CHECK(!saw_destroy_obj);
     CHECK(!saw_server_respawn);
+    CHECK(!saw_explosion_0x29);
     /* Death repair burst (issue #61) raises the upper bound. */
     CHECK(add_to_repair_events <= 30);
 
