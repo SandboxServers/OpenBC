@@ -8,7 +8,12 @@ How collision damage generates network messages in Bridge Commander multiplayer,
 
 ## Overview
 
-When two ships collide in multiplayer, the host applies damage to subsystems and then broadcasts approximately **14 PythonEvent (opcode 0x06) messages** to all clients. These messages carry repair-list additions — one per damaged subsystem. Clients use these to update their repair queue UI and trigger visual/audio feedback.
+When two ships collide in multiplayer, the host applies damage to subsystems and then broadcasts PythonEvent (opcode 0x06) messages to all clients. These messages carry repair-list additions — one per damaged subsystem. Clients use these to update their repair queue UI and trigger visual/audio feedback.
+
+The event count depends on the collision type:
+- **Two ships collide**: ~14 events (7 subsystems × 2 ships = ~14)
+- **Ship collides with environment**: ~3-5 events (fewer subsystems in damage volume)
+- **Collision-induced death**: ~13 events at death (all damaged subsystems get repair events)
 
 The chain is entirely C++ engine-driven. Python scripting is not involved in generating these messages.
 
@@ -227,6 +232,25 @@ Global (class-level) registration for collision processing:
 Registered during class initialization (not per-instance).
 
 If any of these registrations are missing, the chain breaks silently — damage may still apply, but no PythonEvent messages are generated, and clients see no repair queue updates.
+
+---
+
+## Subsystem Object ID Allocation Requirement
+
+Subsystem TGObject IDs **must** be allocated from the owning player's object ID range for
+clients to resolve damage events. Each player's ID range starts at
+`base = 0x3FFFFFFF + N × 0x40000` (262,143 IDs per player).
+
+When a TGSubsystemEvent carries a `source_obj_id`, the receiving client calls
+`ReadObjectRef` to look up the subsystem in the TGObject hash table. If the subsystem's ID
+is outside the player's range (e.g., a small sequential integer from a global counter),
+the lookup fails silently and the damage event is dropped.
+
+**Correct**: Subsystem IDs like `0x40000002`, `0x40000018` (in player 1's range)
+**Incorrect**: Subsystem IDs like `0x00000010`, `0x0000001E` (global counter, client can't resolve)
+
+This applies to all subsystem objects: the damaged subsystem's ID (source) and the
+RepairSubsystem's ID (dest) must both be in-range.
 
 ---
 

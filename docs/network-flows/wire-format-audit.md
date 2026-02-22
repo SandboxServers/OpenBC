@@ -460,6 +460,55 @@ S->C: MissionInit(0x35)                               <-- WRONG: should wait for
 
 ---
 
+## Collision Test (2026-02-22)
+
+**Source**: Side-by-side packet traces — stock dedi vs OpenBC, same scenario (Sovereign,
+environment collision, death, respawn, second collision).
+
+### Per-Opcode Match Status
+
+| Opcode | Name | Status | Notes |
+|--------|------|--------|-------|
+| Transport | Header, ACK, reliable/unreliable | **MATCH** | Byte-for-byte identical |
+| 0x03 | ConnectAck | **MATCH** | Slot assignment correct |
+| 0x20-0x27 | Checksum exchange | **MATCH** | All 5 rounds |
+| 0x28 | ChecksumComplete | **MATCH** | 1 byte, no payload |
+| 0x00 | Settings | **MATCH** | Field order, bit byte (0x61), map, checksum |
+| 0x01 | GameInit | **MATCH** | Single byte |
+| 0x03 | ObjCreateTeam | **MATCH** | 118-byte payload byte-for-byte identical |
+| 0x15 | CollisionEffect | **MATCH** | Factory, event code, contacts, force float |
+| 0x1C | StateUpdate | **MATCH** | Structure correct (flags, CF16, CompressedVector) |
+| 0x06 (0x8129) | ObjectExplodingEvent | **MATCH** | Factory, event, fields identical (lifetime differs) |
+| 0x06 (0x0101) | TGSubsystemEvent | **MATCH** (structure) | Wire format correct BUT object IDs from wrong range |
+| 0x36 | ScoreChange | **MATCH** | `36 00 00 00 00 02 00 00 00 01 00 00 00 00` identical |
+| 0x35 | MissionInit | **MISMATCH** | byte[0]: stock=0x08, OpenBC=0x07 (off-by-one) |
+| 0x17 | DeletePlayerUI | **MISSING** | Stock sends at join, OpenBC doesn't |
+| 0x29 | Explosion | **SPURIOUS** | OpenBC sends for collision kill, stock doesn't |
+
+### Behavioral Gaps (separate issues filed)
+
+| # | Gap | Severity | Issue |
+|---|-----|----------|-------|
+| 1 | Post-respawn collision ownership stale | HIGH | Filed |
+| 2 | Subsystem object IDs from wrong range | HIGH | Filed |
+| 3 | Missing DeletePlayerUI (0x17) at join | MEDIUM | Filed |
+| 4 | Spurious Explosion (0x29) on collision kill | MEDIUM | Filed |
+| 5 | Too few SubsystemDamage events at death | MEDIUM | Filed |
+| 6 | MissionInit maxPlayers 7 vs 8 | LOW | Filed |
+
+See [20260222-collision-test-parity-gaps.md](../bugs/bug-reports/20260222-collision-test-parity-gaps.md)
+for full details with hex dumps and server log excerpts.
+
+### Not Yet Tested
+
+- Weapon kill death sequence (beam/torpedo)
+- Multi-player collision (2 ships)
+- Cloak/Warp/Repair events in combat
+- Chat messages during gameplay
+- EndGame/RestartGame flow
+
+---
+
 ## Priority Fix List
 
 ### P0 -- Will break client parsing (CRITICAL)
