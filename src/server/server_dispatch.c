@@ -109,10 +109,18 @@ void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
 
 /* --- Static combat/utility helpers --- */
 
-/* Stock BC explosion visual lifetime for OBJECT_EXPLODING events. */
-static const f32 BC_EXPLODING_EVENT_LIFETIME_SEC = 9.5f;
-/* Stock dedicated MissionInit byte[1] is totalSlots=9. */
-static const int BC_MISSION_INIT_TOTAL_SLOTS = 9;
+/* Stock BC ship-death OBJECT_EXPLODING event visual lifetime. */
+static const f32 BC_SHIP_DEATH_EXPLODING_EVENT_LIFETIME_SEC = 9.5f;
+
+/* MissionInit byte[1] is total slots, including dedicated ghost slot 0.
+ * GameSpy maxplayers excludes that slot, so MissionInit = GameSpy + 1. */
+static int bc_mission_init_total_slots(void)
+{
+    int human_slots = g_info.maxplayers;
+    if (human_slots < 1) human_slots = 1;
+    if (human_slots > 8) human_slots = 8;
+    return human_slots + 1;
+}
 
 /* Return a player's name for log output. Falls back to "slot N" if unnamed. */
 static const char *peer_name(int slot)
@@ -578,7 +586,7 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
                 shooter->ship.object_id,
                 target->ship.object_id,
                 shooter->ship.object_id,
-                BC_EXPLODING_EVENT_LIFETIME_SEC);
+                BC_SHIP_DEATH_EXPLODING_EVENT_LIFETIME_SEC);
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
@@ -681,7 +689,7 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
                 shooter->ship.object_id,
                 target->ship.object_id,
                 shooter->ship.object_id,
-                BC_EXPLODING_EVENT_LIFETIME_SEC);
+                BC_SHIP_DEATH_EXPLODING_EVENT_LIFETIME_SEC);
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
@@ -1163,16 +1171,17 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         bc_relay_to_others(peer_slot, payload, payload_len, true);
         /* Respond with MissionInit (0x35) -- tells client which star system
          * to load and what the match rules are.
-         * Byte[1] follows stock dedicated behavior: totalSlots=9. */
+         * Byte[1] is total slots (human slots + dedicated ghost slot 0). */
         u8 mi[32];
         i32 end_time = (g_round_end_time >= 0.0f) ? (i32)g_round_end_time : 0;
+        int total_slots = bc_mission_init_total_slots();
         int mi_len = bc_mission_init_build(mi, sizeof(mi),
                                             g_system_index,
-                                            BC_MISSION_INIT_TOTAL_SLOTS,
+                                            total_slots,
                                             g_time_limit, end_time, g_frag_limit);
         if (mi_len > 0) {
-            LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
-                      peer_slot, g_system_index);
+            LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d totalSlots=%d)",
+                      peer_slot, g_system_index, total_slots);
             bc_queue_reliable(peer_slot, mi, mi_len);
             bc_flush_peer(peer_slot);
         }
@@ -1267,7 +1276,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 0, /* source_obj: NULL -- self-destruct has no attacker */
                 peer->ship.object_id,
                 0, /* killer_id: NULL -- self-destruct has no attacker */
-                BC_EXPLODING_EVENT_LIFETIME_SEC);
+                BC_SHIP_DEATH_EXPLODING_EVENT_LIFETIME_SEC);
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
@@ -1444,7 +1453,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 killer_id,
                                 target->ship.object_id,
                                 killer_id,
-                                BC_EXPLODING_EVENT_LIFETIME_SEC);
+                                BC_SHIP_DEATH_EXPLODING_EVENT_LIFETIME_SEC);
                             if (elen > 0)
                                 bc_send_to_all(expl, elen, true);
                         }
@@ -1583,7 +1592,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                         killer_id,
                                         source->ship.object_id,
                                         killer_id,
-                                        BC_EXPLODING_EVENT_LIFETIME_SEC);
+                                        BC_SHIP_DEATH_EXPLODING_EVENT_LIFETIME_SEC);
                                 if (elen2 > 0)
                                     bc_send_to_all(expl2, elen2, true);
                             }
