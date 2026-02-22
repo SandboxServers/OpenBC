@@ -258,9 +258,12 @@ int bc_combat_shield_facing(const bc_ship_state_t *target,
 }
 
 /* Bug 1: AABB overlap test — find ALL subsystems whose bounding box overlaps
- * the damage volume, not just the nearest point-sphere hit. */
+ * the damage volume, not just the nearest point-sphere hit.
+ * search_radius scales each subsystem's effective bounding radius in the test,
+ * expanding the set of eligible subsystems (1.5 = 50% wider search per subsystem). */
 int bc_combat_find_hit_subsystems(const bc_ship_class_t *cls,
                                   bc_vec3_t local_impact, f32 damage_radius,
+                                  f32 search_radius,
                                   int *out_indices, int max_out)
 {
     int count = 0;
@@ -269,15 +272,16 @@ int bc_combat_find_hit_subsystems(const bc_ship_class_t *cls,
         const bc_subsystem_def_t *ss = &cls->subsystems[i];
         if (ss->radius <= 0.0f) continue;
 
-        /* Subsystem AABB: [pos - radius, pos + radius] per axis */
-        /* Damage AABB:    [impact - damage_radius, impact + damage_radius] */
-        /* Overlap requires all 3 axes to overlap */
-        bool overlap_x = (local_impact.x - damage_radius) <= (ss->position.x + ss->radius) &&
-                          (local_impact.x + damage_radius) >= (ss->position.x - ss->radius);
-        bool overlap_y = (local_impact.y - damage_radius) <= (ss->position.y + ss->radius) &&
-                          (local_impact.y + damage_radius) >= (ss->position.y - ss->radius);
-        bool overlap_z = (local_impact.z - damage_radius) <= (ss->position.z + ss->radius) &&
-                          (local_impact.z + damage_radius) >= (ss->position.z - ss->radius);
+        /* Subsystem AABB expanded by search_radius: [pos - r*sr, pos + r*sr] */
+        /* Damage AABB: [impact - damage_radius, impact + damage_radius]       */
+        /* Overlap requires all 3 axes to overlap                               */
+        f32 ss_r = ss->radius * search_radius;
+        bool overlap_x = (local_impact.x - damage_radius) <= (ss->position.x + ss_r) &&
+                          (local_impact.x + damage_radius) >= (ss->position.x - ss_r);
+        bool overlap_y = (local_impact.y - damage_radius) <= (ss->position.y + ss_r) &&
+                          (local_impact.y + damage_radius) >= (ss->position.y - ss_r);
+        bool overlap_z = (local_impact.z - damage_radius) <= (ss->position.z + ss_r) &&
+                          (local_impact.z + damage_radius) >= (ss->position.z - ss_r);
 
         if (overlap_x && overlap_y && overlap_z) {
             out_indices[count++] = i;
@@ -288,13 +292,17 @@ int bc_combat_find_hit_subsystems(const bc_ship_class_t *cls,
 
 /* Bug 7: area-effect vs directed shield absorption.
  * Bug 9: skip shield absorption when cloaked.
- * Bug 10: damage_radius scaled by target's damage_radius_multiplier. */
+ * Bug 10: damage_radius scaled by target's damage_radius_multiplier.
+ * Issue #87: two-step pipeline — subsystems absorb before hull; each hit
+ * subsystem independently absorbs up to min(overflow, ss_hp); hull gets
+ * max(0, overflow - total_sub_absorbed). search_radius expands each
+ * subsystem's effective AABB radius for the hit test (1.5 = collision path). */
 void bc_combat_apply_damage(bc_ship_state_t *target,
                             const bc_ship_class_t *cls,
                             f32 damage, f32 damage_radius,
                             bc_vec3_t impact_dir,
                             bool area_effect,
-                            f32 shield_scale)
+                            f32 search_radius)
 {
     if (!target->alive || damage <= 0.0f) return;
 
@@ -309,10 +317,9 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
         f32 total_absorbed = 0.0f;
         for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {
             f32 absorbed = per_facing;
-            f32 facing_capacity = target->shield_hp[i] * shield_scale;
-            if (absorbed > facing_capacity)
-                absorbed = facing_capacity;
-            target->shield_hp[i] -= absorbed / shield_scale;
+            if (absorbed > target->shield_hp[i])
+                absorbed = target->shield_hp[i];
+            target->shield_hp[i] -= absorbed;
             total_absorbed += absorbed;
         }
         overflow = damage - total_absorbed;
@@ -320,12 +327,11 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
         /* Directed: single facing absorbs */
         int facing = bc_combat_shield_facing(target, impact_dir);
         if (target->shield_hp[facing] > 0.0f) {
-            f32 shield_capacity = target->shield_hp[facing] * shield_scale;
-            if (damage <= shield_capacity) {
-                target->shield_hp[facing] -= damage / shield_scale;
+            if (damage <= target->shield_hp[facing]) {
+                target->shield_hp[facing] -= damage;
                 return; /* fully absorbed */
             }
-            overflow = damage - shield_capacity;
+            overflow = damage - target->shield_hp[facing];
             target->shield_hp[facing] = 0.0f;
         } else {
             overflow = damage;
@@ -334,15 +340,10 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
 
     if (overflow <= 0.0f) return;
 
-    /* Hull damage */
-    target->hull_hp -= overflow;
-    if (target->hull_hp <= 0.0f) {
-        target->hull_hp = 0.0f;
-        target->alive = false;
-    }
-
-    /* Subsystem damage: AABB overlap test */
-    /* Bug 10: scale damage_radius by target's multiplier */
+    /* Step 1: Subsystem absorption — subsystems absorb from overflow BEFORE hull.
+     * Each hit subsystem independently absorbs up to min(overflow, ss_hp).
+     * Bug 10: scale damage_radius by target's multiplier. */
+    f32 total_sub_absorbed = 0.0f;
     f32 effective_radius = damage_radius * cls->damage_radius_multiplier;
     if (effective_radius > 0.0f) {
         bc_vec3_t right = bc_vec3_cross(target->fwd, target->up);
@@ -352,31 +353,37 @@ void bc_combat_apply_damage(bc_ship_state_t *target,
             bc_vec3_dot(impact_dir, target->up),
         };
 
-        /* Bug 1: find ALL overlapping subsystems */
+        /* Bug 1: find ALL overlapping subsystems (search_radius scales ss AABB) */
         int hit_indices[BC_MAX_SUBSYSTEMS];
         int hit_count = bc_combat_find_hit_subsystems(cls, local,
                                                        effective_radius,
+                                                       search_radius,
                                                        hit_indices,
                                                        BC_MAX_SUBSYSTEMS);
 
         for (int h = 0; h < hit_count; h++) {
             int ss_idx = hit_indices[h];
             if (target->subsystem_hp[ss_idx] > 0.0f) {
-                f32 sub_dmg = overflow * 0.5f;
-                target->subsystem_hp[ss_idx] -= sub_dmg;
-                if (target->subsystem_hp[ss_idx] < 0.0f) {
+                /* Each subsystem absorbs up to the full overflow independently. */
+                f32 absorbed = overflow;
+                if (absorbed > target->subsystem_hp[ss_idx])
+                    absorbed = target->subsystem_hp[ss_idx];
+                target->subsystem_hp[ss_idx] -= absorbed;
+                if (target->subsystem_hp[ss_idx] < 0.0f)
                     target->subsystem_hp[ss_idx] = 0.0f;
-                }
-                /* Propagate 25% to parent container */
-                int parent = cls->subsystems[ss_idx].parent_idx;
-                if (parent >= 0 && target->subsystem_hp[parent] > 0.0f) {
-                    target->subsystem_hp[parent] -= sub_dmg * 0.25f;
-                    if (target->subsystem_hp[parent] < 0.0f) {
-                        target->subsystem_hp[parent] = 0.0f;
-                    }
-                }
+                total_sub_absorbed += absorbed;
             }
         }
+    }
+
+    /* Step 2: Hull gets overflow minus what subsystems absorbed. */
+    f32 hull_damage = overflow - total_sub_absorbed;
+    if (hull_damage <= 0.0f) return;
+
+    target->hull_hp -= hull_damage;
+    if (target->hull_hp <= 0.0f) {
+        target->hull_hp = 0.0f;
+        target->alive = false;
     }
 }
 
