@@ -125,7 +125,7 @@ static int bc_mission_init_total_slots(void)
 /* Return a player's name for log output. Falls back to "slot N" if unnamed. */
 static const char *peer_name(int slot)
 {
-    static char fallback[16];
+    static char fallback[24];
     if (slot < 0 || slot >= BC_MAX_PLAYERS) return "???";
     if (g_peers.peers[slot].name[0] != '\0')
         return g_peers.peers[slot].name;
@@ -286,17 +286,38 @@ static int send_health_update_full_cycle(int target_slot, bool flush_owner)
     return sent_packets;
 }
 
+/* Stock-like repair event budget: send at most one ADD_TO_REPAIR_LIST per
+ * primary subsystem bucket when damage occurs. Non-primary subsystem types
+ * share a bounded "other" bucket so they are not silently dropped. */
+static int repair_event_bucket_for_type(const char *type)
+{
+    if (!type) return -1;
+    if (strcmp(type, "power") == 0) return 0;
+    if (strcmp(type, "shield") == 0) return 1;
+    if (strcmp(type, "phaser") == 0) return 2;
+    if (strcmp(type, "pulse_weapon") == 0) return 3;
+    if (strcmp(type, "repair") == 0) return 4;
+    return 5;  /* all other subsystem types */
+}
+
 /* Snapshot pre-damage HP, compare after, generate ADD_TO_REPAIR_LIST PythonEvents
- * for each newly-damaged subsystem.  This drives the client's repair queue UI,
- * damage VFX/SFX, and subsystem damage indicators. */
+ * for newly-damaged primary subsystem buckets. This matches stock-like repair
+ * UI behavior and prevents reliable-queue overload on high-subsystem ships. */
 static void generate_damage_events(int target_slot,
                                     const f32 *hp_before,
                                     const bc_ship_class_t *cls)
 {
     bc_peer_t *target = &g_peers.peers[target_slot];
     bc_ship_state_t *ship = &target->ship;
+    bool sent_bucket[6] = { false, false, false, false, false, false };
 
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        int bucket = repair_event_bucket_for_type(cls->subsystems[i].type);
+        if (bucket < 0 || bucket >= (int)(sizeof(sent_bucket) / sizeof(sent_bucket[0])) ||
+            sent_bucket[bucket]) {
+            continue;
+        }
+
         if (ship->subsystem_hp[i] < hp_before[i] &&
             ship->subsystem_hp[i] < cls->subsystems[i].max_condition) {
             /* Subsystem took damage — try to add to repair queue */
@@ -309,6 +330,7 @@ static void generate_damage_events(int target_slot,
                     ship->subsys_obj_id[i],
                     ship->repair_subsys_obj_id);
                 if (len > 0) bc_send_to_all(evt, len, true);
+                sent_bucket[bucket] = true;
             }
         }
     }
@@ -658,12 +680,11 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
 
         process_ship_kill(shooter_slot, target_slot, false);
 
-        /* Clear victim ship state (keep spawn_payload as respawn template) */
+        /* Clear victim ship state and disable server auto-respawn.
+         * Client is responsible for initiating respawn via ObjCreateTeam. */
         target->has_ship = false;
-        if (!g_game_ended) {
-            target->respawn_timer = 5.0f;
-            target->respawn_class = target->class_index;
-        }
+        target->respawn_timer = 0.0f;
+        target->respawn_class = -1;
 
     }
 }
@@ -758,12 +779,10 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
 
         process_ship_kill(shooter_slot, target_slot, false);
 
-        /* Keep spawn_payload as respawn template; only clear has_ship */
+        /* Disable server auto-respawn; respawn must be client-initiated. */
         target->has_ship = false;
-        if (!g_game_ended) {
-            target->respawn_timer = 5.0f;
-            target->respawn_class = target->class_index;
-        }
+        target->respawn_timer = 0.0f;
+        target->respawn_class = -1;
 
     }
 }
@@ -851,17 +870,26 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- Chat relay (reliable) --- */
     case BC_MSG_CHAT:
     case BC_MSG_TEAM_CHAT: {
+        u8 *chat_payload = (u8 *)payload;
+        u8 auth_sender_slot = (u8)(peer_slot > 0 ? peer_slot - 1 : 0);
+        if (payload_len >= 2 && chat_payload[1] != auth_sender_slot) {
+            u8 claimed_sender = chat_payload[1];
+            LOG_WARN("cheat", "slot=%d spoofed chat sender=%d, correcting",
+                     peer_slot, claimed_sender);
+            chat_payload[1] = auth_sender_slot;
+        }
+
         bc_chat_event_t ev;
-        if (bc_parse_chat_message(payload, payload_len, &ev)) {
+        if (bc_parse_chat_message(chat_payload, payload_len, &ev)) {
             LOG_INFO("chat", "[%s] %s: %s",
                      opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
-                     peer_name(ev.sender_slot), ev.message);
+                     peer_name(peer_slot), ev.message);
         } else {
             LOG_INFO("chat", "slot=%d %s len=%d",
                      peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
                      payload_len);
         }
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        bc_relay_to_others(peer_slot, chat_payload, payload_len, true);
         break;
     }
 
@@ -978,8 +1006,28 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 break;
             }
 
-            /* TODO: fire rate limiting -- disabled pending proper tuning.
-             * Sovereign torpedoes fire every ~0.5s which tripped the old 2.0s limit. */
+            /* Server-side torpedo fire rate limiting.
+             * Sovereign torpedoes fire every ~0.5s from the data registry.
+             * Use 0.3s minimum to accommodate fast-firing ships while blocking
+             * rapid-fire exploits. Violations reset every 60 seconds so a
+             * burst of network jitter does not permanently flag a clean player. */
+            {
+                u32 now = bc_ms_now();
+                if (now - peer->violation_window_start >= 60000u) {
+                    peer->fire_violations        = 0;
+                    peer->violation_window_start = now;
+                }
+                u32 min_interval_ms = 300u;
+                if (now - peer->last_torpedo_time[0] < min_interval_ms) {
+                    peer->fire_violations++;
+                    if (peer->fire_violations > 10) {
+                        LOG_WARN("cheat", "slot=%d excessive torpedo fire rate (%d violations)",
+                                 peer_slot, peer->fire_violations);
+                    }
+                    break;  /* visual already relayed; skip damage */
+                }
+                peer->last_torpedo_time[0] = now;
+            }
         }
 
         /* Spawn server-side torpedo tracker for damage computation */
@@ -1035,7 +1083,28 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 break;
             }
 
-            /* TODO: beam fire rate limiting -- disabled pending proper tuning. */
+            /* Server-side beam fire rate limiting.
+             * Stock BC phasers have ~1-2 second charge cycles.
+             * Use a generous 0.5s minimum interval to avoid false positives
+             * from network jitter while blocking rapid-fire exploits.
+             * Violations reset every 60 seconds (shared window with torpedo). */
+            {
+                u32 now = bc_ms_now();
+                if (now - peer->violation_window_start >= 60000u) {
+                    peer->fire_violations        = 0;
+                    peer->violation_window_start = now;
+                }
+                u32 min_interval_ms = 500u;
+                if (now - peer->last_fire_time[0] < min_interval_ms) {
+                    peer->fire_violations++;
+                    if (peer->fire_violations > 10) {
+                        LOG_WARN("cheat", "slot=%d excessive beam fire rate (%d violations)",
+                                 peer_slot, peer->fire_violations);
+                    }
+                    break;  /* visual already relayed; skip damage */
+                }
+                peer->last_fire_time[0] = now;
+            }
 
             /* Anti-cheat: range plausibility -- skip damage only */
             if (ev.has_target && cls) {
@@ -1131,15 +1200,23 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     case BC_OP_OBJ_CREATE_TEAM:
     case BC_OP_OBJ_CREATE: {
         bc_object_create_header_t hdr;
-        if (bc_parse_object_create_header(payload + 1, payload_len - 1, &hdr)) {
+        u8 auth_owner_slot = (u8)(peer_slot > 0 ? peer_slot - 1 : 0);
+        bool header_ok = bc_parse_object_create_header(payload, payload_len, &hdr);
+        if (header_ok) {
+            if (hdr.owner_slot != auth_owner_slot) {
+                LOG_WARN("cheat",
+                         "slot=%d spoofed ObjCreate owner=%d, rejecting",
+                         peer_slot, hdr.owner_slot);
+                break;
+            }
             if (hdr.has_team)
                 LOG_INFO("game", "%s spawned object (owner=%s, team=%d)",
                          peer_name(peer_slot),
-                         peer_name(hdr.owner_slot), hdr.team_id);
+                         peer_name(peer_slot), hdr.team_id);
             else
                 LOG_INFO("game", "%s spawned object (owner=%s)",
                          peer_name(peer_slot),
-                         peer_name(hdr.owner_slot));
+                         peer_name(peer_slot));
         } else {
             LOG_INFO("game", "%s spawned object", peer_name(peer_slot));
         }
@@ -1168,9 +1245,16 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 if (cidx >= 0) {
                     const bc_ship_class_t *cls =
                         bc_registry_get_ship(&g_registry, cidx);
-                    u8 team_id = hdr.has_team ? hdr.team_id : 0;
-                    if (hdr.has_team && team_id < 2) {
-                        g_player_teams[peer_slot] = team_id;
+                    u8 team_id = (header_ok && hdr.has_team) ? hdr.team_id : 0;
+                    if (header_ok && hdr.has_team && team_id < 2) {
+                        if (!peer->has_ship) {
+                            g_player_teams[peer_slot] = team_id;
+                        } else {
+                            LOG_WARN("cheat",
+                                     "slot=%d ObjCreateTeam team=%d ignored "
+                                     "(already has ship)",
+                                     peer_slot, team_id);
+                        }
                     }
                     bc_ship_init(&peer->ship, cls, cidx,
                                   bhdr.object_id,
@@ -1297,6 +1381,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* --- Restart game: server-authoritative reset + broadcast --- */
     case BC_MSG_RESTART: {
+        /* Only the host (slot 1, first human player) can restart.
+         * Stock BC gates this via host-only UI. Dedicated server must
+         * enforce sender authorization server-side. */
+        if (peer_slot != 1) {
+            LOG_WARN("game", "slot=%d non-host restart rejected", peer_slot);
+            break;
+        }
+
         LOG_INFO("game", "slot=%d requested restart", peer_slot);
 
         /* Explicitly destroy active ships before reset so all clients
@@ -1444,6 +1536,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             }
 
             int cc = cev.contact_count > 0 ? cev.contact_count : 1;
+            /* Clamp collision_force to reject implausible client values.
+             * Largest ship masses are hundreds; 100000 is a generous cap
+             * that preserves real collisions while blocking exploit spikes. */
+            if (cev.collision_force < 0.0f) cev.collision_force = 0.0f;
+            if (cev.collision_force > 100000.0f) cev.collision_force = 100000.0f;
 
             /* Apply damage to the target ship */
             int target_slot = find_peer_by_object(cev.target_object_id);
@@ -1567,12 +1664,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             if (blen > 0)
                                 bc_send_to_all(boom, blen, true);
                         }
-                        /* Keep spawn_payload as respawn template; only clear has_ship */
+                        /* Disable server auto-respawn; respawn is client-driven. */
                         target->has_ship = false;
-                        if (!g_game_ended) {
-                            target->respawn_timer = 5.0f;
-                            target->respawn_class = target->class_index;
-                        }
+                        target->respawn_timer = 0.0f;
+                        target->respawn_class = -1;
 
                         /* Kill credit: if another ship caused this,
                          * credit them */
@@ -1705,13 +1800,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 if (blen2 > 0)
                                     bc_send_to_all(boom2, blen2, true);
                             }
-                            /* Keep spawn_payload as respawn template; only clear has_ship */
+                            /* Disable server auto-respawn; respawn is client-driven. */
                             source->has_ship = false;
-                            if (!g_game_ended) {
-                                source->respawn_timer = 5.0f;
-                                source->respawn_class =
-                                    source->class_index;
-                            }
+                            source->respawn_timer = 0.0f;
+                            source->respawn_class = -1;
 
                             /* Kill credit: target killed the source */
                             if (target_slot >= 0 &&

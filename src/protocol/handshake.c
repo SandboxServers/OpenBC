@@ -204,6 +204,11 @@ int bc_delete_player_anim_build(u8 *buf, int buf_size,
 
 /* --- Checksum response parsing --- */
 
+/* Maximum nesting depth for parse_file_tree().
+ * Real BC directory trees are 3-4 levels deep; 16 is very generous.
+ * This prevents a crafted payload from exhausting the stack via deep recursion. */
+#define BC_MAX_TREE_DEPTH 16
+
 /* Parse a recursive file tree from a buffer.
  * Wire format (self-describing, same at every nesting level):
  *   [file_count:u16 LE][files × {name_hash:u32, content_hash:u32}]
@@ -213,11 +218,18 @@ int bc_delete_player_anim_build(u8 *buf, int buf_size,
  *
  * If files/file_count are non-NULL, stores file entries (up to max_files).
  * If resp is non-NULL, stores first-level subdirectory data in resp->subdirs.
- * Nested subdirectories (level 2+) are consumed without storing. */
+ * Nested subdirectories (level 2+) are consumed without storing.
+ * depth tracks recursion level; call sites pass 0 and each recursive call passes depth+1. */
 static bool parse_file_tree(bc_buffer_t *b,
                             bc_checksum_file_t *files, int *file_count, int max_files,
-                            bc_checksum_resp_t *resp)
+                            bc_checksum_resp_t *resp,
+                            int depth)
 {
+    if (depth > BC_MAX_TREE_DEPTH) {
+        LOG_WARN("checksum", "tree: recursion depth %d exceeds limit", depth);
+        return false;
+    }
+
     u16 fc;
     if (!bc_buf_read_u16(b, &fc)) {
         LOG_DEBUG("checksum", "tree: failed to read file_count at pos=%d",
@@ -273,11 +285,11 @@ static bool parse_file_tree(bc_buffer_t *b,
                     resp->subdirs[i].data.files,
                     &resp->subdirs[i].data.file_count,
                     BC_CHECKSUM_MAX_SUB_FILES,
-                    NULL))
+                    NULL, depth + 1))
                 return false;
         } else {
             /* Consume bytes without storing */
-            if (!parse_file_tree(b, NULL, NULL, 0, NULL))
+            if (!parse_file_tree(b, NULL, NULL, 0, NULL, depth + 1))
                 return false;
         }
     }
@@ -335,7 +347,7 @@ bool bc_checksum_response_parse(bc_checksum_resp_t *resp,
      * No need for a recursive flag — the parser recurses when subdir_count > 0. */
     if (!parse_file_tree(&b,
             resp->files, &resp->file_count, BC_CHECKSUM_MAX_RESP_FILES,
-            resp)) {
+            resp, 0)) {
         LOG_DEBUG("checksum", "parse: round=%d file_tree parse failed "
                   "at pos=%d", index, (int)b.pos);
         return false;

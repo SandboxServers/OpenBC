@@ -921,6 +921,37 @@ TEST(checksum_resp_validate_file_missing)
     ASSERT_EQ_INT(bc_checksum_response_validate(&resp, &dir), CHECKSUM_FILE_MISSING);
 }
 
+TEST(checksum_resp_parse_depth_limit)
+{
+    /* Build a crafted payload with 18 nesting levels (beyond BC_MAX_TREE_DEPTH=16).
+     * Wire format per level with 0 files and 1 subdir:
+     *   [file_count:u16=0][subdir_count:u8=1][name_hash:u32]
+     * Each level is 7 bytes; 18 levels = 126 bytes of tree data.
+     * depth=17 (>16) triggers the guard and parse must return false. */
+    u8 buf[256];
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, sizeof(buf));
+
+    /* Header: opcode, round=0, ref_hash, dir_hash */
+    bc_buf_write_u8(&b, BC_OP_CHECKSUM_RESP);
+    bc_buf_write_u8(&b, 0);          /* round 0 */
+    bc_buf_write_u32(&b, 0x11111111); /* ref_hash */
+    bc_buf_write_u32(&b, 0x22222222); /* dir_hash */
+
+    /* 18 nested levels, each: file_count=0, subdir_count=1, name_hash */
+    for (int i = 0; i < 18; i++) {
+        bc_buf_write_u16(&b, 0);         /* file_count = 0 */
+        bc_buf_write_u8(&b, 1);          /* subdir_count = 1 */
+        bc_buf_write_u32(&b, 0xDEAD0000 + (u32)i); /* name_hash */
+    }
+    /* Leaf level that would follow if depth were not limited */
+    bc_buf_write_u16(&b, 0); /* file_count = 0 */
+    bc_buf_write_u8(&b, 0);  /* subdir_count = 0 */
+
+    bc_checksum_resp_t resp;
+    ASSERT(!bc_checksum_response_parse(&resp, buf, (int)b.pos));
+}
+
 /* === UICollisionSetting tests === */
 
 TEST(ui_collision_build)
@@ -1693,6 +1724,7 @@ TEST_MAIN_BEGIN()
     RUN(checksum_resp_validate_content_mismatch);
     RUN(checksum_resp_validate_dir_mismatch);
     RUN(checksum_resp_validate_file_missing);
+    RUN(checksum_resp_parse_depth_limit);
 
     /* Fragment reassembly -- error paths */
     RUN(fragment_invalid_total_frags);
