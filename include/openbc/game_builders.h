@@ -156,10 +156,11 @@ int bc_build_python_obj_ptr_event(u8 *buf, int buf_size,
                                    i32 obj_ptr);
 
 /* ObjectExplodingEvent: [0x06][factory=0x8129:i32][event_type=0x4E:i32]
- *   [source:i32][dest=-1:i32][killer_id:i32][lifetime:f32]
+ *   [source:i32][dest:i32][killer_id:i32][lifetime:f32]
  * 25 bytes total. */
 int bc_build_python_exploding_event(u8 *buf, int buf_size,
                                      i32 source_obj_id,
+                                     i32 dest_obj_id,
                                      i32 firing_player_id,
                                      f32 lifetime);
 

@@ -14,6 +14,13 @@ static i32 read_i32_le(const u8 *p)
                  ((u32)p[3] << 24));
 }
 
+static f32 read_f32_le(const u8 *p)
+{
+    f32 v = 0.0f;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
 /* === Object ID arithmetic === */
 
 TEST(object_id_slot0)
@@ -181,6 +188,35 @@ TEST(explosion_roundtrip)
     ASSERT_EQ_INT(bc_object_id_to_slot(ev.object_id), 2);
     ASSERT(fabsf(ev.damage - 200.0f) < 3.0f);
     ASSERT(fabsf(ev.radius - 100.0f) < 2.0f);
+}
+
+TEST(object_exploding_event_layout)
+{
+    u8 buf[32];
+    i32 source_obj = bc_make_ship_id(1);
+    i32 dest_obj = bc_make_ship_id(0);
+    i32 killer_id = bc_make_ship_id(1);
+    int len = bc_build_python_exploding_event(buf, sizeof(buf),
+                                               source_obj, dest_obj,
+                                               killer_id, 9.5f);
+
+    ASSERT_EQ_INT(len, 25);
+    ASSERT_EQ(buf[0], BC_OP_PYTHON_EVENT);
+    ASSERT_EQ_INT(read_i32_le(buf + 1), BC_FACTORY_OBJECT_EXPLODING);
+    ASSERT_EQ_INT(read_i32_le(buf + 5), BC_EVENT_OBJECT_EXPLODING);
+    ASSERT_EQ_INT(read_i32_le(buf + 9), source_obj);
+    ASSERT_EQ_INT(read_i32_le(buf + 13), dest_obj);
+    ASSERT_EQ_INT(read_i32_le(buf + 17), killer_id);
+    ASSERT(fabsf(read_f32_le(buf + 21) - 9.5f) < 0.001f);
+}
+
+TEST(object_exploding_event_too_small)
+{
+    u8 buf[24];
+    int len = bc_build_python_exploding_event(buf, sizeof(buf),
+                                               0, bc_make_ship_id(0),
+                                               0, 9.5f);
+    ASSERT_EQ_INT(len, -1);
 }
 
 /* === DestroyObject === */
@@ -388,6 +424,8 @@ TEST_MAIN_BEGIN()
     /* Explosion */
     RUN(explosion_14_bytes);
     RUN(explosion_roundtrip);
+    RUN(object_exploding_event_layout);
+    RUN(object_exploding_event_too_small);
 
     /* DestroyObject */
     RUN(destroy_obj_5_bytes);

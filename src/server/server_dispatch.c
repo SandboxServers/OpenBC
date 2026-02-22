@@ -109,6 +109,11 @@ void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
 
 /* --- Static combat/utility helpers --- */
 
+/* Stock BC explosion visual lifetime for OBJECT_EXPLODING events. */
+static const f32 BC_EXPLODING_EVENT_LIFETIME_SEC = 9.5f;
+/* Stock dedicated MissionInit byte[1] is totalSlots=9. */
+static const int BC_MISSION_INIT_TOTAL_SLOTS = 9;
+
 /* Return a player's name for log output. Falls back to "slot N" if unnamed. */
 static const char *peer_name(int slot)
 {
@@ -266,14 +271,6 @@ static bool same_team_slots(int a_slot, int b_slot)
     u8 b = g_player_teams[b_slot];
     if (a == BC_TEAM_NONE || b == BC_TEAM_NONE) return false;
     return a == b;
-}
-
-static u8 current_player_count(void)
-{
-    int count = g_peers.count - 1;  /* exclude dedicated slot 0 */
-    if (count < 0) count = 0;
-    if (count > 255) count = 255;
-    return (u8)count;
 }
 
 static f32 class_damage_modifier(const bc_ship_class_t *attacker_cls,
@@ -578,9 +575,10 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
             u8 expl[25];
             int elen = bc_build_python_exploding_event(
                 expl, sizeof(expl),
+                shooter->ship.object_id,
                 target->ship.object_id,
                 shooter->ship.object_id,
-                1.0f);
+                BC_EXPLODING_EVENT_LIFETIME_SEC);
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
@@ -680,9 +678,10 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
             u8 expl[25];
             int elen = bc_build_python_exploding_event(
                 expl, sizeof(expl),
+                shooter->ship.object_id,
                 target->ship.object_id,
                 shooter->ship.object_id,
-                1.0f);
+                BC_EXPLODING_EVENT_LIFETIME_SEC);
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
@@ -1164,12 +1163,12 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         bc_relay_to_others(peer_slot, payload, payload_len, true);
         /* Respond with MissionInit (0x35) -- tells client which star system
          * to load and what the match rules are.
-         * Byte[1] is current_player_count (dynamic), not player_limit. */
+         * Byte[1] follows stock dedicated behavior: totalSlots=9. */
         u8 mi[32];
         i32 end_time = (g_round_end_time >= 0.0f) ? (i32)g_round_end_time : 0;
         int mi_len = bc_mission_init_build(mi, sizeof(mi),
                                             g_system_index,
-                                            (int)current_player_count(),
+                                            BC_MISSION_INIT_TOTAL_SLOTS,
                                             g_time_limit, end_time, g_frag_limit);
         if (mi_len > 0) {
             LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d)",
@@ -1265,29 +1264,21 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             u8 expl[25];
             int elen = bc_build_python_exploding_event(
                 expl, sizeof(expl),
+                0, /* source_obj: NULL -- self-destruct has no attacker */
                 peer->ship.object_id,
                 0, /* killer_id: NULL -- self-destruct has no attacker */
-                1.0f);
+                BC_EXPLODING_EVENT_LIFETIME_SEC);
             if (elen > 0) bc_send_to_all(expl, elen, true);
-        }
-
-        /* DestroyObject to remove the ship from all clients */
-        {
-            u8 dest[8];
-            int dlen = bc_build_destroy_obj(dest, sizeof(dest),
-                                             peer->ship.object_id);
-            if (dlen > 0) bc_send_to_all(dest, dlen, true);
         }
 
         /* Score: death for self, no killer player (killer_slot=-1). */
         process_ship_kill(-1, peer_slot, true);
 
-        /* Clear ship state and schedule respawn (keep spawn_payload as template) */
+        /* Clear ship state. For self-destruct, stock BC waits for the
+         * client to pick a ship and send ObjCreateTeam (no auto-respawn). */
         peer->has_ship = false;
-        if (!g_game_ended) {
-            peer->respawn_timer = 5.0f;
-            peer->respawn_class = peer->class_index;
-        }
+        peer->respawn_timer = 0.0f;
+        peer->respawn_class = -1;
         break;
     }
 
@@ -1450,8 +1441,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             u8 expl[25];
                             int elen = bc_build_python_exploding_event(
                                 expl, sizeof(expl),
+                                killer_id,
                                 target->ship.object_id,
-                                killer_id, 1.0f);
+                                killer_id,
+                                BC_EXPLODING_EVENT_LIFETIME_SEC);
                             if (elen > 0)
                                 bc_send_to_all(expl, elen, true);
                         }
@@ -1587,8 +1580,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 int elen2 =
                                     bc_build_python_exploding_event(
                                         expl2, sizeof(expl2),
+                                        killer_id,
                                         source->ship.object_id,
-                                        killer_id, 1.0f);
+                                        killer_id,
+                                        BC_EXPLODING_EVENT_LIFETIME_SEC);
                                 if (elen2 > 0)
                                     bc_send_to_all(expl2, elen2, true);
                             }
