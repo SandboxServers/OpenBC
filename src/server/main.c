@@ -855,53 +855,17 @@ int main(int argc, char **argv)
                     bc_ship_assign_subsystem_ids(&rp->ship, rcls,
                                                   &g_script_obj_counter);
 
-                    /* Build respawn ObjCreateTeam by patching the cached
-                     * initial-spawn payload with the new position.  This
-                     * preserves the exact wire format the client originally
-                     * sent (factory_class_id prefix, owner byte, species,
-                     * name/set strings, subsystem state format), avoiding the
-                     * crash that occurred when bc_ship_build_create_packet
-                     * produced a different layout missing the factory_class_id.
-                     *
-                     * Fixed-header offsets:
-                     *   0:     opcode  (0x03)
-                     *   1:     owner_slot   (preserved from initial spawn)
-                     *   2:     team_id
-                     *   3-6:   factory_class_id  (0x00008008 for ships)
-                     *   7-10:  object_id
-                     *   11:    species_type
-                     *   12-15: pos_x  (f32, little-endian)
-                     *   16-19: pos_y
-                     *   20-23: pos_z
-                     */
-                    if (rp->spawn_len < 24) continue;
-
-                    u8 cpkt[256];
-                    int clen = rp->spawn_len;
-                    if (clen > (int)sizeof(cpkt)) clen = (int)sizeof(cpkt);
-                    memcpy(cpkt, rp->spawn_payload, (size_t)clen);
-
-                    /* Patch team byte and position */
-                    cpkt[2] = team_id;
-                    {
-                        u32 bx, by, bz;
-                        memcpy(&bx, &rp->ship.pos.x, 4);
-                        memcpy(&by, &rp->ship.pos.y, 4);
-                        memcpy(&bz, &rp->ship.pos.z, 4);
-                        cpkt[12] = (u8)(bx);        cpkt[13] = (u8)(bx >> 8);
-                        cpkt[14] = (u8)(bx >> 16);  cpkt[15] = (u8)(bx >> 24);
-                        cpkt[16] = (u8)(by);        cpkt[17] = (u8)(by >> 8);
-                        cpkt[18] = (u8)(by >> 16);  cpkt[19] = (u8)(by >> 24);
-                        cpkt[20] = (u8)(bz);        cpkt[21] = (u8)(bz >> 8);
-                        cpkt[22] = (u8)(bz >> 16);  cpkt[23] = (u8)(bz >> 24);
+                    u8 cpkt[1024];
+                    int clen = bc_ship_build_create_packet(&rp->ship, rcls,
+                                                            cpkt, sizeof(cpkt));
+                    if (clen > 0) {
+                        if (clen <= (int)sizeof(rp->spawn_payload)) {
+                            memcpy(rp->spawn_payload, cpkt, (size_t)clen);
+                            rp->spawn_len = clen;
+                        }
+                        bc_send_to_all(cpkt, clen, true);
+                        LOG_INFO("game", "slot=%d respawned as %s", i, rcls->name);
                     }
-
-                    /* Update cached spawn payload for late-joiners */
-                    memcpy(rp->spawn_payload, cpkt, (size_t)clen);
-                    rp->spawn_len = clen;
-
-                    bc_send_to_all(cpkt, clen, true);
-                    LOG_INFO("game", "slot=%d respawned as %s", i, rcls->name);
                 }
             }
 

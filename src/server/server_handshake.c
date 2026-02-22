@@ -255,7 +255,7 @@ static void send_settings_and_gameinit(int peer_slot)
     for (int i = 1; i < BC_MAX_PLAYERS; i++) {
         if (i == peer_slot) continue;
         bc_peer_t *other = &g_peers.peers[i];
-        if (other->state >= PEER_LOBBY && other->has_ship && other->spawn_len > 0) {
+        if (other->state >= PEER_LOBBY && other->spawn_len > 0) {
             bc_queue_reliable(peer_slot, other->spawn_payload, other->spawn_len);
             LOG_DEBUG("handshake", "slot=%d forwarding spawn from slot %d (%d bytes)",
                       peer_slot, i, other->spawn_len);
@@ -323,7 +323,7 @@ void bc_handle_peer_disconnect(int slot)
         int len;
 
         /* 1. DestroyObject (0x14) -- remove ship from game world */
-        if (g_peers.peers[slot].has_ship) {
+        if (g_peers.peers[slot].spawn_len > 0) {
             i32 ship_id = g_peers.peers[slot].object_id;
             if (ship_id < 0) {
                 /* Fallback: compute from game_slot */
