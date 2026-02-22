@@ -139,6 +139,13 @@ int bc_build_restart_game(u8 *buf, int buf_size);
 #define BC_EVENT_REPAIR_PRIORITY    0x00800076  /* obj_ptr = subsystem ID */
 #define BC_EVENT_STOP_AT_TARGET     0x008000DC  /* obj_ptr = target ID or 0; host-only (opcode 0x09) */
 
+/* DeletePlayerUI (0x17) factory and event codes.
+ * Wire format: [0x17][factory:i32][event_code:i32][src:i32][tgt:i32][wire_peer:u8]
+ * 18 bytes total. */
+#define BC_FACTORY_DELETE_PLAYER_UI  0x00000866
+#define BC_EVENT_NEW_PLAYER          0x008000F1  /* adds player to engine player list */
+#define BC_EVENT_PLAYER_REMOVED      0x00060005  /* removes player from engine player list */
+
 /* SubsystemEvent: [0x06][factory=0x101:i32][event_type:i32][source:i32][dest:i32]
  * 17 bytes total. Used for ADD_TO_REPAIR_LIST, REPAIR_COMPLETED, etc. */
 int bc_build_python_subsystem_event(u8 *buf, int buf_size,

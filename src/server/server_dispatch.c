@@ -1183,8 +1183,39 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             LOG_DEBUG("handshake", "slot=%d sending MissionInit (system=%d totalSlots=%d)",
                       peer_slot, g_system_index, total_slots);
             bc_queue_reliable(peer_slot, mi, mi_len);
-            bc_flush_peer(peer_slot);
         }
+
+        /* DeletePlayerUI (0x17) with new-player event code.
+         * Adds the player to the engine's internal player list, which
+         * the scoreboard UI reads from.  Must come after MissionInit. */
+        {
+            u8 gs_join = (u8)(peer_slot > 0 ? peer_slot - 1 : 0);
+            i32 sid_join = bc_make_ship_id(gs_join);
+
+            /* Tell all other in-game peers about the joining player */
+            u8 dpkt[20];
+            int dlen = bc_delete_player_ui_build(
+                dpkt, sizeof(dpkt),
+                BC_EVENT_NEW_PLAYER, 0, sid_join, gs_join);
+            if (dlen > 0)
+                bc_relay_to_others(peer_slot, dpkt, dlen, true);
+
+            /* Tell the joining player about each existing in-game peer */
+            for (int i = 1; i < BC_MAX_PLAYERS; i++) {
+                if (i == peer_slot) continue;
+                if (g_peers.peers[i].state < PEER_IN_GAME) continue;
+                u8 gs = (u8)(i > 0 ? i - 1 : 0);
+                i32 sid = bc_make_ship_id(gs);
+                u8 epkt[20];
+                int elen = bc_delete_player_ui_build(
+                    epkt, sizeof(epkt),
+                    BC_EVENT_NEW_PLAYER, 0, sid, gs);
+                if (elen > 0)
+                    bc_queue_reliable(peer_slot, epkt, elen);
+            }
+        }
+
+        bc_flush_peer(peer_slot);
         break;
     }
 

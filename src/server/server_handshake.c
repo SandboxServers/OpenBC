@@ -262,18 +262,10 @@ static void send_settings_and_gameinit(int peer_slot)
         }
     }
 
-    /* Send DeletePlayerUI (0x17) for each connected player slot so the
-     * joining client clears any stale UI entries for those slots. */
-    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
-        if (i == peer_slot) continue;
-        if (g_peers.peers[i].state >= PEER_LOBBY) {
-            u8 del_ui[4];
-            u8 gs = (u8)(i > 0 ? i - 1 : 0);
-            int dlen = bc_delete_player_ui_build(del_ui, sizeof(del_ui), gs);
-            if (dlen > 0)
-                bc_queue_reliable(peer_slot, del_ui, dlen);
-        }
-    }
+    /* DeletePlayerUI (0x17) is NOT sent here -- it must come after
+     * MissionInit (0x35), which is sent in the NewPlayerInGame handler
+     * (server_dispatch.c).  The engine ignores 0x17 before the mission
+     * is loaded. */
 
     /* Flush immediately so the client gets 0x28+Settings+GameInit+join data
      * without waiting for the next 100ms tick. */
@@ -334,9 +326,16 @@ void bc_handle_peer_disconnect(int slot)
         }
 
         /* 2. DeletePlayerUI (0x17) -- remove from scoreboard */
-        u8 game_slot = (u8)(slot > 0 ? slot - 1 : 0);
-        len = bc_delete_player_ui_build(payload, sizeof(payload), game_slot);
-        if (len > 0) bc_relay_to_others(slot, payload, len, true);
+        {
+            u8 gs = (u8)(slot > 0 ? slot - 1 : 0);
+            i32 sid = g_peers.peers[slot].has_ship
+                    ? g_peers.peers[slot].ship.object_id
+                    : bc_make_ship_id(gs);
+            len = bc_delete_player_ui_build(payload, sizeof(payload),
+                                             BC_EVENT_PLAYER_REMOVED,
+                                             sid, sid, gs);
+            if (len > 0) bc_relay_to_others(slot, payload, len, true);
+        }
 
         /* 3. DeletePlayerAnim (0x18) -- "Player X has left" notification */
         len = bc_delete_player_anim_build(payload, sizeof(payload),
