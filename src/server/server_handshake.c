@@ -569,11 +569,16 @@ void bc_handle_checksum_response(int peer_slot,
         bc_checksum_resp_t resp;
         if (!bc_checksum_response_parse(&resp, msg->payload, msg->payload_len)) {
             /* Full hex dump for debugging */
-            int dump_len = msg->payload_len < 300 ? msg->payload_len : 300;
-            char *hex = (char *)alloca((size_t)(dump_len * 3 + 1));
-            hex[0] = '\0';
-            for (int i = 0; i < dump_len; i++)
-                sprintf(hex + i * 3, "%02X ", msg->payload[i]);
+            int dump_len = msg->payload_len < 128 ? msg->payload_len : 128;
+            char hex[128 * 3 + 1];
+            int hpos = 0;
+            for (int i = 0; i < dump_len; i++) {
+                int wrote = snprintf(hex + hpos, sizeof(hex) - (size_t)hpos,
+                                     "%02X ", msg->payload[i]);
+                if (wrote < 0 || hpos + wrote >= (int)sizeof(hex)) break;
+                hpos += wrote;
+            }
+            hex[hpos] = '\0';
             LOG_WARN("handshake", "slot=%d round 0xFF parse error (len=%d)",
                      peer_slot, msg->payload_len);
             LOG_WARN("handshake", "  hex=[%s]", hex);
