@@ -281,6 +281,90 @@ This prevents clients from generating spurious repair events and ensures only th
 
 ---
 
+## Per-Ship Subsystem Event Verification (2026-02-22)
+
+A 4-minute collision test session with one player cycling through 4 of the 16 flyable ships
+revealed significant variation in subsystem event generation per ship species.
+
+### Test Results
+
+| Species | Ship | Death Type | TGSubsystemEvents | Health Burst | F5 Repair UI |
+|---------|------|------------|-------------------|--------------|--------------|
+| 5 | Sovereign | Collision kill | 1 | No | Not checked |
+| 3 | Galaxy | Collision kill | 9 | No | Not checked |
+| 2 | Ambassador | Self-destruct | 5 | Yes (3 pkts) | Not checked |
+| 8 | Warbird | Self-destruct | 6 | Yes (3 pkts) | **Yes** |
+
+### Key Findings
+
+**1. First-Ship Subsystem Event Deficit**
+
+The Sovereign was the first ship created in the session (obj=0x3FFFFFFF). It generated only
+1 TGSubsystemEvent at collision death, compared to 5-9 for subsequent ships. This suggests
+a registration or initialization timing issue specific to the first ship object created after
+game start. See issue #61 for tracking.
+
+**2. Subsystem IDs Now In Correct Player Range**
+
+All TGSubsystemEvent source IDs were observed in the owning player's object ID range
+(0x3FFFFFFF-0x400FFFFF for player 1). This confirms the subsystem ID allocation fix (#58)
+is working — clients can now resolve damage events via ReadObjectRef.
+
+**3. Health Burst Asymmetry (Self-Destruct vs. Collision Kill)**
+
+Self-destruct deaths produce a "health burst" — 3 StateUpdate packets (flag 0x20) with all
+subsystem health values zeroed. This burst appears immediately before the ObjectExplodingEvent.
+
+Collision kills do **not** produce a health burst. The ship dies without a final subsystem
+state broadcast. This is a behavioral divergence from self-destruct that may affect client-side
+repair UI updates.
+
+**4. End-to-End Chain Verified (Warbird)**
+
+The Warbird (species 8, 4th ship) provided the first end-to-end verification of the full
+chain: collision damage → subsystem condition update → repair queue addition → PythonEvent
+broadcast → client F5 engineering screen showing damaged subsystems. This confirms the
+entire pipeline from collision detection through client UI is functional.
+
+### Per-Ship Detail
+
+**Sovereign (species 5, obj=0x3FFFFFFF, 1st ship):**
+- StateUpdate 0x20: Yes, round-robin indices 0,5,7,9
+- TGSubsystemEvents at death: 1 (subsys=0x40000000, repair=0x4000000E)
+- Health burst: No (collision kill)
+- **Status: BROKEN** — first-ship deficit, 1 vs expected ~13
+
+**Galaxy (species 3, obj=0x40000021, 2nd ship):**
+- StateUpdate 0x20: Yes, round-robin indices 0,5,7,9,4,6+; values 0x0F, 0x40, 0xCC, 0x60
+- TGSubsystemEvents at non-lethal collision: 2 (IDs 0x4000002E, 0x40000042)
+- TGSubsystemEvents at death: 9 (IDs 0x2F-0x35, 0x40-0x41)
+- Health burst: No (collision kill)
+- **Status: BEST RESULT** — 9/~13 parity
+
+**Ambassador (species 2, obj=0x40000044, 3rd ship):**
+- StateUpdate 0x20: Yes; values 0xE5, 0x20, 0x66
+- TGSubsystemEvents at self-destruct: 5 (IDs 0x45, 0x46, 0x48, 0x4D, 0x5D)
+- Health burst: Yes (3 StateUpdate packets, all subsystems zeroed)
+- **Status: PARTIAL** — 5/~13 parity
+
+**Warbird (species 8, obj=0x40000062, 4th ship):**
+- StateUpdate 0x20: Yes; values 0xBF, 0x40, 0x60, 0x6D, 0x1F
+- TGSubsystemEvents at self-destruct: 6 (IDs 0x64, 0x65, 0x67, 0x69, 0x6E, 0x78)
+- Health burst: Yes (3 StateUpdate packets, all subsystems zeroed)
+- F5 Repair UI: **Confirmed working** — engineering screen showed damaged subsystems
+- **Status: WORKING** — 6/~13 parity, full end-to-end chain verified
+
+### Remaining Ships (12 Untested)
+
+The following species have not yet been tested for subsystem event parity:
+Akira (1), Nebula (4), Bird of Prey (6), Vorcha (7), Marauder (9), Galor (10),
+Keldon (11), CardHybrid (12), KessokHeavy (13), KessokLight (14), Shuttle (15),
+CardFreighter (16).
+
+Per-ship tracking comments are maintained on issue #63.
+
+---
+
 ## Related Documents
 
 - **[collision-effect-wire-format.md](../wire-formats/collision-effect-wire-format.md)** — Opcode 0x15 wire format and host validation checks
