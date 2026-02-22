@@ -785,9 +785,9 @@ TEST(full_join_flow_multi_client)
             }
 
             CHECK(got_mission);
-            /* MissionInit byte[1] should match server slot limit
-             * (including dedicated ghost slot 0). */
-            CHECK_EQ(mission_total_slots, BC_MAX_PLAYERS);
+            /* MissionInit byte[1] is human slot count
+             * (excluding dedicated ghost slot 0). */
+            CHECK_EQ(mission_total_slots, BC_MAX_PLAYERS - 1);
         }
 
         cl->connected = true;
