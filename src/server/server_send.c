@@ -17,13 +17,21 @@ void bc_queue_reliable(int peer_slot, const u8 *payload, int payload_len)
     bc_peer_t *peer = &g_peers.peers[peer_slot];
     u16 seq = peer->reliable_seq_out++;
 
-    /* Track for retransmission */
-    bc_reliable_add(&peer->reliable_out, payload, payload_len,
-                    seq, bc_ms_now());
+    /* Track for retransmission -- log if queue is full or payload exceeds limit */
+    if (!bc_reliable_add(&peer->reliable_out, payload, payload_len,
+                         seq, bc_ms_now())) {
+        LOG_WARN("send", "reliable retransmit queue full or oversized payload "
+                 "(slot=%d len=%d) -- message sent once, no retransmit",
+                 peer_slot, payload_len);
+    }
 
     if (!bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq)) {
         bc_flush_peer(peer_slot);
-        bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq);
+        if (!bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq)) {
+            LOG_WARN("send", "outbox still full after flush, reliable msg dropped "
+                     "(slot=%d seq=%u len=%d)",
+                     peer_slot, (unsigned)seq, payload_len);
+        }
     }
 }
 
@@ -32,7 +40,11 @@ void bc_queue_unreliable(int peer_slot, const u8 *payload, int payload_len)
     bc_peer_t *peer = &g_peers.peers[peer_slot];
     if (!bc_outbox_add_unreliable(&peer->outbox, payload, payload_len)) {
         bc_flush_peer(peer_slot);
-        bc_outbox_add_unreliable(&peer->outbox, payload, payload_len);
+        if (!bc_outbox_add_unreliable(&peer->outbox, payload, payload_len)) {
+            LOG_WARN("send", "outbox still full after flush, unreliable msg dropped "
+                     "(slot=%d len=%d)",
+                     peer_slot, payload_len);
+        }
     }
 }
 
