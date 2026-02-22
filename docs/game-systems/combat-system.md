@@ -50,9 +50,9 @@ Output range: 0.1 to 0.5 (fractional of radius). Feeds into `DoDamage` which dis
 raw = (collision_energy / ship_mass) / contact_count
 if (raw > 0.01):                          // dead zone — very gentle collisions ignored
     scaled = raw * 900.0 + 500.0          // absolute HP damage
-    shield_absorption(ship, direction, &scaled, shield_scale=1.5)
+    subsystem_damage_distributor(ship, direction, &scaled, search_radius=1.5, attacker, is_collision=1)
 ```
-Output range: 500.0+ (absolute HP). Feeds into the shield absorption distributor first, then per-subsystem damage. Each subsystem receives the full per-contact damage; overflow (overkill) is accumulated and returned as remainder.
+Output range: 500.0+ (absolute HP). Feeds into the subsystem damage distributor (see **Collision Damage Pipeline** below). The `search_radius=1.5` means "find subsystems within 1.5× their bounding radius from the damage origin" — a spatial search expansion, not a shield multiplier.
 
 Path 2 produces much larger absolute values (verified: avg ~6000, max ~13000 per subsystem hit in live traces). The `900× + 500` amplifier converts small energy ratios into significant subsystem damage.
 
@@ -68,6 +68,32 @@ When a weapon hit passes through the damage pipeline:
 Each ship has two multipliers that scale incoming damage:
 - **Damage radius multiplier** (1.0 = normal, 0.0 = immune)
 - **Damage falloff multiplier** (1.0 = normal)
+
+### Collision Damage Pipeline (Two-Step Process)
+
+Collision damage uses a two-step sequential process where subsystem/shield absorption happens FIRST and reduces the damage amount before hull receives it:
+
+```
+Step 1: Subsystem Damage Distributor
+    - Walk the subsystem list
+    - Find subsystems within search_radius (1.5) of the hit point
+    - Shield facings are regular subsystems in this list
+    - Apply full per-contact damage to each hit subsystem
+    - Each subsystem absorbs up to its current HP; overflow accumulates
+    - Modify &damage IN-PLACE to the total overflow (remaining amount)
+
+Step 2: Hull Damage (standard damage path)
+    - Receives the REDUCED damage amount from Step 1
+    - Applies remaining damage via spatial AABB distribution
+    - Hull only takes what shields and subsystems did NOT absorb
+```
+
+**Key points**:
+- The `search_radius` parameter (1.5 for collisions) controls which subsystems are eligible to absorb damage based on spatial proximity to the hit point. It means "find subsystems within 1.5× their bounding radius from the damage origin." It is NOT a shield HP multiplier.
+- Shield facings are treated as regular subsystems in the subsystem list — there is no separate shield absorption step for collisions.
+- Subsystem damage does NOT use a 50% reduction factor. Each hit subsystem receives the full per-contact damage amount.
+- There is no parent-to-child damage propagation between subsystems.
+- For weapon calls, the weapon's damage radius is passed as the search parameter instead of the fixed 1.5.
 
 ---
 
