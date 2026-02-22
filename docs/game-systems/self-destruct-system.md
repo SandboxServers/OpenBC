@@ -133,16 +133,23 @@ Power subsystem HP → 0
     → Ship death handler triggers
       → OBJECT_EXPLODING event fires
         → [MP] Host forwards explosion to all clients (opcode 0x06, PythonEvent)
-        → [MP] Scoring handler processes the kill
-        → [All] Explosion visuals and sounds play
-      → Ship object is destroyed
-        → [MP] DestroyObject (opcode 0x14) sent to all clients
-        → [MP] Player UI cleanup (opcode 0x17) if needed
+           ObjectExplodingEvent fields:
+             source = NULL (no attacker for self-destruct)
+             dest = dying ship's object ID
+             lifetime = 9.5 seconds (client plays explosion animation for this duration)
+        → [MP] Scoring handler processes the kill (SCORE_CHANGE broadcast)
+        → [All] Explosion visuals and sounds play for 9.5 seconds
+        → [All] StateUpdates continue during explosion (ship exists as wreckage)
+      → After explosion timer expires:
+        → Client returns to ship selection screen
+        → Client sends ObjCreateTeam (0x03) when player picks a new ship
 ```
 
-This is the **exact same death pipeline** used for combat kills, collision deaths, and
-explosion deaths. Self-destruct does not have a special death path — it simply applies
-enough damage to trigger the normal pipeline.
+**Important**: Self-destruct does NOT send DestroyObject (0x14) — the ship object lives as
+wreckage for the full 9.5-second explosion duration. Self-destruct also does NOT trigger
+server-initiated auto-respawn — the client returns to the ship selection screen and
+initiates its own respawn by picking a ship. This differs from combat kills, which use
+Explosion (0x29) and server-initiated ObjCreateTeam (0x03) respawn.
 
 ---
 
@@ -242,7 +249,7 @@ pShip.DamageSystem(pShip.GetHull(), pShip.GetHull().GetMaxCondition())
 |--------|------|-------------|
 | 0x13 | HostMsg | Self-destruct request (this document) |
 | 0x06 | PythonEvent | Carries OBJECT_EXPLODING after ship death |
-| 0x14 | DestroyObject | Removes destroyed ship from all clients |
+| 0x14 | DestroyObject | NOT sent for self-destruct (or any MP ship death) |
 | 0x17 | DeletePlayerUI | Removes player from scoreboard (if disconnecting) |
 | 0x29 | Explosion | Area-of-effect explosion damage (NOT used by self-destruct) |
 | 0x36 | SCORE_CHANGE | Score update broadcast after death |
@@ -272,6 +279,22 @@ A server that handles self-destruct needs to:
 - Self-destruct should NOT be possible during certain game states (e.g., ship selection,
   game-over screen)
 
+### ObjectExplodingEvent Requirements
+
+The ObjectExplodingEvent sent after self-destruct must have these specific field values:
+- **source_obj = NULL** (no attacker — this is a self-inflicted death)
+- **dest_obj = dying ship's object ID**
+- **lifetime = 9.5 seconds** (controls how long the client plays the explosion animation)
+
+### Death Pipeline Messages
+
+After applying lethal damage, the server must:
+1. Send ObjectExplodingEvent (opcode 0x06, factory 0x8129) with the fields above
+2. Send SCORE_CHANGE (0x36) with death counted, no kill credit
+3. Do **NOT** send DestroyObject (0x14) — the ship lives as wreckage during the 9.5s explosion
+4. Do **NOT** auto-respawn — the client returns to ship selection and sends ObjCreateTeam
+5. Continue sending/receiving StateUpdates during the explosion period (both directions)
+
 ### Scoring Integration
 
 - When processing the death, set attacker to NULL/0
@@ -282,9 +305,11 @@ A server that handles self-destruct needs to:
 
 ### Respawn
 
-After self-destruct, the player follows the normal respawn flow — ship is destroyed, player
-returns to ship selection screen, picks a new ship, and re-enters the game. No special
-respawn handling is needed for self-destruct.
+After self-destruct, the client returns to the ship selection screen after the 9.5-second
+explosion timer expires. The **client** initiates respawn by picking a new ship and sending
+ObjCreateTeam (0x03). The server must NOT auto-respawn the player — wait for the client's
+ObjCreateTeam message. The respawn ObjCreateTeam should use the **client's player slot**
+(not the host's slot 0) and the client's original team assignment.
 
 ---
 
