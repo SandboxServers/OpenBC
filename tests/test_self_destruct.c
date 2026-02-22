@@ -1,6 +1,7 @@
 #include "test_util.h"
 #include "test_harness.h"
 #include "openbc/game_builders.h"
+#include "openbc/buffer.h"
 #include "openbc/opcodes.h"
 
 #include <math.h>
@@ -36,6 +37,28 @@ static f32 read_f32_le(const u8 *p)
     f32 v = 0.0f;
     memcpy(&v, p, sizeof(v));
     return v;
+}
+
+static int build_env_collision_effect(u8 *buf, int buf_size,
+                                      i32 target_object_id,
+                                      f32 collision_force)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_COLLISION_EFFECT)) return -1;
+    if (!bc_buf_write_i32(&b, 0x00008124)) return -1; /* event class */
+    if (!bc_buf_write_i32(&b, 0x00800050)) return -1; /* event code */
+    if (!bc_buf_write_i32(&b, 0)) return -1;          /* source=environment */
+    if (!bc_buf_write_i32(&b, target_object_id)) return -1;
+    if (!bc_buf_write_u8(&b, 1)) return -1;           /* one contact point */
+    if (!bc_buf_write_u8(&b, 0)) return -1;
+    if (!bc_buf_write_u8(&b, 0)) return -1;
+    if (!bc_buf_write_u8(&b, 0)) return -1;
+    if (!bc_buf_write_u8(&b, 0)) return -1;
+    if (!bc_buf_write_f32(&b, collision_force)) return -1;
+
+    return (int)b.pos;
 }
 
 TEST(self_destruct_pipeline_matches_stock)
@@ -92,6 +115,7 @@ TEST(self_destruct_pipeline_matches_stock)
     bool saw_destroy_obj = false;
     bool saw_server_respawn = false;
     bool exploding_before_health_feedback = false;
+    int add_to_repair_events = 0;
     int zero_health_delay_ms = -1;
     const i32 ship_id = bc_make_ship_id(0);
 
@@ -126,9 +150,15 @@ TEST(self_destruct_pipeline_matches_stock)
             }
             continue;
         }
-        if (msg[0] == BC_OP_PYTHON_EVENT && msg_len >= 25) {
+        if (msg[0] == BC_OP_PYTHON_EVENT && msg_len >= 17) {
             i32 factory_id = read_i32_le(msg + 1);
             i32 event_type = read_i32_le(msg + 5);
+            if (factory_id == BC_FACTORY_SUBSYSTEM_EVENT &&
+                event_type == BC_EVENT_ADD_TO_REPAIR) {
+                add_to_repair_events++;
+                continue;
+            }
+            if (msg_len < 25) continue;
             if (factory_id == BC_FACTORY_OBJECT_EXPLODING &&
                 event_type == BC_EVENT_OBJECT_EXPLODING) {
                 if (!got_zero_health_feedback)
@@ -151,6 +181,124 @@ TEST(self_destruct_pipeline_matches_stock)
     CHECK(got_score_change);
     CHECK(!saw_destroy_obj);
     CHECK(!saw_server_respawn);
+    CHECK(add_to_repair_events > 0);
+    CHECK(add_to_repair_events <= 6);
+
+cleanup:
+    if (cli_ok) test_client_disconnect(&cli);
+    Sleep(100);
+    if (srv_ok) test_server_stop(&srv);
+    if (net_ok) bc_net_shutdown();
+    ASSERT(fail == 0);
+
+#undef CHECK
+}
+
+TEST(collision_death_no_auto_respawn_and_repair_events_bounded)
+{
+    bool net_ok = false;
+    bool srv_ok = false;
+    bool cli_ok = false;
+    int fail = 0;
+
+    bc_test_server_t srv;
+    bc_test_client_t cli;
+    memset(&srv, 0, sizeof(srv));
+    memset(&cli, 0, sizeof(cli));
+
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        fail++; \
+        goto cleanup; \
+    } \
+} while (0)
+
+    CHECK(bc_net_init());
+    net_ok = true;
+
+    CHECK(test_server_start(&srv, SD_PORT + 2, MANIFEST_PATH));
+    srv_ok = true;
+
+    CHECK(test_client_connect(&cli, SD_PORT + 2, "CollisionDeath", 0, GAME_DIR));
+    cli_ok = true;
+
+    /* Spawn one ship so collision damage can target it. */
+    {
+        u8 spawn[256];
+        int slen = bc_build_object_create_team(spawn, sizeof(spawn), 0, 2,
+                                               TEST_SHIP_DATA,
+                                               (int)sizeof(TEST_SHIP_DATA));
+        CHECK(slen > 0);
+        CHECK(test_client_send_reliable(&cli, spawn, slen));
+    }
+
+    Sleep(150);
+    test_client_drain(&cli, 200);
+
+    /* Trigger an environment collision with very large force to ensure death. */
+    {
+        u8 coll[64];
+        int clen = build_env_collision_effect(coll, sizeof(coll),
+                                              bc_make_ship_id(0),
+                                              1000000.0f);
+        CHECK(clen > 0);
+        CHECK(test_client_send_reliable(&cli, coll, clen));
+    }
+
+    bool got_exploding = false;
+    bool got_score_change = false;
+    bool saw_destroy_obj = false;
+    bool saw_server_respawn = false;
+    int add_to_repair_events = 0;
+    const i32 ship_id = bc_make_ship_id(0);
+
+    /* Observe for >5s to catch old server auto-respawn behavior. */
+    u32 start = bc_ms_now();
+    while ((int)(bc_ms_now() - start) < 6200) {
+        int msg_len = 0;
+        const u8 *msg = test_client_recv_msg(&cli, &msg_len, 150);
+        if (!msg || msg_len <= 0) continue;
+
+        if (msg[0] == BC_OP_DESTROY_OBJ) {
+            saw_destroy_obj = true;
+            continue;
+        }
+        if (msg[0] == BC_OP_OBJ_CREATE_TEAM) {
+            saw_server_respawn = true;
+            continue;
+        }
+        if (msg[0] == BC_MSG_SCORE_CHANGE) {
+            got_score_change = true;
+            continue;
+        }
+        if (msg[0] == BC_OP_PYTHON_EVENT && msg_len >= 17) {
+            i32 factory_id = read_i32_le(msg + 1);
+            i32 event_type = read_i32_le(msg + 5);
+
+            if (factory_id == BC_FACTORY_SUBSYSTEM_EVENT &&
+                event_type == BC_EVENT_ADD_TO_REPAIR) {
+                add_to_repair_events++;
+                continue;
+            }
+
+            if (msg_len >= 25 &&
+                factory_id == BC_FACTORY_OBJECT_EXPLODING &&
+                event_type == BC_EVENT_OBJECT_EXPLODING) {
+                i32 dest_obj = read_i32_le(msg + 13);
+                f32 lifetime = read_f32_le(msg + 21);
+                CHECK(dest_obj == ship_id);
+                CHECK(fabsf(lifetime - 9.5f) < 0.01f);
+                got_exploding = true;
+            }
+        }
+    }
+
+    CHECK(got_exploding);
+    CHECK(got_score_change);
+    CHECK(!saw_destroy_obj);
+    CHECK(!saw_server_respawn);
+    CHECK(add_to_repair_events <= 6);
 
 cleanup:
     if (cli_ok) test_client_disconnect(&cli);
@@ -218,5 +366,6 @@ cleanup:
 
 TEST_MAIN_BEGIN()
     RUN(self_destruct_pipeline_matches_stock);
+    RUN(collision_death_no_auto_respawn_and_repair_events_bounded);
     RUN(mission_init_total_slots_matches_server_limit);
 TEST_MAIN_END()
