@@ -286,17 +286,35 @@ static int send_health_update_full_cycle(int target_slot, bool flush_owner)
     return sent_packets;
 }
 
+/* Stock-like repair event budget: send at most one ADD_TO_REPAIR_LIST per
+ * primary subsystem bucket when damage occurs. This avoids flooding reliable
+ * queue slots with per-instance events (e.g. many phaser banks). */
+static int repair_event_bucket_for_type(const char *type)
+{
+    if (!type) return -1;
+    if (strcmp(type, "power") == 0) return 0;
+    if (strcmp(type, "shield") == 0) return 1;
+    if (strcmp(type, "phaser") == 0) return 2;
+    if (strcmp(type, "pulse_weapon") == 0) return 3;
+    if (strcmp(type, "repair") == 0) return 4;
+    return -1;
+}
+
 /* Snapshot pre-damage HP, compare after, generate ADD_TO_REPAIR_LIST PythonEvents
- * for each newly-damaged subsystem.  This drives the client's repair queue UI,
- * damage VFX/SFX, and subsystem damage indicators. */
+ * for newly-damaged primary subsystem buckets. This matches stock-like repair
+ * UI behavior and prevents reliable-queue overload on high-subsystem ships. */
 static void generate_damage_events(int target_slot,
                                     const f32 *hp_before,
                                     const bc_ship_class_t *cls)
 {
     bc_peer_t *target = &g_peers.peers[target_slot];
     bc_ship_state_t *ship = &target->ship;
+    bool sent_bucket[5] = { false, false, false, false, false };
 
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
+        int bucket = repair_event_bucket_for_type(cls->subsystems[i].type);
+        if (bucket < 0 || sent_bucket[bucket]) continue;
+
         if (ship->subsystem_hp[i] < hp_before[i] &&
             ship->subsystem_hp[i] < cls->subsystems[i].max_condition) {
             /* Subsystem took damage — try to add to repair queue */
@@ -309,6 +327,7 @@ static void generate_damage_events(int target_slot,
                     ship->subsys_obj_id[i],
                     ship->repair_subsys_obj_id);
                 if (len > 0) bc_send_to_all(evt, len, true);
+                sent_bucket[bucket] = true;
             }
         }
     }
@@ -658,12 +677,11 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
 
         process_ship_kill(shooter_slot, target_slot, false);
 
-        /* Clear victim ship state (keep spawn_payload as respawn template) */
+        /* Clear victim ship state and disable server auto-respawn.
+         * Client is responsible for initiating respawn via ObjCreateTeam. */
         target->has_ship = false;
-        if (!g_game_ended) {
-            target->respawn_timer = 5.0f;
-            target->respawn_class = target->class_index;
-        }
+        target->respawn_timer = 0.0f;
+        target->respawn_class = -1;
 
     }
 }
@@ -758,12 +776,10 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
 
         process_ship_kill(shooter_slot, target_slot, false);
 
-        /* Keep spawn_payload as respawn template; only clear has_ship */
+        /* Disable server auto-respawn; respawn must be client-initiated. */
         target->has_ship = false;
-        if (!g_game_ended) {
-            target->respawn_timer = 5.0f;
-            target->respawn_class = target->class_index;
-        }
+        target->respawn_timer = 0.0f;
+        target->respawn_class = -1;
 
     }
 }
@@ -1531,12 +1547,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                             if (blen > 0)
                                 bc_send_to_all(boom, blen, true);
                         }
-                        /* Keep spawn_payload as respawn template; only clear has_ship */
+                        /* Disable server auto-respawn; respawn is client-driven. */
                         target->has_ship = false;
-                        if (!g_game_ended) {
-                            target->respawn_timer = 5.0f;
-                            target->respawn_class = target->class_index;
-                        }
+                        target->respawn_timer = 0.0f;
+                        target->respawn_class = -1;
 
                         /* Kill credit: if another ship caused this,
                          * credit them */
@@ -1669,13 +1683,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                                 if (blen2 > 0)
                                     bc_send_to_all(boom2, blen2, true);
                             }
-                            /* Keep spawn_payload as respawn template; only clear has_ship */
+                            /* Disable server auto-respawn; respawn is client-driven. */
                             source->has_ship = false;
-                            if (!g_game_ended) {
-                                source->respawn_timer = 5.0f;
-                                source->respawn_class =
-                                    source->class_index;
-                            }
+                            source->respawn_timer = 0.0f;
+                            source->respawn_class = -1;
 
                             /* Kill credit: target killed the source */
                             if (target_slot >= 0 &&
