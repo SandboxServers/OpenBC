@@ -90,6 +90,37 @@ DestroyObject may be used for:
 - Player disconnect cleanup
 - Single-player scenarios
 
+### 5. Subsystem Health Burst on Death
+
+The death sequence includes a **subsystem health burst** for self-destruct kills but
+**not** for collision kills:
+
+#### Self-Destruct Death
+
+Immediately before the ObjectExplodingEvent, the server sends **3 StateUpdate packets**
+(flag 0x20) containing zeroed health values for all subsystems. This burst provides clients
+with a definitive final state — all subsystems are at 0% health.
+
+Observed in Ambassador (species 2) and Warbird (species 8) self-destruct deaths:
+- 3 StateUpdate packets with flag 0x20
+- All subsystem health values zeroed
+- Burst arrives before the ObjectExplodingEvent (factory 0x8129)
+
+#### Collision Kill Death
+
+Collision kills do **not** produce a health burst. The ship dies without a final subsystem
+state broadcast — the last subsystem health values the client received were from the most
+recent round-robin StateUpdate cycle before death.
+
+This means clients may display stale subsystem health for collision-killed ships during the
+9.5-second explosion animation. This is a behavioral divergence from self-destruct, but it
+matches stock server behavior.
+
+#### Implementation Note
+
+Servers should send the 3-packet health burst for self-destruct deaths but may omit it for
+combat kills (collision, weapon, explosion) to match stock behavior.
+
 ---
 
 ## Scoring Interaction
