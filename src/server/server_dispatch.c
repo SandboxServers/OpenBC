@@ -287,8 +287,8 @@ static int send_health_update_full_cycle(int target_slot, bool flush_owner)
 }
 
 /* Stock-like repair event budget: send at most one ADD_TO_REPAIR_LIST per
- * primary subsystem bucket when damage occurs. This avoids flooding reliable
- * queue slots with per-instance events (e.g. many phaser banks). */
+ * primary subsystem bucket when damage occurs. Non-primary subsystem types
+ * share a bounded "other" bucket so they are not silently dropped. */
 static int repair_event_bucket_for_type(const char *type)
 {
     if (!type) return -1;
@@ -297,7 +297,7 @@ static int repair_event_bucket_for_type(const char *type)
     if (strcmp(type, "phaser") == 0) return 2;
     if (strcmp(type, "pulse_weapon") == 0) return 3;
     if (strcmp(type, "repair") == 0) return 4;
-    return -1;
+    return 5;  /* all other subsystem types */
 }
 
 /* Snapshot pre-damage HP, compare after, generate ADD_TO_REPAIR_LIST PythonEvents
@@ -309,11 +309,14 @@ static void generate_damage_events(int target_slot,
 {
     bc_peer_t *target = &g_peers.peers[target_slot];
     bc_ship_state_t *ship = &target->ship;
-    bool sent_bucket[5] = { false, false, false, false, false };
+    bool sent_bucket[6] = { false, false, false, false, false, false };
 
     for (int i = 0; i < cls->subsystem_count && i < BC_MAX_SUBSYSTEMS; i++) {
         int bucket = repair_event_bucket_for_type(cls->subsystems[i].type);
-        if (bucket < 0 || sent_bucket[bucket]) continue;
+        if (bucket < 0 || bucket >= (int)(sizeof(sent_bucket) / sizeof(sent_bucket[0])) ||
+            sent_bucket[bucket]) {
+            continue;
+        }
 
         if (ship->subsystem_hp[i] < hp_before[i] &&
             ship->subsystem_hp[i] < cls->subsystems[i].max_condition) {
