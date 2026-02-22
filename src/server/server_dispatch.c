@@ -1297,6 +1297,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* --- Restart game: server-authoritative reset + broadcast --- */
     case BC_MSG_RESTART: {
+        /* Only the host (slot 1, first human player) can restart.
+         * Stock BC gates this via host-only UI. Dedicated server must
+         * enforce sender authorization server-side. */
+        if (peer_slot != 1) {
+            LOG_WARN("game", "slot=%d non-host restart rejected", peer_slot);
+            break;
+        }
+
         LOG_INFO("game", "slot=%d requested restart", peer_slot);
 
         /* Explicitly destroy active ships before reset so all clients
