@@ -149,9 +149,10 @@
 /* === Connection Constants === */
 #define BC_DEFAULT_PORT            0x5655  /* 22101 decimal */
 #define BC_GAMESPY_PORT            0x5656  /* 22102 decimal */
-/* Peer array size: slot 0 = dedicated server, slots 1-8 = up to 8 human players.
- * Stock BC supports 8 human slots; MissionInit totalSlots = BC_MAX_PLAYERS = 9. */
+/* Peer array size: slot 0 = dedicated server, slots 1-8 = up to 8 human players. */
 #define BC_MAX_PLAYERS             9
+/* Stock MissionInit (0x35) reports playerLimit as max human players (0x08). */
+#define BC_MISSION_INIT_PLAYER_LIMIT 8
 
 /* Opcode name lookup (returns static string, NULL for unknown) */
 const char *bc_opcode_name(int opcode);

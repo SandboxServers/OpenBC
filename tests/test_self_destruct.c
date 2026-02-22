@@ -386,7 +386,7 @@ TEST(mission_init_total_slots_matches_server_limit)
                                                   &msg_len, 2000);
         CHECK(msg != NULL);
         CHECK(msg_len >= 2);
-        CHECK(msg[1] == BC_MAX_PLAYERS); /* human slots + dedicated slot 0 */
+        CHECK(msg[1] == BC_MISSION_INIT_PLAYER_LIMIT);
     }
 
 cleanup:
