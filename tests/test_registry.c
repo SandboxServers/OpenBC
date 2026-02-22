@@ -59,6 +59,31 @@ static bool subsystem_ids_in_slot_range(const bc_ship_state_t *ship,
     return assigned > 0;
 }
 
+static bool subsystem_ids_follow_serialization_order(const bc_ship_state_t *ship,
+                                                     const bc_ship_class_t *cls)
+{
+    i32 expected = ship->object_id + 1;
+    const bc_ss_list_t *sl = &cls->ser_list;
+
+    for (int i = 0; i < sl->count; i++) {
+        int idx = sl->entries[i].hp_index;
+        if (idx >= 0 && idx < cls->subsystem_count && idx < BC_MAX_SUBSYSTEMS) {
+            if (ship->subsys_obj_id[idx] != expected) return false;
+        }
+        expected++;
+
+        for (int c = 0; c < sl->entries[i].child_count; c++) {
+            int cidx = sl->entries[i].child_hp_index[c];
+            if (cidx >= 0 && cidx < cls->subsystem_count && cidx < BC_MAX_SUBSYSTEMS) {
+                if (ship->subsys_obj_id[cidx] != expected) return false;
+            }
+            expected++;
+        }
+    }
+
+    return true;
+}
+
 /* === Load registry (directory format) === */
 
 TEST(load_registry)
@@ -277,6 +302,25 @@ TEST(subsystem_ids_use_owner_slot_range)
 
     int repair_idx = find_subsystem_by_type(cls, "repair");
     ASSERT(repair_idx >= 0);
+    ASSERT(ship.repair_subsys_obj_id > 0);
+    ASSERT_EQ_INT(ship.repair_subsys_obj_id, ship.subsys_obj_id[repair_idx]);
+}
+
+TEST(subsystem_ids_follow_serialization_order)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(2), 2, 1);
+    bc_ship_assign_subsystem_ids(&ship, cls);
+
+    ASSERT(subsystem_ids_in_slot_range(&ship, cls, 2));
+    ASSERT(subsystem_ids_follow_serialization_order(&ship, cls));
+
+    int repair_idx = find_subsystem_by_type(cls, "repair");
+    ASSERT(repair_idx >= 0);
+    ASSERT(ship.subsys_obj_id[repair_idx] > 0);
     ASSERT_EQ_INT(ship.repair_subsys_obj_id, ship.subsys_obj_id[repair_idx]);
 }
 
@@ -882,6 +926,7 @@ TEST_MAIN_BEGIN()
     RUN(ship_init_galaxy);
     RUN(ship_init_all_types);
     RUN(subsystem_ids_use_owner_slot_range);
+    RUN(subsystem_ids_follow_serialization_order);
     RUN(subsystem_ids_are_scoped_per_player_slot);
     RUN(ship_serialize_galaxy);
     RUN(ship_create_packet);
