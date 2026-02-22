@@ -764,7 +764,7 @@ TEST(full_join_flow_multi_client)
 
             /* Receive MissionInit response */
             bool got_mission = false;
-            u8 mission_player_count = 0;
+            u8 mission_total_slots = 0;
             u32 mi_start = GetTickCount();
             while ((int)(GetTickCount() - mi_start) < 2000) {
                 if (tc_recv_raw(cl, 200) <= 0) continue;
@@ -777,7 +777,7 @@ TEST(full_join_flow_multi_client)
                         if (msg->payload_len > 1 &&
                             msg->payload[0] == BC_MSG_MISSION_INIT) {
                             got_mission = true;
-                            mission_player_count = msg->payload[1];
+                            mission_total_slots = msg->payload[1];
                         }
                     }
                 }
@@ -785,7 +785,7 @@ TEST(full_join_flow_multi_client)
             }
 
             CHECK(got_mission);
-            CHECK_EQ(mission_player_count, (u8)(c + 1));
+            CHECK_EQ(mission_total_slots, 9);
         }
 
         cl->connected = true;
