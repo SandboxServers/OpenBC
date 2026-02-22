@@ -980,6 +980,27 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
             /* TODO: fire rate limiting -- disabled pending proper tuning.
              * Sovereign torpedoes fire every ~0.5s which tripped the old 2.0s limit. */
+
+            /* Anti-cheat: torpedo tube must be alive to spawn server projectile.
+             * Stock BC gates at client CanFire(); server replicates this check.
+             * Prevents a cheat client from dealing torpedo damage after all tubes
+             * are destroyed -- skip spawn only (visual was already relayed above). */
+            if (cls) {
+                bool has_working_tube = false;
+                for (int si = 0; si < cls->subsystem_count && si < BC_MAX_SUBSYSTEMS; si++) {
+                    if (strcmp(cls->subsystems[si].type, "torpedo_tube") == 0) {
+                        if (peer->ship.subsystem_hp[si] > 0.0f) {
+                            has_working_tube = true;
+                            break;
+                        }
+                    }
+                }
+                if (!has_working_tube) {
+                    LOG_WARN("cheat", "slot=%d torpedo fire with all tubes destroyed",
+                             peer_slot);
+                    break;  /* visual already relayed; skip torpedo spawn */
+                }
+            }
         }
 
         /* Spawn server-side torpedo tracker for damage computation */
@@ -1036,6 +1057,28 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             }
 
             /* TODO: beam fire rate limiting -- disabled pending proper tuning. */
+
+            /* Anti-cheat: weapon subsystem must be alive to deal damage.
+             * Stock BC gates at client CanFire(); server replicates this check.
+             * A cheating client could send BeamFire with destroyed phasers --
+             * skip damage only (visual was already relayed above). */
+            if (cls) {
+                bool has_working_weapon = false;
+                for (int si = 0; si < cls->subsystem_count && si < BC_MAX_SUBSYSTEMS; si++) {
+                    if (strcmp(cls->subsystems[si].type, "phaser") == 0 ||
+                        strcmp(cls->subsystems[si].type, "pulse_weapon") == 0) {
+                        if (peer->ship.subsystem_hp[si] > 0.0f) {
+                            has_working_weapon = true;
+                            break;
+                        }
+                    }
+                }
+                if (!has_working_weapon) {
+                    LOG_WARN("cheat", "slot=%d beam fire with all weapons destroyed",
+                             peer_slot);
+                    break;  /* visual already relayed; skip damage */
+                }
+            }
 
             /* Anti-cheat: range plausibility -- skip damage only */
             if (ev.has_target && cls) {
