@@ -1,6 +1,40 @@
 #include "openbc/gamespy.h"
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
+
+/* --- Name sanitization (security: GameSpy injection prevention) --- */
+
+/* bc_gamespy_sanitize_name: copy src into dst, stripping GameSpy-unsafe bytes.
+ *
+ * QR1 key-value format:  \key\value\key\value\...
+ * The backslash character (0x5C) is the sole delimiter.  Any backslash that
+ * appears inside a value field splits it into a new key-value pair, which an
+ * attacker can use to overwrite fields such as numplayers, hostname, or
+ * mapname in the response parsed by LAN browsers and master servers.
+ *
+ * ASCII control characters (< 0x20) are also stripped because they can
+ * confuse parsers that treat NUL or CR/LF as record terminators, and they
+ * are never valid in display names anyway.
+ *
+ * The function guarantees:
+ *   - dst is NUL-terminated even if src is longer than dst_size.
+ *   - No byte that would alter QR1 key-value framing appears in dst.
+ *   - If dst_size == 0, the function does nothing (safe no-op). */
+void bc_gamespy_sanitize_name(char *dst, size_t dst_size, const char *src)
+{
+    if (dst_size == 0) return;
+
+    size_t j = 0;
+    for (size_t i = 0; src[i] != '\0' && j < dst_size - 1; i++) {
+        /* Skip the QR1 key-value delimiter and ASCII control characters.
+         * Every other printable byte is safe to include verbatim. */
+        if ((unsigned char)src[i] == '\\' || (unsigned char)src[i] < 0x20)
+            continue;
+        dst[j++] = src[i];
+    }
+    dst[j] = '\0';
+}
 
 bool bc_gamespy_is_query(const u8 *data, int len)
 {

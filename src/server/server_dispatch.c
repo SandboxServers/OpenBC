@@ -52,13 +52,22 @@ void bc_handle_gamespy(bc_socket_t *sock, const bc_addr_t *from,
     g_info.numplayers = g_peers.count > 0 ? g_peers.count - 1 : 0; /* exclude dedi slot */
 
     /* Rebuild player list: player_0 = "Dedicated Server" (always),
-     * then one entry per connected human player. */
+     * then one entry per connected human player.
+     *
+     * Security: player names are network-supplied data.  A malicious client
+     * can set its name to a string containing backslashes, which is the QR1
+     * key-value delimiter.  For example, the name "Eve\numplayers\99" would
+     * inject a fake numplayers field into the GameSpy response and corrupt
+     * what LAN browsers and master servers report for this server.
+     *
+     * bc_gamespy_sanitize_name() strips backslashes and control characters
+     * so the name is safe to embed verbatim in a QR1 value field. */
     g_info.player_count = 1;  /* slot 0 = dedi, already set at init */
     for (int i = 1; i < BC_MAX_PLAYERS && g_info.player_count < 8; i++) {
         if (g_peers.peers[i].state != PEER_EMPTY) {
-            snprintf(g_info.player_names[g_info.player_count],
-                     sizeof(g_info.player_names[0]),
-                     "%s", g_peers.peers[i].name);
+            bc_gamespy_sanitize_name(g_info.player_names[g_info.player_count],
+                                     sizeof(g_info.player_names[0]),
+                                     g_peers.peers[i].name);
             g_info.player_count++;
         }
     }
