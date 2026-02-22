@@ -125,7 +125,7 @@ static int bc_mission_init_total_slots(void)
 /* Return a player's name for log output. Falls back to "slot N" if unnamed. */
 static const char *peer_name(int slot)
 {
-    static char fallback[16];
+    static char fallback[24];
     if (slot < 0 || slot >= BC_MAX_PLAYERS) return "???";
     if (g_peers.peers[slot].name[0] != '\0')
         return g_peers.peers[slot].name;
