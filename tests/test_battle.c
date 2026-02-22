@@ -785,7 +785,10 @@ TEST(full_join_flow_multi_client)
             }
 
             CHECK(got_mission);
-            CHECK_EQ(mission_total_slots, 9);
+            /* MissionInit byte[1] = total slots including the dedicated server
+             * ghost slot (slot 0).  Server defaults to BC_MAX_PLAYERS = 7, so
+             * g_info.maxplayers = 6 (human) and total = 6 + 1 = 7. */
+            CHECK_EQ(mission_total_slots, 7);
         }
 
         cl->connected = true;
