@@ -26,8 +26,8 @@ These systems are controlled by the host in the stock game:
 | System | How | Wire Format |
 |--------|-----|-------------|
 | **Movement/position** | Each client writes its own ship's StateUpdate (`0x1C`) at ~10Hz. Sends POSITIONS, not inputs: absolute position (flag `0x01`), position delta (flag `0x02`), forward vector (flag `0x04`), up vector (flag `0x08`), speed (flag `0x10`). The host relays but does not validate. | Verified from wire format spec + packet traces |
-| **Weapon fire** | TorpedoFire (`0x19`) and BeamFire (`0x1A`) sent by the firing client. Host relays to all peers without validation. | Verified from opcode table |
-| **Event forwarding** | Opcodes `0x06`-`0x12` and `0x1B` (StartFiring, StopFiring, StartCloak, StopCloak, StartWarp, SetPhaserLevel, etc.) are "I did a thing, tell everyone" messages. The originating client is authoritative. | Verified from protocol observation — all use same relay pattern |
+| **Weapon fire** | TorpedoFire (`0x19`) and BeamFire (`0x1A`) sent by the firing client. Host relays to all (N-1) peers without validation. Exact (N-1):1 relay ratio verified across all weapon opcodes in a 3-player, 33.5-minute trace: TorpedoFire 363 received → 1,089 wire (3:1), BeamFire 52 received → 156 wire (3:1). | Verified from Valentine's Day battle trace (2026-02-14) |
+| **Event forwarding** | Opcodes `0x07`-`0x12` and `0x1B` (StartFiring, StopFiring, StartCloak, StopCloak, StartWarp, SetPhaserLevel, etc.) are "I did a thing, tell everyone" messages. The originating client is authoritative. All show exact (N-1):1 relay ratio. | Verified from protocol observation — all use same relay pattern |
 
 ### RECEIVER-LOCAL (each client computes independently)
 
@@ -53,6 +53,30 @@ Clients will always override any server-sent position on the next frame by writi
 - Collision damage from the host collision path is accepted
 
 This means the server has more leverage than "pure relay" — it already controls damage and health for some paths.
+
+## Per-Behavior Authority Summary (from Valentine's Day battle trace)
+
+Verified from a 33.5-minute, 3-player stock dedi trace (138,695 packets, 59 deaths):
+
+| Behavior | Authority | Direction | Evidence |
+|----------|-----------|-----------|----------|
+| Collision damage processing | Server | C→S only (0x15) | 317 CollisionEffect, 0 relayed |
+| Subsystem health | Server | S→C (StateUpdate 0x20) | ~96% directional split |
+| Ship death (ObjectExplodingEvent) | Server | S→C (0x06) | 59 events, all server-generated |
+| Ship death (Explosion 0x29) | Server | S→C only | 59 events, combat kills only |
+| Scoring (SCORE_CHANGE 0x36) | Server | S→C only | Sent for collision/self-destruct; stock bug: not sent for weapon kills |
+| Score sync (SCORE 0x37) | Server | S→C only | 3 events (1 per join) |
+| Object lifecycle | Server | S→C only | 38 ObjCreateTeam are relays, 0 DestroyObject |
+| Game flow (Settings/GameInit) | Server | S→C only | 4 each (1 per join + extra) |
+| Movement/position (StateUpdate) | Client (owner) | Any→all | ~10Hz per ship |
+| Weapon fire (0x07/0x08/0x19/0x1A) | Client (owner) | C→S→all relay | (N-1):1 ratio confirmed |
+| Subsystem toggles (0x0A) | Client (owner) | C→S→all relay | 63 total |
+| Cloak/Warp events | Client (owner) | C→S→all relay | 4 cloak, 1 warp |
+| Torpedo type change (0x1B) | Client (owner) | C→S→all relay | 12 total |
+| Chat messages (0x2C) | Client | C→S→all relay | 57 total |
+| Ship respawn (ObjCreateTeam) | Client | C→S→all relay | All 38 are client-initiated |
+| Self-destruct request (0x13) | Client requests, server executes | C→S only | 4 observed |
+| Weapon damage calculation | Receiver-local | N/A | Each client computes independently |
 
 ## What's Feasible with Stock Clients
 

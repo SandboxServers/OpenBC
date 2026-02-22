@@ -360,18 +360,45 @@ The tractor beam releases when:
 
 ## 7. Ship Death
 
-A ship is destroyed when `hull_hp <= 0`:
+A ship is destroyed when `hull_hp <= 0`. See [ship-death-lifecycle.md](ship-death-lifecycle.md) for the complete specification.
+
+### Combat Kill (weapon or explosion damage)
 
 1. Ship marked as dead
-2. Server sends **DestroyObject (0x14)** to all clients: `[0x14][object_id:i32]`
+2. Server sends **ObjectExplodingEvent** (PythonEvent 0x06, factory 0x8129) to all clients:
+   - source = killer's ship object ID, dest = dying ship, lifetime = 9.5 seconds
 3. Server sends **Explosion (0x29)** to all clients: `[0x29][object_id:i32][impact:cv4][damage:cf16][radius:cf16]`
 4. All tractor locks on this ship release
+5. Server does **NOT** send DestroyObject (0x14) — the old ship exists as wreckage during the explosion
+
+### Self-Destruct (opcode 0x13)
+
+1. Ship marked as dead
+2. Server sends **ObjectExplodingEvent** (PythonEvent 0x06, factory 0x8129) to all clients:
+   - source = NULL (no attacker), dest = dying ship, lifetime = 9.5 seconds
+3. Server sends **SCORE_CHANGE** (0x36) — death counted, no kill credit
+4. Server does **NOT** send Explosion (0x29) for self-destruct
 
 ### Respawn
 
-There is no dedicated respawn mechanism. To respawn a ship:
-1. Destroy the old object (0x14 + 0x29)
-2. Create a new object (0x03 ObjCreateTeam with fresh HP)
+There is no server-initiated respawn for any death type. After the 9.5-second explosion animation:
+1. Client returns to ship selection screen
+2. Client picks a new ship and sends ObjCreateTeam (0x03)
+3. Server relays ObjCreateTeam to all other clients
+
+### Weapon Relay Ratios
+
+In an N-player game, weapon events are relayed by the server to all (N-1) other players. Verified from a 3-player stock trace (33.5 minutes, 59 deaths):
+
+| Opcode | Name | Received by Server | Relayed (Wire Total) | Ratio |
+|--------|------|--------------------|---------------------|-------|
+| 0x07 | StartFiring | 978 | 2,918 | (N-1):1 |
+| 0x08 | StopFiring | 477 | 1,448 | (N-1):1 |
+| 0x19 | TorpedoFire | 363 | 1,089 | (N-1):1 |
+| 0x1A | BeamFire | 52 | 156 | (N-1):1 |
+| 0x1B | TorpTypeChange | 4 | 12 | (N-1):1 |
+
+The server relays without filtering or deduplication — every weapon event from one client is forwarded to all others.
 
 ---
 

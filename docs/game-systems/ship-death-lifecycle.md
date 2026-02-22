@@ -8,7 +8,11 @@ Behavioral specification for how ships are destroyed and respawned in Bridge Com
 
 ## Overview
 
-When a ship is destroyed in multiplayer, the server broadcasts an explosion event to all clients and then immediately creates a new ship object for the same player (respawn). The protocol includes a "destroy object" message type, but it is **not used** for multiplayer ship death in stock behavior.
+When a ship is destroyed in multiplayer, the server broadcasts an explosion event to all
+clients. The server does **not** auto-respawn the player — instead, the client returns to
+the ship selection screen and sends ObjCreateTeam (0x03) when the player picks a new ship.
+The protocol includes a "destroy object" message type, but it is **not used** for
+multiplayer ship death in stock behavior.
 
 ---
 
@@ -24,13 +28,13 @@ The messages sent depend on whether this is a **combat kill** or a **self-destru
 
 #### Combat Kill (weapon, collision, or explosion damage)
 
-The server sends three messages to all clients:
+The server sends two messages to all clients:
 
 **a) PythonEvent (opcode 0x06) — ObjectExplodingEvent**:
 - Factory ID: 0x8129
 - Event type: OBJECT_EXPLODING (0x0080004E)
 - Contains: dying ship's object ID, killer's player ID, explosion lifetime (9.5 seconds)
-- source = killer's ship object ID
+- source = killer's ship object ID (for beam/torpedo kills, this is the attacking ship)
 - dest = dying ship's object ID
 - Sent reliably to the "NoMe" routing group
 
@@ -38,10 +42,14 @@ The server sends three messages to all clients:
 - Contains: dying ship's object ID, impact position (compressed), damage amount, explosion radius
 - Triggers client-side visual effects
 
-**c) ObjCreateTeam (opcode 0x03) — Auto-Respawn**:
-- Server immediately creates a new ship object for the same player
-- Contains: owner player slot, team assignment, full serialized ship data
-- The new ship has fresh subsystems at full health
+Verified in a 33.5-minute stock trace with 55 weapon kills: every weapon kill produced
+both messages. The ObjectExplodingEvent `source` field contains the **killer's ship
+object ID** (not NULL), allowing the scoring system to identify who made the kill.
+
+The server does **NOT** auto-respawn after combat kills. After the 9.5-second explosion
+animation, the client returns to the ship selection screen and sends ObjCreateTeam (0x03)
+when the player picks a new ship. All 38 ObjCreateTeam messages in the trace were
+client-initiated relays — zero were server-originated.
 
 #### Self-Destruct (opcode 0x13)
 
@@ -64,14 +72,14 @@ The server sends **only** the ObjectExplodingEvent:
 
 ### 3. Respawn
 
-Respawn behavior differs by death type:
+Respawn behavior is the same for all death types (combat kill, self-destruct, collision):
 
-**Combat kill**: The server auto-respawns the player immediately by sending ObjCreateTeam
-(0x03) with the same player slot and team. The dead ship object is implicitly replaced.
+After the 9.5-second explosion animation, the client returns to the ship selection screen.
+The **client** sends ObjCreateTeam (0x03) when the player picks a new ship. The server
+relays this to all other clients via star topology.
 
-**Self-destruct**: The server does NOT auto-respawn. After the 9.5-second explosion animation,
-the client returns to the ship selection screen. The **client** sends ObjCreateTeam (0x03) when
-the player picks a new ship.
+The server does **NOT** auto-respawn for any death type. All ObjCreateTeam messages after
+death are client-initiated.
 
 ### 4. No DestroyObject Message
 
@@ -111,9 +119,11 @@ See [gamemode-system.md](../planning/gamemode-system.md) for full scoring specif
    c. Send reliably to all clients
    d. Send Explosion (opcode 0x29) with position, damage, and radius
    e. Process scoring (kill/death/score updates, SCORE_CHANGE broadcast)
-   f. Create a new ship for the same player (ObjCreateTeam, opcode 0x03) — auto-respawn
+   f. Clear ship state (mark as dead) — do NOT auto-respawn
+   g. Wait for the client to send ObjCreateTeam (0x03) when the player picks a new ship
 
 2. Do NOT send DestroyObject (0x14) for ship deaths — clients do not expect it
+3. Do NOT auto-respawn — the client initiates its own respawn
 
 ### Server — Self-Destruct
 
@@ -137,9 +147,10 @@ See [gamemode-system.md](../planning/gamemode-system.md) for full scoring specif
 
 ### Respawn Timing
 
-**Combat kills**: The server sends the respawn ObjCreateTeam (0x03) immediately after the explosion broadcast. The ship reappears at full health as soon as the server processes the death event.
-
-**Self-destruct**: No server-initiated respawn. The client returns to ship selection after the 9.5-second explosion timer. The respawn ObjCreateTeam uses the **client's player slot** and original team assignment (not the host's slot).
+**All death types**: No server-initiated respawn. After the 9.5-second explosion animation,
+the client returns to the ship selection screen. The client picks a new ship and sends
+ObjCreateTeam (0x03) with the **client's player slot** and team assignment (not the host's
+slot). The server relays this to all other clients.
 
 ---
 

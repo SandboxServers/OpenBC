@@ -158,29 +158,42 @@ The server responds with:
    connected (dynamic, updates with each join), NOT a fixed player limit. Stock servers
    send 0x01 for 2-player sessions and 0x03 for 3-player sessions.
 
-2. **Score (0x37)**: Current scores for all players (zeros for new game)
+2. **DeletePlayerUI (0x17)**: Adds the joining player to the engine's internal player list.
+   This message carries a serialized event structure — see
+   [delete-player-ui-wire-format.md](../wire-formats/delete-player-ui-wire-format.md)
+   for the full wire format.
+   ```
+   [0x17][factory_class_id:u32le][event_code:u32le][src_obj_id:u32le][tgt_obj_id:u32le][wire_peer_id:u8]
+   ```
+   Total: 18 bytes (1 opcode + 17 payload).
+
+   At join time, `event_code` carries a "new player" notification (`0x008000F1`).
+   At disconnect time, the same opcode carries a "remove player" notification (`0x00060005`).
+   The `factory_class_id` is always `0x00000866` (base event class).
+
+   **This message is critical for the scoreboard.** The engine's internal player list
+   is populated by this event. Without it, `GetPlayerList()` returns no entries and
+   the scoreboard UI has no players to display, even if score data exists.
+
+3. **Score (0x37)**: Current scores for all players (zeros for new game)
    ```
    [0x37][player_id:i32][kills:i32][deaths:i32][score:i32]
    ```
    One `0x37` message is sent per player (not batched). `player_id` is the
    network player ID (`GetNetID()` / wire slot), not an object ID.
 
-3. **ObjCreateTeam (0x03)**: One per already-spawned ship (for late joiners)
+4. **ObjCreateTeam (0x03)**: One per already-spawned ship (for late joiners)
    ```
    [0x03][owner:u8][team:u8][serialized ship data...]
-   ```
-
-4. **DeletePlayerUI (0x17)**: One per connected player slot (UI cleanup)
-   ```
-   [0x17][game_slot:u8]
    ```
 
 ### Late-Join Data
 
 When a player joins an in-progress game, the server sends the full game state:
+- MissionInit (0x35) with current player count
+- DeletePlayerUI (0x17) for the joining player (adds to engine player list)
 - Score message(s) (0x37), one per player, with current kills/deaths/score
 - One ObjCreateTeam (0x03) for every already-spawned ship (cached from original creation)
-- DeletePlayerUI (0x17) for each connected player
 
 This allows the late joiner to see all existing ships and scores immediately.
 

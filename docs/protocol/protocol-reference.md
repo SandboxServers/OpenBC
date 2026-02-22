@@ -44,19 +44,19 @@ Complete table of observed game-level opcodes. Frequency data from the "Battle o
 | 0x06 | PythonEvent | any | reliable | 3,825 | Primary script event forwarding |
 | 0x07 | StartFiring | C->S->all | reliable | 2,918 | Weapon fire begin |
 | 0x08 | StopFiring | C->S->all | reliable | 1,448 | Weapon fire end |
-| 0x09 | StopFiringAtTarget | any | reliable | -- | Stop firing at specific target |
-| 0x0A | SubsysStatus | any | reliable | 64 | Subsystem toggle (shields, etc.) |
+| 0x09 | StopFiringAtTarget | any | reliable | 0 | Stop firing at specific target |
+| 0x0A | SubsysStatus | any | reliable | 63 | Subsystem toggle (shields, etc.) |
 | 0x0B | AddToRepairList | any | reliable | 0 | Crew repair assignment |
 | 0x0C | ClientEvent | any | reliable | 0 | Generic event forward |
-| 0x0D | PythonEvent2 | any | reliable | -- | Alternate Python event path |
+| 0x0D | PythonEvent2 | C->S | reliable | 75 | Alternate Python event path (client-only direction) |
 | 0x0E | StartCloak | any | reliable | 4 | Cloaking device engage |
-| 0x0F | StopCloak | any | reliable | -- | Cloaking device disengage |
+| 0x0F | StopCloak | any | reliable | ~4 | Cloaking device disengage |
 | 0x10 | StartWarp | any | reliable | 1 | Warp drive engage |
-| 0x11 | RepairListPriority | any | reliable | -- | Repair priority ordering |
-| 0x12 | SetPhaserLevel | any | reliable | -- | Phaser power adjustment |
+| 0x11 | RepairListPriority | any | reliable | 0 | Repair priority ordering |
+| 0x12 | SetPhaserLevel | any | reliable | 0 | Phaser power adjustment |
 | 0x13 | HostMsg | C->S | reliable | 4 | Host message dispatch (self-destruct) |
-| 0x14 | DestroyObject | S->C | reliable | 1 | Object destruction notification |
-| 0x15 | CollisionEffect | C->S | reliable | 317 | Collision damage report |
+| 0x14 | DestroyObject | S->C | reliable | 0 | Object destruction notification. **Not used for ship deaths** — 0 across 59 deaths |
+| 0x15 | CollisionEffect | C->S | reliable | 317 | Collision damage report (C->S only, server never relays) |
 | 0x16 | UICollisionSetting | S->C | reliable | at join | Collision toggle bit |
 | 0x17 | DeletePlayerUI | S->C | reliable | at join/leave | Player UI cleanup |
 | 0x18 | DeletePlayerAnim | S->C | reliable | -- | Player deletion animation |
@@ -88,7 +88,7 @@ These messages bypass the C++ opcode dispatcher. They are sent via Python `SendT
 | 0x2C | CHAT_MESSAGE | relayed | 57 | Client->Host->all others |
 | 0x2D | TEAM_CHAT_MESSAGE | relayed | -- | Client->Host->teammates |
 | 0x35 | MISSION_INIT_MESSAGE | S->C | at join | Player limit, species, time/frag limits |
-| 0x36 | SCORE_CHANGE_MESSAGE | S->C | on kill | Score deltas |
+| 0x36 | SCORE_CHANGE_MESSAGE | S->C | on kill | Score deltas. **Known anomaly**: not sent for weapon kills on stock dedi (see gamemode-system.md) |
 | 0x37 | SCORE_MESSAGE | S->C | at join | Full player roster sync |
 | 0x38 | END_GAME_MESSAGE | S->C | at end | Game over broadcast |
 | 0x39 | RESTART_GAME_MESSAGE | S->C | at restart | Game restart broadcast |
