@@ -928,8 +928,28 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 break;
             }
 
-            /* TODO: fire rate limiting -- disabled pending proper tuning.
-             * Sovereign torpedoes fire every ~0.5s which tripped the old 2.0s limit. */
+            /* Server-side torpedo fire rate limiting.
+             * Sovereign torpedoes fire every ~0.5s from the data registry.
+             * Use 0.3s minimum to accommodate fast-firing ships while blocking
+             * rapid-fire exploits. Violations reset every 60 seconds so a
+             * burst of network jitter does not permanently flag a clean player. */
+            {
+                u32 now = bc_ms_now();
+                if (now - peer->violation_window_start >= 60000u) {
+                    peer->fire_violations        = 0;
+                    peer->violation_window_start = now;
+                }
+                u32 min_interval_ms = 300u;
+                if (now - peer->last_torpedo_time[0] < min_interval_ms) {
+                    peer->fire_violations++;
+                    if (peer->fire_violations > 10) {
+                        LOG_WARN("cheat", "slot=%d excessive torpedo fire rate (%d violations)",
+                                 peer_slot, peer->fire_violations);
+                    }
+                    break;  /* visual already relayed; skip damage */
+                }
+                peer->last_torpedo_time[0] = now;
+            }
         }
 
         /* Spawn server-side torpedo tracker for damage computation */
@@ -985,7 +1005,28 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                 break;
             }
 
-            /* TODO: beam fire rate limiting -- disabled pending proper tuning. */
+            /* Server-side beam fire rate limiting.
+             * Stock BC phasers have ~1-2 second charge cycles.
+             * Use a generous 0.5s minimum interval to avoid false positives
+             * from network jitter while blocking rapid-fire exploits.
+             * Violations reset every 60 seconds (shared window with torpedo). */
+            {
+                u32 now = bc_ms_now();
+                if (now - peer->violation_window_start >= 60000u) {
+                    peer->fire_violations        = 0;
+                    peer->violation_window_start = now;
+                }
+                u32 min_interval_ms = 500u;
+                if (now - peer->last_fire_time[0] < min_interval_ms) {
+                    peer->fire_violations++;
+                    if (peer->fire_violations > 10) {
+                        LOG_WARN("cheat", "slot=%d excessive beam fire rate (%d violations)",
+                                 peer_slot, peer->fire_violations);
+                    }
+                    break;  /* visual already relayed; skip damage */
+                }
+                peer->last_fire_time[0] = now;
+            }
 
             /* Anti-cheat: range plausibility -- skip damage only */
             if (ev.has_target && cls) {
