@@ -838,6 +838,7 @@ int main(int argc, char **argv)
                     const bc_ship_class_t *rcls =
                         bc_registry_get_ship(&g_registry, rp->respawn_class);
                     if (!rcls) continue;
+                    if (rp->spawn_len < 24) continue;
 
                     u8 team_id = g_player_teams[i];
                     if (team_id == BC_TEAM_NONE) team_id = rp->ship.team_id;
@@ -874,8 +875,6 @@ int main(int argc, char **argv)
                      *   16-19: pos_y
                      *   20-23: pos_z
                      */
-                    if (rp->spawn_len < 24) continue;
-
                     u8 cpkt[256];
                     int clen = rp->spawn_len;
                     if (clen > (int)sizeof(cpkt)) clen = (int)sizeof(cpkt);
