@@ -122,13 +122,21 @@ After checksums complete, the server sends a burst of configuration messages to 
 
 Single byte, no payload. Triggers the client to transition to the ship selection screen.
 
-### Delivery Order
+### Delivery Order — MUST BE BUNDLED
 
-The server sends three messages in one packet after checksums:
+The server sends three messages in a **single UDP datagram** after checksums:
 
 ```
 [0x28 ChecksumComplete] → [0x00 Settings] → [0x01 GameInit]
 ```
+
+**This bundling is a hard protocol requirement.** Verified 3/3 player joins in a 33.5-minute stock trace — every join shows identical bundling. Each message has its own reliable transport header and sequence number, but all three share one UDP packet.
+
+**Why bundling matters**:
+- If sent as separate packets, any one could be lost or reordered
+- Client receiving GameInit (0x01) before Settings (0x00) would break initialization
+- Client may time out waiting for the next message in the sequence
+- Bundling ensures atomicity: the client either receives all three or none
 
 Peer transitions from CHECKSUMMING_FINAL → LOBBY.
 
@@ -193,9 +201,36 @@ When a player joins an in-progress game, the server sends the full game state:
 - MissionInit (0x35) with current player count
 - DeletePlayerUI (0x17) for the joining player (adds to engine player list)
 - Score message(s) (0x37), one per player, with current kills/deaths/score
-- One ObjCreateTeam (0x03) for every already-spawned ship (cached from original creation)
+- Object replication: one message per already-existing game object
 
 This allows the late joiner to see all existing ships and scores immediately.
+
+### Late-Join Object Replication: 0x02 vs 0x03
+
+The server replicates existing objects to the joining player using two opcodes:
+
+| Opcode | Name | When Used |
+|--------|------|-----------|
+| 0x02 | ObjCreate (non-team) | Objects without a team assignment OR non-ship objects |
+| 0x03 | ObjCreateTeam | Player ships with team data |
+
+**Decision logic** (per existing game object):
+
+```
+For each existing game object:
+    if object is a ship AND has team info:
+        send as 0x03 (ObjCreateTeam) — includes team_id byte
+    else:
+        send as 0x02 (ObjCreate) — no team_id
+```
+
+**Behavioral difference**: Opcode 0x03 updates the player slot's base object ID and triggers scene entry on the host. Opcode 0x02 does neither — it creates the object without binding it to a player slot.
+
+**Non-team objects** include: the host's dummy ship (if applicable), environmental objects (asteroids, stations), torpedoes in flight, and AI-spawned ships in cooperative mode.
+
+Observed in a 3-player trace: 3 instances of 0x02 (all server-owned, low object IDs) sent to the 3rd joining player during late-join replication. These represent non-player objects that exist in the game world but are not associated with a specific team.
+
+See [objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md) for detailed wire formats of both opcodes.
 
 ---
 

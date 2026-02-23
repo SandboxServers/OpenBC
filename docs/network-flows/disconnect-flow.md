@@ -36,7 +36,7 @@ From the protocol specification in [protocol-reference.md](../protocol/protocol-
 
 The server tracks when each peer last sent data. If no packets (including keepalives) are received within the timeout window, the server considers the peer lost and initiates disconnect cleanup. This is the most common disconnect path — it covers network failures, client crashes, and ungraceful process termination.
 
-Keepalive messages (transport type 0x00) are exchanged approximately every 12 seconds, providing 3-4 missed keepalive cycles before the timeout fires.
+Keepalive messages (transport type 0x00) are sent approximately every **5 seconds** (whenever no other data has been sent to the peer within 5 seconds). With a 45-second timeout, this means 9 missed keepalive cycles before the timeout fires. See [timing-constants.md](../protocol/timing-constants.md) for the complete timing reference.
 
 ### 1.2 Graceful Disconnect (Transport Message 0x05)
 
@@ -237,7 +237,7 @@ Opcode 0x17 is sent at both join and disconnect times. At join time, it appears 
 
 ### 5.4 Timeout Value
 
-The ~45-second timeout is observed from behavioral descriptions and is consistent with standard game networking practice (3-4 missed keepalive cycles at ~12-second intervals). The exact value may be configurable. An implementation should use a similar timeout to maintain compatibility with stock clients.
+The 45-second timeout is verified from protocol analysis. The keepalive send interval is **5.0 seconds** (sent when no other data has been sent to a peer within 5s), giving 9 missed keepalive cycles before the timeout fires. An implementation must use this timeout value to maintain compatibility with stock clients. See [timing-constants.md](../protocol/timing-constants.md) for the complete timing reference.
 
 ---
 

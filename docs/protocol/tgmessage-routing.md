@@ -273,6 +273,52 @@ For a clean-room reimplementation, the following behaviors must be preserved:
 
 ---
 
+## PythonEvent Dispatch: 0x06 vs 0x0D
+
+A critical routing distinction: PythonEvent (0x06) and PythonEvent2 (0x0D) share the same
+handler on the receiving side, but have fundamentally different routing behavior.
+
+### Both Are LOCAL-ONLY on Receipt
+
+When either 0x06 or 0x0D arrives at a peer, the handler deserializes the event and posts it
+to the local event manager. Neither opcode triggers a relay — the handler does not forward
+the message to other peers.
+
+### How Clients Receive PythonEvents
+
+Clients do NOT receive relayed copies of 0x06 or 0x0D. Instead, the server **generates
+fresh 0x06 messages** from its own simulation:
+
+1. The server's repair system fires repair completion events locally
+2. A server-side event handler catches these events (3 specific event types)
+3. The handler constructs a NEW opcode 0x06 message and sends it to all clients
+
+Similarly, when a ship explodes on the server:
+1. The server's death handler fires an object-exploding event
+2. A server-side event handler catches it
+3. Constructs a NEW opcode 0x06 message and sends to all clients
+
+These are **freshly constructed messages**, not relays of anything a client sent.
+
+### PythonEvent2 (0x0D) Is Client-to-Server Only
+
+Opcode 0x0D flows exclusively C→S. All 75 observed instances in a 33.5-minute combat
+session carried event code 0x010C (object pointer events — weapon/phaser/tractor target
+notifications). The server processes them locally and does NOT forward them.
+
+**Evidence**: 0x0D shows a 1:1 ratio of wire packets to unique events (75 wire, 75 events).
+Compare with relayed opcodes like StartFiring (0x07) which show a 3:1 ratio in a 3-player
+game (2,918 wire, 978 unique events).
+
+### Implementation Rule
+
+- **0x06**: Server generates from its own simulation → sends to clients. Never relayed.
+- **0x0D**: Client sends to server. Server processes locally. **Never forwarded to other clients.**
+- **Relaying 0x0D is WRONG**: It causes duplicate events on receiving clients (the relay
+  copy plus the server's independently-generated 0x06 response).
+
+---
+
 ## Implementation Considerations for Dedicated Server
 
 A headless dedicated server reimplementation must:

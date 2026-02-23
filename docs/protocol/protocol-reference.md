@@ -48,7 +48,7 @@ Complete table of observed game-level opcodes. Frequency data from the "Battle o
 | 0x0A | SubsysStatus | any | reliable | 63 | Subsystem toggle (shields, etc.) |
 | 0x0B | AddToRepairList | any | reliable | 0 | Crew repair assignment |
 | 0x0C | ClientEvent | any | reliable | 0 | Generic event forward |
-| 0x0D | PythonEvent2 | C->S | reliable | 75 | Alternate Python event path (client-only direction) |
+| 0x0D | PythonEvent2 | C->S only | reliable | 75 | Client→server only, **NOT relayed**. Server processes locally. See [tgmessage-routing.md](tgmessage-routing.md#pythonevent-dispatch-0x06-vs-0x0d) |
 | 0x0E | StartCloak | any | reliable | 4 | Cloaking device engage |
 | 0x0F | StopCloak | any | reliable | ~4 | Cloaking device disengage |
 | 0x10 | StartWarp | any | reliable | 1 | Warp drive engage |
@@ -157,32 +157,40 @@ fragLimit         u8         1      Frag limit (0xFF = no limit)
 
 ### 6.4 TorpedoFire (Opcode 0x19)
 
+> Detailed wire format: [../wire-formats/torpedo-fire-wire-format.md](../wire-formats/torpedo-fire-wire-format.md)
+
 ```
 Field             Type       Size   Notes
 -----             ----       ----   -----
 opcode            u8         1      0x19
-objectId          i32        4      Torpedo subsystem network ID
-subsysIndex       u8         1      Subsystem index / type tag
-flags             u8         1      bit 0: has_arc, bit 1: has_target
-velocity          cv3        3      Torpedo direction (CompressedVector3)
-[if has_target (bit 1):]
-  targetId        i32        4      Target object ID
-  impactPoint     cv4        5      Impact position (CompressedVector4)
+subsystemObjectID i32        4      Torpedo tube network object ID
+torpedoTypeIndex  u8         1      Torpedo model index (SpeciesToTorp)
+flags             u8         1      bit0: isReloading, bit1: subsysState, bit2: noTarget
+velocity          cv3        3      Ship velocity direction (CompressedVector3)
+[if !(flags & 0x04):]
+  targetObjectID  i32        4      Target object ID
+  targetBBox      cv4        4      Target bounding position (CompressedVector4)
 ```
 
+Without target: 10 bytes. With target: 18 bytes.
+
 ### 6.5 BeamFire (Opcode 0x1A)
+
+> Detailed wire format: [../wire-formats/beam-fire-wire-format.md](../wire-formats/beam-fire-wire-format.md)
 
 ```
 Field             Type       Size   Notes
 -----             ----       ----   -----
 opcode            u8         1      0x1A
-objectId          i32        4      Phaser subsystem network ID
-flags             u8         1      Beam properties
-targetDir         cv3        3      Target direction (CompressedVector3)
-moreFlags         u8         1      bit 0: has_target_id
-[if has_target_id:]
-  targetObjectId  i32        4      Target object ID
+subsystemObjectID i32        4      Beam weapon network object ID
+beamTypeIndex     u8         1      Beam model index
+hitPosition       cv3        3      World-space hit point (CompressedVector3)
+flags             u8         1      bit0: isDualFire, bit1: hasTarget
+[if flags & 0x02:]
+  targetObjectID  i32        4      Target object ID
 ```
+
+Without target: 10 bytes. With target: 14 bytes. **Note**: flags byte comes AFTER cv3, not before. No cv4 field (that's TorpedoFire only).
 
 ### 6.6 Explosion (Opcode 0x29)
 
