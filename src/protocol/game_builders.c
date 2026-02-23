@@ -108,6 +108,17 @@ int bc_build_destroy_obj(u8 *buf, int buf_size, i32 object_id)
     return (int)b.pos;
 }
 
+int bc_build_obj_not_found(u8 *buf, int buf_size, i32 object_id)
+{
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_OBJ_NOT_FOUND)) return -1;
+    if (!bc_buf_write_i32(&b, object_id)) return -1;
+
+    return (int)b.pos;
+}
+
 int bc_build_chat(u8 *buf, int buf_size,
                    u8 sender_slot, bool team, const char *message)
 {

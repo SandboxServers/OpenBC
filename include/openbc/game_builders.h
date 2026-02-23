@@ -58,6 +58,10 @@ int bc_build_explosion(u8 *buf, int buf_size,
  * 5 bytes total. */
 int bc_build_destroy_obj(u8 *buf, int buf_size, i32 object_id);
 
+/* ObjNotFound: [0x1D][obj:i32]
+ * 5 bytes total. Server -> Client: object ID could not be resolved. */
+int bc_build_obj_not_found(u8 *buf, int buf_size, i32 object_id);
+
 /* Chat: [0x2C|0x2D][slot:u8][pad:3][len:u16][ascii...]
  * team=false -> 0x2C, team=true -> 0x2D. */
 int bc_build_chat(u8 *buf, int buf_size,
