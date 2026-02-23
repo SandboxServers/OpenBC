@@ -70,6 +70,9 @@ typedef struct {
     /* Power efficiency (computed per-frame by reactor tick) */
     f32        efficiency[BC_SS_MAX_ENTRIES];  /* 0.0-1.0 per powered entry */
 
+    /* Collision rate limiting */
+    f32        collision_cooldown;   /* seconds remaining before next collision is processed */
+
     /* Systems */
     bool       alive;
     u8         repair_queue[BC_MAX_SUBSYSTEMS];

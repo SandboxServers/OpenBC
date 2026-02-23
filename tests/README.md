@@ -1,11 +1,11 @@
 # OpenBC Test Suite
 
-19 test suites, 290 tests, 1,369 assertions. All tests cross-compile from WSL2 to Win32 and run natively.
+21 test suites, 299 tests, 1,397 assertions. All tests cross-compile from WSL2 to Win32 and run natively.
 
 ## Running Tests
 
 ```
-make test                            # all 19 suites
+make test                            # all 21 suites
 ./build/tests/test_checksum.exe      # single suite (verbose)
 ```
 
@@ -31,8 +31,10 @@ make test                            # all 19 suites
 | `test_security_identity.c` | 2 | 2 | Player identity security validation |
 | `test_join_flow.c` | 2 | 2 | Join flow integration: connect through gameplay |
 | `test_networked_battle.c` | 1 | 9 | Real UDP through live server subprocess, packet trace logging |
+| `test_power_collision.c` | 9 | 28 | Power init max_condition parity, collision cooldown (issue #91) |
+| `test_serialization_parity.c` | 6 | 25 | Per-ship serialization order vs wire format spec |
 | `test_restart_authorization.c` | 1 | 1 | Game restart authorization flow |
-| **Total** | **290** | **1,369** | |
+| **Total** | **299** | **1,397** | |
 
 ## Test Frameworks
 
@@ -44,8 +46,6 @@ Lightweight macros for unit testing:
 - `ASSERT(cond)` -- Assert a condition
 - `ASSERT_EQ(a, b)` -- Assert equality (hex output on failure)
 - `ASSERT_EQ_INT(a, b)` -- Assert integer equality (decimal output)
-- `ASSERT_FLOAT_EQ(a, b, eps)` -- Assert float equality within epsilon
-- `ASSERT_STR_EQ(a, b)` -- Assert string equality
 - `RUN(name)` -- Register a test to run
 - `TEST_MAIN_BEGIN()` / `TEST_MAIN_END()` -- Main function wrapper with summary
 
