@@ -132,8 +132,8 @@ int bc_ship_serialize(const bc_ship_state_t *ship,
     /* Object ID */
     if (!bc_buf_write_i32(&b, ship->object_id)) return -1;
 
-    /* Species ID (u16) */
-    if (!bc_buf_write_u16(&b, cls->species_id)) return -1;
+    /* Species ID (u8) -- BC 1.1 wire format confirmed by bc_parse_ship_blob_header */
+    if (!bc_buf_write_u8(&b, (u8)cls->species_id)) return -1;
 
     /* Position (3x f32) */
     if (!bc_buf_write_f32(&b, ship->pos.x)) return -1;
