@@ -1,15 +1,20 @@
 /*
  * Join Flow Test -- verifies DeletePlayerUI (0x17) is sent to the
- * joining player during the NewPlayerInGame response sequence.
+ * joining player during the NewPlayerInGame response sequence, and
+ * DeletePlayerAnim (0x18) is sent to remaining players on disconnect.
  *
  * Issue #59: stock server sends 0x17 after NewPlayerInGame (0x2A)
  * to add the joining player to the engine's internal player list.
  * Without it, the scoreboard UI cannot display any players.
+ *
+ * Issue #102: stock server sends 0x18 as part of the disconnect
+ * cleanup sequence to display "Player X has left" floating text.
  */
 
 #include "test_util.h"
 #include "test_harness.h"
 #include "openbc/game_builders.h"
+#include "openbc/game_events.h"
 #include "openbc/opcodes.h"
 #include "openbc/handshake.h"
 
@@ -308,7 +313,113 @@ cleanup2:
 #undef CHECK
 }
 
+/*
+ * Verify the disconnect cleanup sequence: when a player disconnects,
+ * remaining players receive DeletePlayerUI (0x17) with PLAYER_REMOVED
+ * and DeletePlayerAnim (0x18) with the departing player's name.
+ *
+ * Issue #102: the stock server sends 0x14 + 0x17 + 0x18 on disconnect.
+ */
+TEST(disconnect_sends_delete_player_anim)
+{
+    bool net_ok = false;
+    bool srv_ok = false;
+    bool cli1_ok = false;
+    bool cli2_ok = false;
+    int fail = 0;
+
+    bc_test_server_t srv;
+    bc_test_client_t cli1, cli2;
+    memset(&srv, 0, sizeof(srv));
+    memset(&cli1, 0, sizeof(cli1));
+    memset(&cli2, 0, sizeof(cli2));
+
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        fail++; \
+        goto cleanup3; \
+    } \
+} while (0)
+
+    CHECK(bc_net_init());
+    net_ok = true;
+
+    CHECK(test_server_start(&srv, JF_PORT + 2, MANIFEST_PATH));
+    srv_ok = true;
+
+    /* Connect first client (will remain connected) */
+    CHECK(test_client_connect(&cli1, JF_PORT + 2, "Survivor", 0, GAME_DIR));
+    cli1_ok = true;
+    Sleep(100);
+    test_client_drain(&cli1, 500);
+
+    /* Connect second client (will disconnect) */
+    CHECK(test_client_connect(&cli2, JF_PORT + 2, "Leaver", 0, GAME_DIR));
+    cli2_ok = true;
+    Sleep(100);
+
+    /* Drain the join notification from cli1 (0x17 for cli2 joining) */
+    test_client_drain(&cli1, 500);
+
+    /* Disconnect cli2 -- server should send cleanup notifications to cli1 */
+    test_client_disconnect(&cli2);
+    cli2_ok = false;
+    Sleep(200);  /* Give server time to process disconnect */
+
+    /* cli1 should receive DeletePlayerUI (0x17) with PLAYER_REMOVED */
+    bool got_delete_ui = false;
+    bool got_delete_anim = false;
+    u8 anim_payload[128];
+    int anim_len = 0;
+
+    u32 start = bc_ms_now();
+    while ((int)(bc_ms_now() - start) < 3000) {
+        int msg_len = 0;
+        const u8 *msg = test_client_recv_msg(&cli1, &msg_len, 200);
+        if (!msg) continue;
+
+        if (msg_len > 0 && msg[0] == BC_OP_DELETE_PLAYER_UI) {
+            /* Verify it's a PLAYER_REMOVED event */
+            if (msg_len >= 9) {
+                i32 event_code = read_i32_le(msg + 5);
+                if (event_code == (i32)BC_EVENT_PLAYER_REMOVED)
+                    got_delete_ui = true;
+            }
+        }
+
+        if (msg_len > 0 && msg[0] == BC_OP_DELETE_PLAYER_ANIM) {
+            got_delete_anim = true;
+            anim_len = msg_len < (int)sizeof(anim_payload)
+                     ? msg_len : (int)sizeof(anim_payload);
+            memcpy(anim_payload, msg, (size_t)anim_len);
+        }
+
+        if (got_delete_ui && got_delete_anim) break;
+    }
+
+    CHECK(got_delete_ui);
+    CHECK(got_delete_anim);
+
+    /* Parse the DeletePlayerAnim and verify the player name */
+    bc_delete_player_anim_event_t ev;
+    CHECK(bc_parse_delete_player_anim(anim_payload, anim_len, &ev));
+    CHECK(ev.name_len == 6);  /* "Leaver" */
+    CHECK(strcmp(ev.player_name, "Leaver") == 0);
+
+cleanup3:
+    if (cli2_ok) test_client_disconnect(&cli2);
+    if (cli1_ok) test_client_disconnect(&cli1);
+    Sleep(100);
+    if (srv_ok) test_server_stop(&srv);
+    if (net_ok) bc_net_shutdown();
+    ASSERT(fail == 0);
+
+#undef CHECK
+}
+
 TEST_MAIN_BEGIN()
     RUN(join_sends_delete_player_ui_to_self);
     RUN(join_sends_delete_player_ui_to_others);
+    RUN(disconnect_sends_delete_player_anim);
 TEST_MAIN_END()
