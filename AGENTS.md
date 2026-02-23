@@ -145,7 +145,7 @@ All platforms use `-std=c11 -Wall -Wextra -Wpedantic`. Zero warnings policy.
 ## Project Structure
 
 - `src/` -- C source (checksum, game, json, network, protocol, server)
-- `tests/` -- 11 test suites (unit via `test_util.h`, integration via `test_harness.h`)
+- `tests/` -- 19 test suites (unit via `test_util.h`, integration via `test_harness.h`)
 - `docs/` -- Clean room protocol documentation (the single source of truth)
 - `data/` -- Ship/projectile registry (JSON, machine-generated)
 - `manifests/` -- Hash manifests for file integrity verification

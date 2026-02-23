@@ -72,15 +72,15 @@ All design documents live in `docs/` organized by topic. See [docs/README.md](do
 ```
 src/
 ├── checksum/      # Hash algorithms, manifest validation
-├── game/          # Ship data registry, ship state, movement, combat simulation
+├── game/          # Ship data registry, ship state, power, movement, combat, torpedo tracking
 ├── json/          # Lightweight JSON parser
 ├── network/       # UDP transport, peer management, reliability, GameSpy
 ├── protocol/      # Wire codec, opcodes, handshake, game events
-└── server/        # Main entry point, config, logging
+└── server/        # Main entry point, config, logging, dispatch, state, stats
 tools/             # CLI tools (hash manifest, data scraper, diagnostics)
 data/              # Ship and projectile data (vanilla-1.1/)
 manifests/         # Precomputed hash manifests (vanilla-1.1.json)
-tests/             # 11 test suites (unit + integration)
+tests/             # 19 test suites (unit + integration)
 docs/              # Design documents and protocol reference
 ```
 
@@ -120,12 +120,13 @@ Hard-won bugs — do not repeat:
 ## Key Source Files
 
 - Server entry: `src/server/main.c`
+- Server subsystems: `src/server/{server_state,server_send,server_handshake,server_dispatch,server_stats}.c`
 - Protocol codec/cipher: `src/protocol/{cipher,buffer,opcodes,handshake}.c`
 - Game events & builders: `src/protocol/{game_events,game_builders}.c`
 - Network: `src/network/{net,peer,transport,reliable,gamespy,master}.c`
 - Client transport (test harness side): `src/network/client_transport.c`
 - Checksum: `src/checksum/{string_hash,file_hash,hash_tables,manifest}.c`
-- Game systems: `src/game/{ship_data,ship_state,movement,combat}.c`
+- Game systems: `src/game/{ship_data,ship_state,ship_power,movement,combat,torpedo_tracker}.c`
 - Logging: `src/server/log.c`
 - Test harness helpers: `tests/test_util.h` (unit), `tests/test_harness.h` (integration)
 - Ship/projectile data: `data/vanilla-1.1/`
