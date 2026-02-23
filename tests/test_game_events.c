@@ -246,6 +246,41 @@ TEST(object_create_no_team)
     ASSERT(!hdr.has_team);
 }
 
+/* === RequestObj parser === */
+
+TEST(request_obj_happy_path)
+{
+    u8 buf[8];
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, sizeof(buf));
+    bc_buf_write_u8(&b, BC_OP_REQUEST_OBJ);
+    bc_buf_write_i32(&b, 0x3FFFFFFF + 0x40000);  /* slot 1 ship */
+
+    i32 object_id = 0;
+    ASSERT(bc_parse_request_obj(buf, (int)b.pos, &object_id));
+    ASSERT_EQ_INT(bc_object_id_to_slot(object_id), 1);
+}
+
+TEST(request_obj_truncated)
+{
+    u8 buf[2] = { BC_OP_REQUEST_OBJ, 0x00 };
+
+    i32 object_id = 0;
+    ASSERT(!bc_parse_request_obj(buf, 2, &object_id));
+}
+
+TEST(request_obj_wrong_opcode)
+{
+    u8 buf[8];
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, sizeof(buf));
+    bc_buf_write_u8(&b, BC_OP_OBJ_NOT_FOUND);  /* wrong opcode */
+    bc_buf_write_i32(&b, 0x3FFFFFFF);
+
+    i32 object_id = 0;
+    ASSERT(!bc_parse_request_obj(buf, (int)b.pos, &object_id));
+}
+
 /* === Chat parser === */
 
 static int build_chat(u8 *buf, int buf_size, u8 opcode, u8 slot,
@@ -358,6 +393,11 @@ TEST_MAIN_BEGIN()
     /* ObjectCreate */
     RUN(object_create_team);
     RUN(object_create_no_team);
+
+    /* RequestObj */
+    RUN(request_obj_happy_path);
+    RUN(request_obj_truncated);
+    RUN(request_obj_wrong_opcode);
 
     /* Chat */
     RUN(chat_happy_path);

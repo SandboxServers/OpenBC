@@ -1873,9 +1873,32 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     }
 
     /* --- Request object (C->S, server responds with object data) --- */
-    case BC_OP_REQUEST_OBJ:
-        LOG_DEBUG("game", "slot=%d request object len=%d", peer_slot, payload_len);
+    case BC_OP_REQUEST_OBJ: {
+        i32 requested_id;
+        if (!bc_parse_request_obj(payload, payload_len, &requested_id)) {
+            LOG_WARN("game", "slot=%d malformed RequestObj", peer_slot);
+            break;
+        }
+
+        int owner_slot = find_peer_by_object(requested_id);
+        if (owner_slot > 0 && g_peers.peers[owner_slot].spawn_len > 0) {
+            /* Object exists -- resend its cached ObjCreateTeam */
+            bc_peer_t *owner = &g_peers.peers[owner_slot];
+            bc_queue_reliable(peer_slot, owner->spawn_payload, owner->spawn_len);
+            LOG_INFO("game", "slot=%d RequestObj 0x%08X -> resent spawn from slot %d",
+                     peer_slot, (unsigned)requested_id, owner_slot);
+        } else {
+            /* Object not found -- send ObjNotFound */
+            u8 nf_buf[8];
+            int nf_len = bc_build_obj_not_found(nf_buf, sizeof(nf_buf), requested_id);
+            if (nf_len > 0) {
+                bc_queue_reliable(peer_slot, nf_buf, nf_len);
+            }
+            LOG_INFO("game", "slot=%d RequestObj 0x%08X -> not found",
+                     peer_slot, (unsigned)requested_id);
+        }
         break;
+    }
 
     default:
         g_stats.opcodes_rejected[opcode]++;

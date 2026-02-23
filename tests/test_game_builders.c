@@ -234,6 +234,25 @@ TEST(destroy_obj_5_bytes)
     ASSERT_EQ_INT(bc_object_id_to_slot(ev.object_id), 1);
 }
 
+/* === ObjNotFound === */
+
+TEST(obj_not_found_5_bytes)
+{
+    u8 buf[16];
+    int len = bc_build_obj_not_found(buf, sizeof(buf), bc_make_ship_id(2));
+
+    ASSERT(len == 5);
+    ASSERT_EQ(buf[0], BC_OP_OBJ_NOT_FOUND);
+    ASSERT_EQ_INT(read_i32_le(buf + 1), bc_make_ship_id(2));
+}
+
+TEST(obj_not_found_buffer_too_small)
+{
+    u8 buf[4];
+    int len = bc_build_obj_not_found(buf, sizeof(buf), bc_make_ship_id(0));
+    ASSERT_EQ_INT(len, -1);
+}
+
 /* === Chat === */
 
 TEST(chat_all)
@@ -429,6 +448,10 @@ TEST_MAIN_BEGIN()
 
     /* DestroyObject */
     RUN(destroy_obj_5_bytes);
+
+    /* ObjNotFound */
+    RUN(obj_not_found_5_bytes);
+    RUN(obj_not_found_buffer_too_small);
 
     /* Chat */
     RUN(chat_all);

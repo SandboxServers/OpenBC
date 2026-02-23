@@ -369,6 +369,28 @@ bool bc_parse_host_msg(const u8 *payload, int len)
 }
 
 /*
+ * RequestObj (opcode 0x1E)
+ *
+ * Wire format:
+ *   [0x1E][object_id:i32]
+ *
+ * Total: 5 bytes
+ */
+bool bc_parse_request_obj(const u8 *payload, int len, i32 *out)
+{
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_REQUEST_OBJ) return false;
+
+    if (!bc_buf_read_i32(&buf, out)) return false;
+
+    return true;
+}
+
+/*
  * Chat / Team Chat (opcode 0x2C / 0x2D)
  *
  * Wire format:

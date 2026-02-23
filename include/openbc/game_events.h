@@ -137,4 +137,9 @@ bool bc_parse_set_phaser_level(const u8 *payload, int len,
  * message body.  Returns true iff the single opcode byte is 0x13. */
 bool bc_parse_host_msg(const u8 *payload, int len);
 
+/* RequestObj (0x1E) -- client requests object data.
+ * Wire: [0x1E][object_id:i32], 5 bytes total.
+ * Extracts the requested object_id into *out. */
+bool bc_parse_request_obj(const u8 *payload, int len, i32 *out);
+
 #endif /* OPENBC_GAME_EVENTS_H */
