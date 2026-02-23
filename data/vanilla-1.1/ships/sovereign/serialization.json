@@ -73,11 +73,6 @@
     "power_mode": 0
   },
   {
-    "format": "base",
-    "name": "Bridge",
-    "max_condition": 10000
-  },
-  {
     "format": "powered",
     "name": "Phasers",
     "max_condition": 8000,
@@ -147,5 +142,10 @@
       }
     ],
     "power_mode": 0
+  },
+  {
+    "format": "base",
+    "name": "Bridge",
+    "max_condition": 10000
   }
 ]
