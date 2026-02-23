@@ -406,6 +406,7 @@ static int run_battle(void)
     {
         u8 buf[32];
 
+        /* AddToRepairList: Kirk queues subsystem 5 for repair */
         u8 repair_data[] = { 0xFF, 0xFF, 0xFF, 0x3F, 0x05, 0x00 };
         int len = bc_build_event_forward(buf, sizeof(buf),
                                           BC_OP_ADD_REPAIR_LIST,
@@ -413,6 +414,7 @@ static int run_battle(void)
         BATTLE_ASSERT(len > 0);
         BATTLE_ASSERT(test_client_send_reliable(&g_kirk, buf, len));
 
+        /* RepairPriority: Kirk reorders repair queue */
         u8 priority_data[] = { 0xFF, 0xFF, 0xFF, 0x3F, 0x05, 0x01 };
         len = bc_build_event_forward(buf, sizeof(buf),
                                       BC_OP_REPAIR_PRIORITY,
@@ -422,14 +424,34 @@ static int run_battle(void)
 
         Sleep(200);
 
+        /* Sep receives both — verify byte-identical payload */
         int msg_len = 0;
         const u8 *msg;
         msg = test_client_expect_opcode(&g_sep, BC_OP_ADD_REPAIR_LIST,
                                          &msg_len, TIMEOUT);
         BATTLE_ASSERT(msg != NULL);
+        BATTLE_ASSERT(msg_len == 1 + (int)sizeof(repair_data));
+        BATTLE_ASSERT(msg[0] == BC_OP_ADD_REPAIR_LIST);
+        BATTLE_ASSERT(memcmp(msg + 1, repair_data, sizeof(repair_data)) == 0);
+
         msg = test_client_expect_opcode(&g_sep, BC_OP_REPAIR_PRIORITY,
                                          &msg_len, TIMEOUT);
         BATTLE_ASSERT(msg != NULL);
+        BATTLE_ASSERT(msg_len == 1 + (int)sizeof(priority_data));
+        BATTLE_ASSERT(msg[0] == BC_OP_REPAIR_PRIORITY);
+        BATTLE_ASSERT(memcmp(msg + 1, priority_data,
+                             sizeof(priority_data)) == 0);
+
+        /* Cady also receives both (N-1 relay) */
+        msg = test_client_expect_opcode(&g_cady, BC_OP_ADD_REPAIR_LIST,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        BATTLE_ASSERT(msg[0] == BC_OP_ADD_REPAIR_LIST);
+
+        msg = test_client_expect_opcode(&g_cady, BC_OP_REPAIR_PRIORITY,
+                                         &msg_len, TIMEOUT);
+        BATTLE_ASSERT(msg != NULL);
+        BATTLE_ASSERT(msg[0] == BC_OP_REPAIR_PRIORITY);
     }
 
     /* === Phase 9: COLLISION === */

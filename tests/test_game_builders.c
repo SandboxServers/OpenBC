@@ -419,6 +419,39 @@ TEST(event_forward_generic)
     ASSERT_EQ(buf[3], 0xCC);
 }
 
+TEST(event_forward_add_repair_list)
+{
+    u8 data[] = { 0xFF, 0xFF, 0xFF, 0x3F, 0x05, 0x00 };
+    u8 buf[32];
+    int len = bc_build_event_forward(buf, sizeof(buf),
+                                      BC_OP_ADD_REPAIR_LIST, data, 6);
+
+    ASSERT(len == 7);
+    ASSERT_EQ(buf[0], BC_OP_ADD_REPAIR_LIST);
+    ASSERT(memcmp(buf + 1, data, 6) == 0);
+}
+
+TEST(event_forward_repair_priority)
+{
+    u8 data[] = { 0xFF, 0xFF, 0xFF, 0x3F, 0x05, 0x01 };
+    u8 buf[32];
+    int len = bc_build_event_forward(buf, sizeof(buf),
+                                      BC_OP_REPAIR_PRIORITY, data, 6);
+
+    ASSERT(len == 7);
+    ASSERT_EQ(buf[0], BC_OP_REPAIR_PRIORITY);
+    ASSERT(memcmp(buf + 1, data, 6) == 0);
+}
+
+TEST(event_forward_buffer_overflow)
+{
+    u8 data[] = { 0xAA, 0xBB, 0xCC };
+    u8 buf[3]; /* too small for opcode + 3 bytes */
+    int len = bc_build_event_forward(buf, sizeof(buf),
+                                      BC_OP_ADD_REPAIR_LIST, data, 3);
+    ASSERT(len == -1);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -471,4 +504,7 @@ TEST_MAIN_BEGIN()
 
     /* Event forward */
     RUN(event_forward_generic);
+    RUN(event_forward_add_repair_list);
+    RUN(event_forward_repair_priority);
+    RUN(event_forward_buffer_overflow);
 TEST_MAIN_END()
