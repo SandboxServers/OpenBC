@@ -59,7 +59,7 @@ Complete table of observed game-level opcodes. Frequency data from the "Battle o
 | 0x15 | CollisionEffect | C->S | reliable | 317 | Collision damage report (C->S only, server never relays) |
 | 0x16 | UICollisionSetting | S->C | reliable | at join | Collision toggle bit |
 | 0x17 | DeletePlayerUI | S->C | reliable | at join/leave | Player UI cleanup |
-| 0x18 | DeletePlayerAnim | S->C | reliable | -- | Player deletion animation |
+| 0x18 | DeletePlayerAnim | S->C | reliable | 0 | Player notification text ([wire format](../wire-formats/delete-player-anim-wire-format.md)). **Crash risk**: stock client crashes if TGL resource missing |
 | 0x19 | TorpedoFire | owner->all | reliable | 1,090 | Torpedo launch |
 | 0x1A | BeamFire | owner->all | reliable | 157 | Beam weapon hit |
 | 0x1B | TorpTypeChange | any | reliable | 13 | Torpedo type switch |

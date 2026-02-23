@@ -120,7 +120,9 @@ Offset  Size  Type    Field
 1       var   stream  player_name + animation_data
 ```
 
-The client receiving this message creates a temporary floating text element displaying the player's name with a departure message. Based on the mission script resource files, the text template is loaded from the `Multiplayer.tgl` resource file under the key `"Delete_Player"`, and the animation displays for approximately 5 seconds.
+The client receiving this message creates a temporary floating text element displaying the player's name with a departure message. The text template is loaded from the `data/TGL/Multiplayer.tgl` resource file under the key `"Delete Player"`, and the animation displays for approximately 5 seconds.
+
+**Client crash risk**: The stock client performs **no validation** on the TGL resource lookup result before passing it to a string conversion function. If `data/TGL/Multiplayer.tgl` is missing, corrupt, or does not contain the `"Delete Player"` entry, the client will crash with an access violation. The same vulnerability exists in the "New Player" join notification handler, which uses the same TGL file but looks up the `"New Player"` entry. An OpenBC reimplementation must validate TGL lookup results in both paths. See [../wire-formats/delete-player-anim-wire-format.md](../wire-formats/delete-player-anim-wire-format.md) for details.
 
 **Trace note**: 0 instances of opcode 0x18 were observed in either trace, consistent with no player disconnects occurring.
 
