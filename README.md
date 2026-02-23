@@ -41,17 +41,22 @@ All of these features work in our test harness and generate correct wire-format 
 - Power system: reactor/battery/conduit simulation, 10Hz subsystem health broadcast, sign-bit encoding
 - PythonEvent generation: subsystem damage/repair events, ship explosion events, score tracking
 - Respawn system with configurable timer and frag/time limit win conditions
+- Self-destruct system with countdown, abort, and explosion damage
+- Ship death lifecycle: destruction sequence, delete-player animation, respawn coordination
 - Chat (global and team), lobby and in-game
 - GameSpy LAN browser and internet master server registration
 - Reliable delivery with retransmit, sequencing, and fragment reassembly
 - Dynamic AI battles with seeded RNG
 - Manifest auto-detection, session summary at shutdown, graceful shutdown handling
+- Subsystem integrity validation and anticheat checks
+- Player slot identity tracking and security validation
+- Restart authorization flow
 
 ### Project facts
 
 - Ship data registry: 16 ships, 15 projectile types loaded from JSON
 - Cross-platform: builds natively on Linux and macOS, cross-compiles to Win32 via MinGW
-- 11 test suites, 226 tests, 1,184 assertions
+- 19 test suites, 290 tests, 1,369 assertions
 
 ## Quick Start
 
@@ -59,7 +64,7 @@ All of these features work in our test harness and generate correct wire-format 
 
 ```
 make all     # builds openbc-hash and openbc-server
-make test    # runs all 11 test suites
+make test    # runs all 19 test suites
 ./build/openbc-server [options]
 ```
 
@@ -67,7 +72,7 @@ make test    # runs all 11 test suites
 
 ```
 make all PLATFORM=Windows   # builds openbc-hash.exe and openbc-server.exe
-make test PLATFORM=Windows  # runs all 11 test suites (WSL2 runs .exe natively)
+make test PLATFORM=Windows  # runs all 19 test suites (WSL2 runs .exe natively)
 ```
 
 Prerequisites: a C11 compiler (`cc` on Linux/macOS, `i686-w64-mingw32-gcc` for Windows cross-compile), and Make.
@@ -137,7 +142,7 @@ src/
   network/     UDP transport, peer management, reliability, GameSpy
   protocol/    Wire codec, opcodes, handshake, game events
   server/      Entry point, configuration, logging
-tests/         11 test suites (unit + integration)
+tests/         19 test suites (unit + integration)
 tools/         CLI tools (hash manifest generator, data scraper, diagnostics)
 data/          Ship and projectile data (vanilla-1.1/)
 manifests/     Precomputed hash manifests (vanilla-1.1.json)
@@ -207,7 +212,8 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 - [Checksum Handshake](docs/wire-formats/checksum-handshake-protocol.md) -- Hash algorithms, 5-round checksum exchange
 - [Disconnect Flow](docs/network-flows/disconnect-flow.md) -- Player disconnect detection and cleanup
 - [Wire Format Audit](docs/network-flows/wire-format-audit.md) -- Audit of wire format implementation vs spec
-- Wire format specs: [ObjCreate](docs/wire-formats/objcreate-wire-format.md), [StateUpdate](docs/wire-formats/stateupdate-wire-format.md), [CollisionEffect](docs/wire-formats/collision-effect-wire-format.md), [Explosion](docs/wire-formats/explosion-wire-format.md)
+- Wire format specs: [ObjCreate](docs/wire-formats/objcreate-wire-format.md), [StateUpdate](docs/wire-formats/stateupdate-wire-format.md), [CollisionEffect](docs/wire-formats/collision-effect-wire-format.md), [Explosion](docs/wire-formats/explosion-wire-format.md), [DeletePlayerAnim](docs/wire-formats/delete-player-anim-wire-format.md), [DeletePlayerUI](docs/wire-formats/delete-player-ui-wire-format.md), [EventForward](docs/wire-formats/event-forward-wire-format.md), [SetPhaserLevel](docs/wire-formats/set-phaser-level-wire-format.md), [ScriptMessage](docs/wire-formats/script-message-wire-format.md)
+- [Per-Ship Subsystem Wire Format](docs/wire-formats/per-ship-subsystem-wire-format.md) -- All 16 stock ships' subsystem serialization order
 - [ObjCreate Unknown Species](docs/bugs/objcreate-unknown-species.md) -- Behavior when species index exceeds client ship table
 
 **Game Systems:**
@@ -217,10 +223,12 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 - [Ship Subsystems](docs/game-systems/ship-subsystems.md) -- Fixed subsystem index table, HP values, StateUpdate serialization
 - [Collision Detection](docs/game-systems/collision-detection-system.md) -- Collision damage scaling, dual damage paths
 - [Collision Shield Interaction](docs/game-systems/collision-shield-interaction.md) -- Shield absorption during collisions
+- [Self-Destruct System](docs/game-systems/self-destruct-system.md) -- Countdown, abort, explosion damage, wire events
+- [Ship Death Lifecycle](docs/game-systems/ship-death-lifecycle.md) -- Destruction sequence, delete-player animation, respawn
 - [PythonEvent Wire Format](docs/wire-formats/pythonevent-wire-format.md) -- Factory IDs, event types, subsystem and explosion events
 
 **Testing & Tools:**
-- [Test Suite](tests/README.md) -- 11 test suites, test frameworks, adding new tests
+- [Test Suite](tests/README.md) -- 19 test suites, test frameworks, adding new tests
 - [Tools](tools/README.md) -- CLI tools, data scraper, diagnostic utilities
 
 ## Contributing
