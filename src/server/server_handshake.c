@@ -395,10 +395,20 @@ void bc_handle_peer_disconnect(int slot)
             if (len > 0) bc_relay_to_others(slot, payload, len, true);
         }
 
-        /* 3. DeletePlayerAnim (0x18) -- "Player X has left" notification */
+        /* 3. DeletePlayerAnim (0x18) -- "Player X has left" notification.
+         * Cosmetic only: the client loads data/TGL/Multiplayer.tgl to
+         * format the floating text.  Skipped if the player name is empty
+         * (builder returns -1) since the notification is meaningless
+         * without a name, and sending an empty name could trigger the
+         * stock client's TGL lookup crash (see issue #92). */
         len = bc_delete_player_anim_build(payload, sizeof(payload),
                                            g_peers.peers[slot].name);
-        if (len > 0) bc_relay_to_others(slot, payload, len, true);
+        if (len > 0) {
+            bc_relay_to_others(slot, payload, len, true);
+        } else {
+            LOG_WARN("net", "Skipping DeletePlayerAnim for slot %d "
+                     "(empty or invalid player name)", slot);
+        }
 
         LOG_DEBUG("net", "Sent disconnect notifications for slot %d "
                   "(DestroyObj+DeletePlayerUI+DeletePlayerAnim)", slot);
