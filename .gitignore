@@ -41,3 +41,5 @@ mods/*
 logs/packet_trace.log
 
 books/*
+
+.claude/worktrees/*
