@@ -104,6 +104,10 @@ int bc_build_score_init(u8 *buf, int buf_size,
 int bc_build_team_score(u8 *buf, int buf_size,
                          u8 team_id, i32 team_kills, i32 team_score);
 
+/* TeamMessage: [0x41][player_id:i32][team_id:u8]
+ * 6 bytes total. Assigns a player to a team. */
+int bc_build_team_message(u8 *buf, int buf_size, i32 player_id, u8 team_id);
+
 /* EndGame: [0x38][reason:i32]
  * 5 bytes total. Sent when frag/time limit reached.
  * Reason codes: 0=over, 1=time_up, 2=frag_limit, 3=score_limit,

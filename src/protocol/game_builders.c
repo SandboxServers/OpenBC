@@ -174,6 +174,19 @@ int bc_build_score_change(u8 *buf, int buf_size,
     return (int)b.pos;
 }
 
+int bc_build_team_message(u8 *buf, int buf_size, i32 player_id, u8 team_id)
+{
+    /* Wire: [0x41][player_id:i32][team_id:u8] */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_MSG_TEAM_MESSAGE)) return -1;
+    if (!bc_buf_write_i32(&b, player_id)) return -1;
+    if (!bc_buf_write_u8(&b, team_id)) return -1;
+
+    return (int)b.pos;
+}
+
 int bc_build_end_game(u8 *buf, int buf_size, i32 reason)
 {
     /* Wire format (from stock MissionShared.py ReceiveEndGameMessage):
