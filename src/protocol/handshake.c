@@ -186,19 +186,24 @@ int bc_delete_player_anim_build(u8 *buf, int buf_size,
                                  const char *player_name)
 {
     /* Wire format: [0x18][name_len:u16][name:bytes]
-     * Triggers a "Player X has left" floating notification.
-     * The exact animation fields after the name are unknown (no trace
-     * captures exist), so we send name only -- the client may accept
-     * just the name length for its template. */
-    int name_len = player_name ? (int)strlen(player_name) : 0;
+     * Triggers a "Player X has left" floating notification on the client.
+     *
+     * The client loads data/TGL/Multiplayer.tgl and looks up "Delete Player"
+     * to format the notification text.  The stock client crashes if the TGL
+     * file is missing or corrupt (no pointer validation on lookup result).
+     * A headless server never loads TGL -- this builder just constructs the
+     * wire message.  Reject empty names since the notification is cosmetic
+     * and meaningless without a player name to display. */
+    if (!player_name || player_name[0] == '\0') return -1;
+
+    int name_len = (int)strlen(player_name);
     int total = 3 + name_len;  /* opcode + u16 len + name bytes */
     if (total > buf_size) return -1;
 
     buf[0] = BC_OP_DELETE_PLAYER_ANIM;
     buf[1] = (u8)(name_len & 0xFF);
     buf[2] = (u8)((name_len >> 8) & 0xFF);
-    if (name_len > 0)
-        memcpy(buf + 3, player_name, (size_t)name_len);
+    memcpy(buf + 3, player_name, (size_t)name_len);
     return total;
 }
 

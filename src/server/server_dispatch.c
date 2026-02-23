@@ -1323,6 +1323,18 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* --- NewPlayerInGame (C->S, triggers MissionInit) --- */
     case BC_OP_NEW_PLAYER_IN_GAME: {
+        /* NewPlayerInGame (0x2A): client signals it is ready for gameplay.
+         * Wire format: [0x2A][bitpacked bool: 0x20].
+         * When relayed to other clients, their event handlers fire and
+         * load data/TGL/Multiplayer.tgl to display a "New Player"
+         * notification.  The stock client crashes if TGL is missing
+         * (see issue #92) -- that's a client-side bug we can't fix,
+         * but we validate the payload before relaying. */
+        if (payload_len < 2) {
+            LOG_WARN("handshake", "slot=%d NewPlayerInGame too short (%d bytes)",
+                     peer_slot, payload_len);
+            break;
+        }
         LOG_INFO("handshake", "slot=%d sent NewPlayerInGame", peer_slot);
         peer->state = PEER_IN_GAME;
         /* Relay to all other peers so they know about the new player */
