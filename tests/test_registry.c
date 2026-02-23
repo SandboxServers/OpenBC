@@ -359,7 +359,7 @@ TEST(ship_serialize_galaxy)
     u8 blob[1024];
     int len = bc_ship_serialize(&ship, cls, blob, (int)sizeof(blob));
     ASSERT(len > 0);
-    /* Minimum: 4(oid) + 2(species) + 12(pos) + 16(quat) + 24(fwd+up)
+    /* Minimum: 4(oid) + 1(species) + 12(pos) + 16(quat) + 24(fwd+up)
      * + 4(speed) + 4(hull) + 24(shields) + 2(ss_count) + 4*N(ss_hp) + 2 */
     ASSERT(len > 80);
 }
