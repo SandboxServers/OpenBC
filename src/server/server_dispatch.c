@@ -1515,6 +1515,16 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         bc_relay_to_others(peer_slot, payload, payload_len, true);
 
         if (g_registry_loaded && g_collision_dmg) {
+            /* Rate limit: skip damage if this ship's collision cooldown is active.
+             * Stock BC processes ~0.04 collisions/sec; without this cap, clients
+             * grinding against objects send ~43/sec (1,033x stock rate).
+             * The visual relay above still goes through for effect feedback. */
+            if (peer->has_ship && peer->ship.collision_cooldown > 0.0f) {
+                LOG_DEBUG("combat", "slot=%d collision rate-limited (%.2fs remaining)",
+                          peer_slot, peer->ship.collision_cooldown);
+                break;
+            }
+
             bc_collision_event_t cev;
             if (!bc_parse_collision_effect(payload, payload_len, &cev)) {
                 LOG_WARN("game", "slot=%d failed to parse CollisionEffect", peer_slot);
@@ -1714,6 +1724,13 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                     }
                 }
             }
+
+            /* Set collision cooldown on the sender to rate-limit.
+             * 1 second matches approximate stock BC behavior (~0.04/sec
+             * in normal gameplay; 1/sec is generous but eliminates the
+             * 43/sec flood from grinding contacts). */
+            if (peer->has_ship)
+                peer->ship.collision_cooldown = 1.0f;
 
             /* Ship-vs-ship: also damage the source ship */
             if (cev.source_object_id != 0) {

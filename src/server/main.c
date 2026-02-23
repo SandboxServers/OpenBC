@@ -717,6 +717,13 @@ int main(int argc, char **argv)
                         bc_registry_get_ship(&g_registry, p->class_index);
                     if (!cls) continue;
 
+                    /* Collision cooldown decay */
+                    if (p->ship.collision_cooldown > 0.0f) {
+                        p->ship.collision_cooldown -= dt;
+                        if (p->ship.collision_cooldown < 0.0f)
+                            p->ship.collision_cooldown = 0.0f;
+                    }
+
                     /* Reactor: generate power, compute per-subsystem efficiency */
                     bc_ship_power_tick(&p->ship, cls, dt);
 

@@ -154,6 +154,14 @@ static void load_serialization_list(bc_ship_class_t *ship, const json_value_t *a
         int flat_idx = ename ? find_subsys_by_name(ship, ename) : -1;
         if (flat_idx >= 0) {
             e->hp_index = flat_idx;
+            /* Use the flat subsystem's max_condition as the canonical value.
+             * HP is initialized from the flat array (bc_ship_init), so the
+             * serialization entry must use the same denominator for
+             * encode_condition() and power_tick condition_pct to be correct.
+             * Without this, ships where subsystems.json and serialization.json
+             * disagree on max_condition (e.g. Galor warp core: 3200 vs 5000)
+             * spawn with condition_pct < 1.0 and reduced/zero power. */
+            e->max_condition = ship->subsystems[flat_idx].max_condition;
         } else {
             /* Container not in flat array — allocate a new HP slot */
             e->hp_index = next_hp_slot;
