@@ -2064,14 +2064,16 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
                             }
                         }
                     }
-                    /* Cache the raw keepalive payload so we can echo it back.
-                     * Stock dedi mirrors the client's identity data in its
-                     * keepalive responses (22 bytes, same format). */
-                    if (tmsg->payload_len <= (int)sizeof(peer->keepalive_data)) {
-                        memcpy(peer->keepalive_data, tmsg->payload,
-                               (size_t)tmsg->payload_len);
-                        peer->keepalive_len = tmsg->payload_len;
-                    }
+                }
+                /* Cache the raw keepalive payload so we can echo it back.
+                 * Stock dedi mirrors the client's identity data in its
+                 * keepalive responses (22 bytes, same format).  Update on
+                 * every keepalive, not just the first, so the cache stays
+                 * current throughout the session. */
+                if (tmsg->payload_len <= (int)sizeof(peer->keepalive_data)) {
+                    memcpy(peer->keepalive_data, tmsg->payload,
+                           (size_t)tmsg->payload_len);
+                    peer->keepalive_len = tmsg->payload_len;
                 }
             }
             continue;  /* Keepalives are never game data */

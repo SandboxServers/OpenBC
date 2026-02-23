@@ -1600,6 +1600,40 @@ TEST(outbox_keepalive)
     ASSERT_EQ_INT(parsed.msgs[0].payload_len, 0);
 }
 
+TEST(outbox_keepalive_echo)
+{
+    /* Simulate the stock dedi behavior: echo the client's 20-byte identity
+     * payload back as a type 0x00 keepalive.  The payload contains
+     * [flags:1][?:2][slot:1][ip:4][name_utf16le:12] = 20 bytes.
+     * On the wire: [0x00][totalLen=22][payload...]. */
+    u8 client_payload[20] = {
+        0x00,                   /* flags */
+        0x00, 0x00,             /* unknown */
+        0x02,                   /* slot */
+        0xC0, 0xA8, 0x01, 0x64, /* IP 192.168.1.100 */
+        'T', 0, 'e', 0, 's', 0, 't', 0, 0, 0, 0, 0  /* "Test" UTF-16LE + null */
+    };
+
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    ASSERT(bc_outbox_add_keepalive_data(&outbox, client_payload, 20));
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    int len = bc_outbox_flush_to_buf(&outbox, pkt, sizeof(pkt));
+    ASSERT(len == 24);  /* 2 pkt header + 2 keepalive header + 20 payload */
+
+    /* Parse back: should be a single type 0x00 message with the payload */
+    bc_packet_t parsed;
+    ASSERT(bc_transport_parse(pkt, len, &parsed));
+    ASSERT_EQ_INT(parsed.msg_count, 1);
+    ASSERT_EQ(parsed.msgs[0].type, BC_TRANSPORT_KEEPALIVE);
+    ASSERT_EQ_INT(parsed.msgs[0].payload_len, 20);
+
+    /* Verify the payload matches what the client sent */
+    ASSERT(memcmp(parsed.msgs[0].payload, client_payload, 20) == 0);
+}
+
 /* === Direction byte tests === */
 
 TEST(direction_byte_client_encoding)
@@ -1765,6 +1799,7 @@ TEST_MAIN_BEGIN()
     RUN(outbox_empty_flush);
     RUN(outbox_reliable_seq_format);
     RUN(outbox_keepalive);
+    RUN(outbox_keepalive_echo);
 
     /* Shutdown notify */
     RUN(shutdown_notify_format);
