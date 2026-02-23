@@ -1,5 +1,6 @@
 #include "test_util.h"
 #include "openbc/game_events.h"
+#include "openbc/handshake.h"
 #include "openbc/buffer.h"
 #include "openbc/opcodes.h"
 #include <string.h>
@@ -364,6 +365,69 @@ TEST(host_msg_extra_bytes)
     ASSERT(bc_parse_host_msg(buf, 4));
 }
 
+/* === DeletePlayerAnim (0x18) parser === */
+
+TEST(delete_player_anim_happy_path)
+{
+    /* Build a valid 0x18 message: [0x18][len:u16 LE]["Cady"] */
+    u8 buf[] = { 0x18, 0x04, 0x00, 'C', 'a', 'd', 'y' };
+    bc_delete_player_anim_event_t ev;
+    ASSERT(bc_parse_delete_player_anim(buf, sizeof(buf), &ev));
+    ASSERT_EQ_INT(ev.name_len, 4);
+    ASSERT(memcmp(ev.player_name, "Cady", 4) == 0);
+    ASSERT_EQ(ev.player_name[4], '\0');  /* null-terminated */
+}
+
+TEST(delete_player_anim_long_name)
+{
+    /* 16-char name */
+    u8 buf[3 + 16];
+    buf[0] = 0x18;
+    buf[1] = 16;
+    buf[2] = 0;
+    memcpy(buf + 3, "SixteenCharName!", 16);
+    bc_delete_player_anim_event_t ev;
+    ASSERT(bc_parse_delete_player_anim(buf, sizeof(buf), &ev));
+    ASSERT_EQ_INT(ev.name_len, 16);
+    ASSERT(memcmp(ev.player_name, "SixteenCharName!", 16) == 0);
+}
+
+TEST(delete_player_anim_truncated)
+{
+    /* Name length says 4 but only 2 bytes available */
+    u8 buf[] = { 0x18, 0x04, 0x00, 'A', 'B' };
+    bc_delete_player_anim_event_t ev;
+    ASSERT(!bc_parse_delete_player_anim(buf, sizeof(buf), &ev));
+}
+
+TEST(delete_player_anim_wrong_opcode)
+{
+    u8 buf[] = { 0x14, 0x02, 0x00, 'A', 'B' };
+    bc_delete_player_anim_event_t ev;
+    ASSERT(!bc_parse_delete_player_anim(buf, sizeof(buf), &ev));
+}
+
+TEST(delete_player_anim_too_short)
+{
+    /* Just the opcode byte -- missing name_len */
+    u8 buf[] = { 0x18 };
+    bc_delete_player_anim_event_t ev;
+    ASSERT(!bc_parse_delete_player_anim(buf, 1, &ev));
+}
+
+TEST(delete_player_anim_roundtrip)
+{
+    /* Build with bc_delete_player_anim_build, parse with bc_parse_delete_player_anim */
+    u8 wire[128];
+    int wire_len = bc_delete_player_anim_build(wire, sizeof(wire), "TestPlayer");
+    ASSERT(wire_len > 0);
+
+    bc_delete_player_anim_event_t ev;
+    ASSERT(bc_parse_delete_player_anim(wire, wire_len, &ev));
+    ASSERT_EQ_INT(ev.name_len, 10);
+    ASSERT(strcmp(ev.player_name, "TestPlayer") == 0);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -409,4 +473,12 @@ TEST_MAIN_BEGIN()
     RUN(host_msg_wrong_opcode);
     RUN(host_msg_empty);
     RUN(host_msg_extra_bytes);
+
+    /* DeletePlayerAnim (0x18) */
+    RUN(delete_player_anim_happy_path);
+    RUN(delete_player_anim_long_name);
+    RUN(delete_player_anim_truncated);
+    RUN(delete_player_anim_wrong_opcode);
+    RUN(delete_player_anim_too_short);
+    RUN(delete_player_anim_roundtrip);
 TEST_MAIN_END()

@@ -142,4 +142,15 @@ bool bc_parse_host_msg(const u8 *payload, int len);
  * Extracts the requested object_id into *out. */
 bool bc_parse_request_obj(const u8 *payload, int len, i32 *out);
 
+/* DeletePlayerAnim (0x18) -- player join/leave floating notification.
+ * Wire: [0x18][name_len:u16 LE][name:bytes]
+ * Extracts the player name (not null-terminated in wire format). */
+typedef struct {
+    char player_name[64];
+    int  name_len;
+} bc_delete_player_anim_event_t;
+
+bool bc_parse_delete_player_anim(const u8 *payload, int len,
+                                  bc_delete_player_anim_event_t *out);
+
 #endif /* OPENBC_GAME_EVENTS_H */

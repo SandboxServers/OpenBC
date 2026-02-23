@@ -433,3 +433,43 @@ bool bc_parse_chat_message(const u8 *payload, int len, bc_chat_event_t *out)
 
     return true;
 }
+
+/*
+ * DeletePlayerAnim (opcode 0x18)
+ *
+ * Wire format:
+ *   [0x18][name_len:u16 LE][name:bytes]
+ *
+ * Minimum: 3 bytes (empty name, though builder rejects empty names)
+ */
+bool bc_parse_delete_player_anim(const u8 *payload, int len,
+                                  bc_delete_player_anim_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_DELETE_PLAYER_ANIM) return false;
+
+    u16 name_len;
+    if (!bc_buf_read_u16(&buf, &name_len)) return false;
+
+    /* Clamp to output buffer size (leave room for null terminator) */
+    int copy_len = (int)name_len;
+    if (copy_len > (int)sizeof(out->player_name) - 1)
+        copy_len = (int)sizeof(out->player_name) - 1;
+    if ((size_t)copy_len > bc_buf_remaining(&buf))
+        return false;  /* Truncated payload */
+
+    if (copy_len > 0) {
+        if (!bc_buf_read_bytes(&buf, (u8 *)out->player_name, (size_t)copy_len))
+            return false;
+    }
+    out->player_name[copy_len] = '\0';
+    out->name_len = copy_len;
+
+    return true;
+}
