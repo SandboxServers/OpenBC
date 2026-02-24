@@ -22,15 +22,17 @@ See also:
 ```
 Weapon (base)
   ├── EnergyWeapon
-  │     └── PhaserBank
+  │     ├── PhaserBank
+  │     └── TractorBeamProjector (see tractor-beam-system.md)
   └── TorpedoTube
-  └── TractorBeamProjector (see tractor-beam-system.md)
 
 WeaponSystem (container, holds N weapons)
   ├── PhaserSystem (inherits WeaponSystem)
   ├── TorpedoSystem (inherits WeaponSystem)
   └── TractorBeamSystem (see tractor-beam-system.md)
 ```
+
+TractorBeamProjector inherits from EnergyWeapon, sharing its charge/recharge fields (MaxCharge, MinFiringCharge, NormalDischargeRate, RechargeRate). See [tractor-beam-system.md](tractor-beam-system.md) for tractor-specific behavior.
 
 ---
 
@@ -100,11 +102,15 @@ if chargeLevel <= 0:
 ### Phaser Damage Per Tick
 
 ```
-charge_ratio = min(currentCharge / maxDamageDistance, 1.0)
-damage = maxDamage * (powerLevel * parentSystemPower) * charge_ratio * intensityScale[mode] * dt
+distance_ratio = min(maxDamageDistance / beamDistance, 1.0)
+damage = maxDamage * (powerLevel * parentSystemPower) * distance_ratio * intensityScale[mode] * dt
 ```
 
-Where `parentSystemPower` is the overall PhaserSystem's power percentage.
+Where:
+- `beamDistance` = actual distance from the phaser emitter to the beam hit point
+- `maxDamageDistance` = hardpoint property (e.g., 70.0 for Sovereign phasers)
+- `parentSystemPower` is the overall PhaserSystem's power percentage
+- Within `maxDamageDistance`: full damage (ratio clamped to 1.0). Beyond: linear falloff.
 
 ### Phaser Intensity Network Opcode
 
@@ -291,7 +297,7 @@ This means weapon damage can differ slightly between clients. The host's subsyst
 | INTENSITY_STOPPED | 3 | Charge depleted / not firing |
 | TORPEDO_TIMER_LOADED | -1.0 | Timer slot value meaning "loaded/ready" |
 | TORPEDO_TIMER_EMPTY | 0.0 | Timer slot value meaning "cooldown started" |
-| CHARGE_RATIO_CAP | 1.0 | Maximum charge ratio for damage calculation |
+| DISTANCE_RATIO_CAP | 1.0 | Maximum distance ratio for damage calculation |
 
 ---
 

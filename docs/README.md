@@ -17,6 +17,22 @@ Navigation index for all design documents, protocol references, and system speci
 | [guides/](guides/) | Coding patterns, cross-platform portability, tech stack gotchas | [coding-patterns.md](guides/coding-patterns.md) |
 | [archive/](archive/) | Historical planning documents kept for reference | [phase1-requirements.md](archive/phase1-requirements.md) |
 
+## Recent Additions
+
+### Game Systems (`game-systems/`)
+- [shield-system.md](game-systems/shield-system.md) — 6-facing ellipsoid shields, recharge formula, cloak delay
+- [weapon-system.md](game-systems/weapon-system.md) — Phaser charge/discharge, torpedo reload, CanFire gates
+- [cloaking-system.md](game-systems/cloaking-system.md) — 4-state cloak machine, shield interaction, energy failure
+- [tractor-beam-system.md](game-systems/tractor-beam-system.md) — 6 modes, force computation, speed drag
+
+### Wire Formats (`wire-formats/`)
+- [tgobjptrevent-wire-format.md](wire-formats/tgobjptrevent-wire-format.md) — TGObjPtrEvent (factory 0x010C), 45% of combat PythonEvents
+- [objnotfound-requestobj-wire-format.md](wire-formats/objnotfound-requestobj-wire-format.md) — Object recovery protocol (opcodes 0x1D/0x1E)
+- [enter-set-wire-format.md](wire-formats/enter-set-wire-format.md) — EnterSet (opcode 0x1F), multi-zone missions
+
+### Protocol (`protocol/`)
+- [stream-primitives.md](protocol/stream-primitives.md) — CF16 encoding, bit packing, CompressedVector3/4
+
 ## Quick Reference
 
 **Building a new opcode handler?** Start with [protocol-reference.md](protocol/protocol-reference.md) for the opcode table, then check [wire-formats/](wire-formats/) for the specific opcode's wire format.

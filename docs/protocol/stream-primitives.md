@@ -225,8 +225,14 @@ Offset  Size  Type    Field
 ```
 function WriteCompressedVector3(dx, dy, dz):
     magnitude = sqrt(dx*dx + dy*dy + dz*dz)
+
     if magnitude <= epsilon:
-        magnitude = 0.0
+        // Zero vector: write zero direction and zero magnitude
+        write_byte(0)
+        write_byte(0)
+        write_byte(0)
+        write_uint16(CF16_Encode(0.0))
+        return
 
     dirX = truncate_to_byte(dx / magnitude * DIRECTION_SCALE)
     dirY = truncate_to_byte(dy / magnitude * DIRECTION_SCALE)

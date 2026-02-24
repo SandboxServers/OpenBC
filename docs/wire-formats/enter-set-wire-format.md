@@ -1,6 +1,6 @@
 # EnterSet Wire Format (Opcode 0x1F)
 
-Wire format specification for the EnterSet message in Bridge Commander multiplayer, documented from network packet captures, the game's shipped Python scripting API, and confirmed via binary analysis.
+Wire format specification for the EnterSet message in Bridge Commander multiplayer, documented from network packet captures and the game's shipped Python scripting API.
 
 **Clean room statement**: This document contains no decompiled code, no binary addresses, no internal memory offsets, and no handler function names. All formats are derived from observable wire data, protocol structure analysis, and the public SWIG scripting API.
 
@@ -57,7 +57,7 @@ Source: `scripts/Multiplayer/SpeciesToSystem.py` (shipped with the game). Custom
 
 When the host receives an EnterSet message:
 
-1. **Look up the ship** by `objectID`. If not found, send a RequestObj (0x1E) back to the source (the host itself, connection 0) and stop.
+1. **Look up the ship** by `objectID`. If not found, send an ObjNotFound (0x1D) response back to the originating client connection and stop. (Note: EnterSet is Client → Host, so the "source" here is the client that sent the message, not the host. The host should direct the recovery response to that client.)
 
 2. **Validate**: the ship must have a warp engine subsystem AND must not currently be mid-warp-transition.
 
