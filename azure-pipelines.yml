@@ -10,6 +10,7 @@ pr:
 
 jobs:
 - job: Build
+  timeoutInMinutes: 15
   strategy:
     matrix:
       Linux:
@@ -27,10 +28,11 @@ jobs:
   steps:
   - checkout: self
 
-  # Windows: install MinGW-w64 toolchain via pre-installed MSYS2
+  # Windows: install 32-bit MinGW toolchain via pre-installed MSYS2
+  # (matches cross-compile target: i686-w64-mingw32-gcc)
   - script: |
-      set MSYSTEM=MINGW64
-      C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-gcc make"
+      set MSYSTEM=MINGW32
+      C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm --needed mingw-w64-i686-gcc make"
     condition: eq(variables['Agent.OS'], 'Windows_NT')
     displayName: 'Install MSYS2 toolchain'
 
@@ -39,9 +41,9 @@ jobs:
     condition: ne(variables['Agent.OS'], 'Windows_NT')
     displayName: 'Build and test'
 
-  # Windows: build and test inside MSYS2 MINGW64 shell
+  # Windows: build and test inside MSYS2 MINGW32 shell
   - script: |
-      set MSYSTEM=MINGW64
+      set MSYSTEM=MINGW32
       C:\msys64\usr\bin\bash -lc "cd '%BUILD_SOURCESDIRECTORY%' && make all PLATFORM=Windows CC=gcc && make test PLATFORM=Windows CC=gcc"
     condition: eq(variables['Agent.OS'], 'Windows_NT')
     displayName: 'Build and test (MSYS2)'
