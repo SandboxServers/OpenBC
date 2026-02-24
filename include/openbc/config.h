@@ -25,6 +25,9 @@ typedef struct {
  */
 typedef struct {
     char        name[64];
+    /* SECURITY: dll/lua paths are admin-controlled in server.toml today.
+     * When module loading is added, enforce allowlisted base directories and
+     * reject traversal sequences (e.g. "../"). */
     char        dll[256];
     char        lua[256];
     obc_mod_kv_t kv[OBC_CFG_MODCFG_MAX];

@@ -50,18 +50,18 @@ static char* STRNDUP(const char* s, size_t n) {
 
 // Unparsed values.
 typedef const char* toml_unparsed_t;
-toml_unparsed_t     toml_table_unparsed(const toml_table_t* table, const char* key);
-toml_unparsed_t     toml_array_unparsed(const toml_array_t* array, int idx);
-int                 toml_value_string(toml_unparsed_t s, char** ret, int* len);
-int                 toml_value_bool(toml_unparsed_t s, bool* ret);
-int                 toml_value_int(toml_unparsed_t s, int64_t* ret);
-int                 toml_value_double(toml_unparsed_t s, double* ret);
-int                 toml_value_timestamp(toml_unparsed_t s, toml_timestamp_t* ret);
+static toml_unparsed_t toml_table_unparsed(const toml_table_t* table, const char* key);
+static toml_unparsed_t toml_array_unparsed(const toml_array_t* array, int idx);
+static int             toml_value_string(toml_unparsed_t s, char** ret, int* len);
+static int             toml_value_bool(toml_unparsed_t s, bool* ret);
+static int             toml_value_int(toml_unparsed_t s, int64_t* ret);
+static int             toml_value_double(toml_unparsed_t s, double* ret);
+static int             toml_value_timestamp(toml_unparsed_t s, toml_timestamp_t* ret);
 
 // Convert escape to UTF-8; return #bytes used in buf to encode the char, or -1
 // on error.
 // http://stackoverflow.com/questions/6240055/manually-converting-unicode-codepoints-into-utf-8-and-utf-16
-int read_unicode_escape(uint64_t code, char buf[6]) {
+static int read_unicode_escape(uint64_t code, char buf[6]) {
 	if (0xd800 <= code && code <= 0xdfff) /// UTF-16 surrogates
 		return -1;
 	if (0x10FFFF < code)
@@ -1624,7 +1624,7 @@ const char* toml_table_key(const toml_table_t* tbl, int keyidx, int* keylen) {
 	return 0;
 }
 
-toml_unparsed_t toml_table_unparsed(const toml_table_t* tbl, const char* key) {
+static toml_unparsed_t toml_table_unparsed(const toml_table_t* tbl, const char* key) {
 	for (int i = 0; i < tbl->nkval; i++)
 		if (strcmp(key, tbl->kval[i]->key) == 0)
 			return tbl->kval[i]->val;
@@ -1645,7 +1645,7 @@ toml_table_t* toml_table_table(const toml_table_t* tbl, const char* key) {
 	return 0;
 }
 
-toml_unparsed_t toml_array_unparsed(const toml_array_t* arr, int idx) {
+static toml_unparsed_t toml_array_unparsed(const toml_array_t* arr, int idx) {
 	return (0 <= idx && idx < arr->nitem) ? arr->item[idx].val : 0;
 }
 
@@ -1665,11 +1665,11 @@ toml_table_t* toml_array_table(const toml_array_t* arr, int idx) {
 	return (0 <= idx && idx < arr->nitem) ? arr->item[idx].tbl : 0;
 }
 
-bool is_leap(int y) {
+static bool is_leap(int y) {
 	return y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
 }
 
-int toml_value_timestamp(toml_unparsed_t src_, toml_timestamp_t* ret) {
+static int toml_value_timestamp(toml_unparsed_t src_, toml_timestamp_t* ret) {
 	if (!src_)
 		return -1;
 
@@ -1730,7 +1730,7 @@ int toml_value_timestamp(toml_unparsed_t src_, toml_timestamp_t* ret) {
 }
 
 // Raw to boolean
-int toml_value_bool(toml_unparsed_t src, bool* ret_) {
+static int toml_value_bool(toml_unparsed_t src, bool* ret_) {
 	if (!src)
 		return -1;
 	bool  dummy = false;
@@ -1748,7 +1748,7 @@ int toml_value_bool(toml_unparsed_t src, bool* ret_) {
 }
 
 // Raw to integer
-int toml_value_int(toml_unparsed_t src, int64_t* ret_) {
+static int toml_value_int(toml_unparsed_t src, int64_t* ret_) {
 	if (!src)
 		return -1;
 
@@ -1822,7 +1822,7 @@ int toml_value_int(toml_unparsed_t src, int64_t* ret_) {
 	return (errno || *endp) ? -1 : 0;
 }
 
-int toml_value_double(toml_unparsed_t src, double* ret_) {
+static int toml_value_double(toml_unparsed_t src, double* ret_) {
 	if (!src)
 		return -1;
 
@@ -1887,7 +1887,7 @@ int toml_value_double(toml_unparsed_t src, double* ret_) {
 	return 0;
 }
 
-int toml_value_string(toml_unparsed_t src, char** ret, int* len) {
+static int toml_value_string(toml_unparsed_t src, char** ret, int* len) {
 	bool        multiline = false;
 	const char* sp;
 	const char* sq;

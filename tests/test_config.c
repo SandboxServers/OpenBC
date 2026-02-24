@@ -151,6 +151,54 @@ TEST(test_load_str_game_section)
     ASSERT_EQ_INT(22101, (int)cfg.port);
 }
 
+TEST(test_load_str_int_range_validation)
+{
+    obc_server_cfg_t cfg;
+    obc_config_defaults(&cfg);
+
+    const char *toml =
+        "[server]\n"
+        "port = 70000\n"
+        "\n"
+        "[game]\n"
+        "difficulty = 99\n"
+        "respawn_time = -5\n"
+        "\n"
+        "[master]\n"
+        "heartbeat_interval = 0\n";
+
+    ASSERT(obc_config_load_str(toml, &cfg) == true);
+
+    /* Invalid values must be rejected and defaults preserved. */
+    ASSERT_EQ_INT(22101, (int)cfg.port);
+    ASSERT_EQ_INT(1, cfg.difficulty);
+    ASSERT_EQ_INT(10, cfg.respawn_time);
+    ASSERT_EQ_INT(60, cfg.heartbeat_interval);
+}
+
+TEST(test_load_str_int_range_valid_boundaries)
+{
+    obc_server_cfg_t cfg;
+    obc_config_defaults(&cfg);
+
+    const char *toml =
+        "[server]\n"
+        "port = 65535\n"
+        "\n"
+        "[game]\n"
+        "difficulty = 0\n"
+        "respawn_time = 3600\n"
+        "\n"
+        "[master]\n"
+        "heartbeat_interval = 10\n";
+
+    ASSERT(obc_config_load_str(toml, &cfg) == true);
+    ASSERT_EQ_INT(65535, (int)cfg.port);
+    ASSERT_EQ_INT(0, cfg.difficulty);
+    ASSERT_EQ_INT(3600, cfg.respawn_time);
+    ASSERT_EQ_INT(10, cfg.heartbeat_interval);
+}
+
 TEST(test_load_str_data_section)
 {
     obc_server_cfg_t cfg;
@@ -344,6 +392,56 @@ TEST(test_mod_bool)
     ASSERT(obc_config_mod_bool(&cfg, "no_mod", "key", true) == true);
 }
 
+TEST(test_mod_parse_validation)
+{
+    obc_server_cfg_t cfg;
+    obc_config_defaults(&cfg);
+
+    const char *toml =
+        "[[modules]]\n"
+        "name = \"parse\"\n"
+        "[modules.config]\n"
+        "int_ok = 7\n"
+        "int_bad = \"abc\"\n"
+        "int_trailing = \"7abc\"\n"
+        "int_overflow = \"999999999999999999999\"\n"
+        "float_ok = 0.5\n"
+        "float_bad = \"abc\"\n"
+        "float_trailing = \"0.5abc\"\n"
+        "float_inf = \"inf\"\n"
+        "float_nan = \"nan\"\n"
+        "bool_true = true\n"
+        "bool_false = false\n"
+        "bool_one = 1\n"
+        "bool_zero = \"0\"\n"
+        "bool_bad = \"banana\"\n";
+
+    ASSERT(obc_config_load_str(toml, &cfg) == true);
+
+    ASSERT_EQ_INT(7, obc_config_mod_int(&cfg, "parse", "int_ok", 99));
+    ASSERT_EQ_INT(99, obc_config_mod_int(&cfg, "parse", "int_bad", 99));
+    ASSERT_EQ_INT(88, obc_config_mod_int(&cfg, "parse", "int_trailing", 88));
+    ASSERT_EQ_INT(77, obc_config_mod_int(&cfg, "parse", "int_overflow", 77));
+
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_ok", 9.9) > 0.49);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_ok", 9.9) < 0.51);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_bad", 3.14) > 3.13);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_bad", 3.14) < 3.15);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_trailing", 2.25) > 2.24);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_trailing", 2.25) < 2.26);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_inf", 1.5) > 1.49);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_inf", 1.5) < 1.51);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_nan", 2.5) > 2.49);
+    ASSERT(obc_config_mod_float(&cfg, "parse", "float_nan", 2.5) < 2.51);
+
+    ASSERT(obc_config_mod_bool(&cfg, "parse", "bool_true", false) == true);
+    ASSERT(obc_config_mod_bool(&cfg, "parse", "bool_false", true) == false);
+    ASSERT(obc_config_mod_bool(&cfg, "parse", "bool_one", false) == true);
+    ASSERT(obc_config_mod_bool(&cfg, "parse", "bool_zero", true) == false);
+    ASSERT(obc_config_mod_bool(&cfg, "parse", "bool_bad", true) == true);
+    ASSERT(obc_config_mod_bool(&cfg, "parse", "bool_bad", false) == false);
+}
+
 TEST(test_config_free_noop)
 {
     obc_server_cfg_t cfg;
@@ -407,6 +505,8 @@ int main(void)
     RUN(test_defaults);
     RUN(test_load_str_server_section);
     RUN(test_load_str_game_section);
+    RUN(test_load_str_int_range_validation);
+    RUN(test_load_str_int_range_valid_boundaries);
     RUN(test_load_str_data_section);
     RUN(test_load_str_gamespy_section);
     RUN(test_load_str_modules);
@@ -419,6 +519,7 @@ int main(void)
     RUN(test_mod_int);
     RUN(test_mod_float);
     RUN(test_mod_bool);
+    RUN(test_mod_parse_validation);
     RUN(test_config_free_noop);
     RUN(test_full_parse);
 

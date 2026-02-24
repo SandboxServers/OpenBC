@@ -174,6 +174,7 @@ int main(int argc, char **argv)
     const char *data_path = NULL;
     const char *user_masters[BC_MAX_MASTERS];
     int user_master_count = 0;
+    bool cli_master_seen = false;
     bool no_master = false;
     bc_log_level_t log_level = LOG_INFO;
     const char *log_file_path = NULL;
@@ -254,6 +255,11 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--no-friendly-fire") == 0) {
             g_friendly_fire = false;
         } else if (strcmp(argv[i], "--master") == 0 && i + 1 < argc) {
+            /* First CLI --master replaces any masters loaded from server.toml. */
+            if (!cli_master_seen) {
+                user_master_count = 0;
+                cli_master_seen = true;
+            }
             if (user_master_count < BC_MAX_MASTERS)
                 user_masters[user_master_count++] = argv[++i];
         } else if (strcmp(argv[i], "--no-master") == 0) {
