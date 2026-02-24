@@ -7,11 +7,13 @@ PLATFORM ?= $(shell uname -s 2>/dev/null || echo Windows)
 
 ifeq ($(PLATFORM),Windows)
     CC       := i686-w64-mingw32-gcc
+    CXX      := i686-w64-mingw32-g++
     EXE      := .exe
     NET_LIBS := -lws2_32
     POSIX_DEFS :=
 else
     CC       := cc
+    CXX      := c++
     EXE      :=
     NET_LIBS :=
     # Expose POSIX.1-2008 + BSD extensions (getaddrinfo, usleep, opendir, DT_*)
@@ -22,6 +24,9 @@ CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2 $(POSIX_DEFS)
 DEPFLAGS  = -MMD -MP -MF $(@:.o=.d)
 LDFLAGS  :=
 LDLIBS   := -lm
+# When cross-compiling (PLATFORM=Windows), use a MinGW-targeted pkg-config
+# wrapper (for example, PKG_CONFIG=i686-w64-mingw32-pkg-config), or provide
+# SDL3_CFLAGS/SDL3_LIBS/BGFX_LIBS manually.
 PKG_CONFIG ?= pkg-config
 
 # Build directory
@@ -46,29 +51,26 @@ BGFX_CFLAGS ?=
 BGFX_LIBS ?=
 CLIENT_CFLAGS :=
 CLIENT_LDLIBS :=
+CLIENT_LINK := $(CC)
 CLIENT_SRC := src/client/main.c
+SDL3_CFLAGS_RESOLVED :=
+SDL3_LIBS_RESOLVED :=
 
 ifeq ($(CLIENT_BACKEND),sdl3-bgfx)
 CLIENT_SRC += src/client/client_backend_sdl3_bgfx.c
 ifneq ($(strip $(SDL3_CFLAGS)),)
-CLIENT_CFLAGS += $(SDL3_CFLAGS)
+SDL3_CFLAGS_RESOLVED := $(SDL3_CFLAGS)
 else
-CLIENT_CFLAGS += $(shell $(PKG_CONFIG) --cflags sdl3 2>/dev/null)
+SDL3_CFLAGS_RESOLVED := $(shell $(PKG_CONFIG) --cflags sdl3 2>/dev/null)
 endif
 ifneq ($(strip $(SDL3_LIBS)),)
-CLIENT_LDLIBS += $(SDL3_LIBS)
+SDL3_LIBS_RESOLVED := $(SDL3_LIBS)
 else
-CLIENT_LDLIBS += $(shell $(PKG_CONFIG) --libs sdl3 2>/dev/null)
+SDL3_LIBS_RESOLVED := $(shell $(PKG_CONFIG) --libs sdl3 2>/dev/null)
 endif
-CLIENT_CFLAGS += $(BGFX_CFLAGS) -DOPENBC_CLIENT_SDL3_BGFX
-ifeq ($(strip $(CLIENT_LDLIBS)),)
-$(error CLIENT_BACKEND=sdl3-bgfx requires SDL3 pkg-config support or explicit SDL3_LIBS/SDL3_CFLAGS)
-endif
-ifneq ($(strip $(BGFX_LIBS)),)
-CLIENT_LDLIBS += $(BGFX_LIBS)
-else
-CLIENT_LDLIBS += -lbgfx
-endif
+CLIENT_CFLAGS += $(SDL3_CFLAGS_RESOLVED) $(BGFX_CFLAGS) -DOPENBC_CLIENT_SDL3_BGFX
+CLIENT_LDLIBS += $(SDL3_LIBS_RESOLVED) $(BGFX_LIBS)
+CLIENT_LINK := $(CXX)
 else ifeq ($(CLIENT_BACKEND),noop)
 CLIENT_SRC += src/client/client_backend_noop.c
 else
@@ -96,7 +98,7 @@ TEST_SRC     := $(wildcard tests/test_*.c)
 TEST_BIN     := $(TEST_SRC:tests/%.c=$(BUILD)/tests/%$(EXE))
 
 # Targets
-.PHONY: all clean test server client
+.PHONY: all clean test server client check-client-config
 
 all: $(BUILD)/openbc-hash$(EXE) $(BUILD)/openbc-server$(EXE) $(BUILD)/openbc-client$(EXE)
 
@@ -115,9 +117,23 @@ $(BUILD)/openbc-server$(EXE): $(SERVER_LIB_OBJ) $(SERVER_OBJ)
 # --- Client binary ---
 client: $(BUILD)/openbc-client$(EXE)
 
-$(BUILD)/openbc-client$(EXE): $(SHARED_OBJ) $(CLIENT_OBJ)
+check-client-config:
+ifeq ($(CLIENT_BACKEND),sdl3-bgfx)
+	@if [ -z "$(strip $(SDL3_CFLAGS_RESOLVED))" ] || [ -z "$(strip $(SDL3_LIBS_RESOLVED))" ]; then \
+		echo "CLIENT_BACKEND=sdl3-bgfx: SDL3 not found via pkg-config. Set both SDL3_CFLAGS and SDL3_LIBS manually."; \
+		exit 1; \
+	fi
+	@if [ -z "$(strip $(BGFX_LIBS))" ]; then \
+		echo "CLIENT_BACKEND=sdl3-bgfx: BGFX_LIBS must be set explicitly (bgfx has no pkg-config)."; \
+		exit 1; \
+	fi
+else
+	@true
+endif
+
+$(BUILD)/openbc-client$(EXE): check-client-config $(SHARED_OBJ) $(CLIENT_OBJ)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(CLIENT_LDLIBS)
+	$(CLIENT_LINK) $(CFLAGS) $(LDFLAGS) -o $@ $(SHARED_OBJ) $(CLIENT_OBJ) $(LDLIBS) $(CLIENT_LDLIBS)
 
 # --- Test runner ---
 test: $(TEST_BIN)

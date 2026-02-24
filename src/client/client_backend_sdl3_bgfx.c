@@ -53,6 +53,7 @@ static bool set_platform_data(SDL_Window *window)
     }
 
     if (!pd.nwh) {
+        pd.ndt = NULL; /* Clear stale Wayland display before X11 fallback. */
         uint64_t x11_window = (uint64_t)SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
         pd.ndt = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
         pd.nwh = (void *)(uintptr_t)x11_window;
@@ -149,6 +150,7 @@ bool bc_client_backend_frame(uint32_t clear_rgba)
 {
     SDL_Event event;
 
+    /* Bootstrap event subset; future passes can add focus/display/exposed hooks. */
     if (!g_running) {
         return false;
     }
@@ -160,7 +162,6 @@ bool bc_client_backend_frame(uint32_t clear_rgba)
             g_running = false;
             break;
 
-        case SDL_EVENT_WINDOW_RESIZED:
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
             if (event.window.data1 > 0 && event.window.data2 > 0 &&
                 event.window.data1 <= UINT16_MAX && event.window.data2 <= UINT16_MAX) {
