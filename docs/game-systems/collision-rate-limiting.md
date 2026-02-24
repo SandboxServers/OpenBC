@@ -62,19 +62,30 @@ The game selects a base cooldown from a tiered bracket system based on the curre
 
 The base cooldown is multiplied by a factor that depends on the **bounding sphere gap** between the two objects (distance between centers minus both radii):
 
-| Bounding Sphere Gap | Multiplier | Effective Cooldown (base=0.1s) |
-|---------------------|------------|-------------------------------|
-| < 114.0 units | 1x | 0.1s |
-| 114.0 – 170.0 | 2x | 0.2s |
-| 170.0 – 228.0 | 2x | 0.2s |
-| 228.0 – 343.0 | 5x | 0.5s |
-| >= 343.0 | hard cap | 1.0s maximum |
+### Standard Mode (non-camera, singleplayer or basic MP)
 
-**Design rationale**: Ships that are barely touching (small gap) get frequent collision updates for responsive damage. Ships that are far apart but still technically in AABB overlap get heavily throttled.
+| Distance (game units) | Multiplier | Effect |
+|-----------------------|------------|--------|
+| < 114.0 | 1x (base cooldown) | Normal rate |
+| 114.0 – 228.0 | 2x | Reduced rate |
+| 228.0 – 343.0 | 5x | Heavy throttle |
+| >= 343.0 | **BLOCKED** (infinite) | No events at all |
 
-### High Player Count Multiplier
+### Camera/MP-Flag Mode (multiplayer with high player counts)
 
-When 4+ players are present in certain game modes, an additional 1.333x multiplier is applied to the distance-scaled cooldown. This further reduces collision traffic in crowded games.
+| Distance (game units) | Multiplier | Effect |
+|-----------------------|------------|--------|
+| < 114.0 | 1x (base cooldown) | Normal rate |
+| 114.0 – 170.0 | 2x | Reduced rate |
+| >= 170.0 | **BLOCKED** (infinite) | No events at all |
+
+The camera/MP-flag mode uses a more aggressive distance gate — ships are completely blocked from generating collision events at a shorter range (170 vs 343 units). This significantly reduces collision traffic in crowded multiplayer games.
+
+**Design rationale**: Ships that are barely touching (small gap) get frequent collision updates for responsive damage. Ships that are far apart but still technically in bounding sphere overlap get heavily throttled or blocked entirely.
+
+### Targeting Awareness Multiplier
+
+When the two colliding ships have a targeting relationship (one is targeting the other), an additional 1.333x multiplier is applied to the cooldown. This further reduces collision traffic during active combat where players are already aware of each other. The multiplier is only applied if it won't result in effectively blocking all collisions (cooldown × 1.333 must remain ≤ 1.0 seconds).
 
 ---
 
@@ -150,10 +161,15 @@ A reimplementation must include collision rate limiting to avoid flooding the ne
 | Parameter | Value |
 |-----------|-------|
 | Minimum cooldown | 0.100 seconds |
-| Maximum cooldown | 1.000 seconds |
-| Distance brackets | 114, 170, 228, 343 game units |
-| Distance multipliers | 1x, 2x, 2x, 5x, cap |
-| High player count multiplier | 1.333x |
+| Standard MP cooldown (≥3 players) | 0.500 seconds |
+| Distance bracket: near | 114.0 game units |
+| Distance bracket: medium (standard) | 228.0 game units |
+| Distance bracket: far (standard) | 343.0 game units |
+| Distance bracket: far (camera/MP) | 170.0 game units |
+| Near-to-medium multiplier | 2x |
+| Medium-to-far multiplier (standard) | 5x |
+| Beyond-far behavior | BLOCKED (no events) |
+| Targeting awareness multiplier | 1.333x |
 | Velocity-squared threshold | ~1e-7 |
 | Server distance validation | 26 game units (bounding sphere gap) |
 
