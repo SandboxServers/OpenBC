@@ -172,6 +172,11 @@ $(BUILD)/tests/test_module_loader$(EXE): tests/test_module_loader.c $(LIB_OBJ) $
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -O1 $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS) $(DL_LIBS)
 
+# Smoke test: spawns server binary, no library linkage needed
+$(BUILD)/tests/test_smoke_modules$(EXE): tests/test_smoke_modules.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -O1 $(LDFLAGS) -o $@ $< $(LDLIBS)
+
 # Each test binary links against all library objects.
 # Tests use -O1 to avoid i686-w64-mingw32-gcc -O2 dead-store bugs that occur
 # when a test .c is compiled separately from the library .o files.

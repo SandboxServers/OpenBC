@@ -464,6 +464,64 @@ TEST(loader_empty_dll_and_lua_fails)
 }
 
 /* -------------------------------------------------------------------------
+ * Section 4: Event bus interaction tests
+ * ---------------------------------------------------------------------- */
+
+static int s_handler_called;
+
+static void test_handler(const obc_engine_api_t *api, obc_event_ctx_t *ctx)
+{
+    (void)api; (void)ctx;
+    s_handler_called++;
+}
+
+TEST(loader_event_bus_fires_after_init)
+{
+    obc_server_cfg_t cfg;
+    obc_config_defaults(&cfg);
+    cfg.module_count = 0;
+
+    obc_event_bus_init();
+
+    obc_module_loader_t loader;
+    int ret = obc_module_loader_init(&loader, &cfg);
+    ASSERT_EQ_INT(0, ret);
+
+    /* Subscribe and fire an event -- must work after loader init */
+    s_handler_called = 0;
+    int sub = obc_event_subscribe("test_event", test_handler, 100);
+    ASSERT_EQ_INT(0, sub);
+
+    obc_event_fire(NULL, "test_event", -1, NULL);
+    ASSERT_EQ_INT(1, s_handler_called);
+
+    obc_module_loader_shutdown(&loader);
+    obc_event_bus_shutdown();
+}
+
+TEST(loader_shutdown_clears_cleanly)
+{
+    obc_server_cfg_t cfg;
+    obc_config_defaults(&cfg);
+    cfg.module_count = 0;
+
+    obc_event_bus_init();
+
+    obc_module_loader_t loader;
+    int ret = obc_module_loader_init(&loader, &cfg);
+    ASSERT_EQ_INT(0, ret);
+
+    s_handler_called = 0;
+    obc_event_subscribe("cleanup_test", test_handler, 100);
+
+    obc_module_loader_shutdown(&loader);
+    obc_event_bus_shutdown();
+
+    /* No crash -- success */
+    ASSERT_EQ_INT(0, s_handler_called);
+}
+
+/* -------------------------------------------------------------------------
  * Runner
  * ---------------------------------------------------------------------- */
 
@@ -504,6 +562,10 @@ int main(void)
     RUN(loader_missing_dll_fails);
     RUN(loader_shutdown_empty_safe);
     RUN(loader_empty_dll_and_lua_fails);
+
+    /* Event bus interaction */
+    RUN(loader_event_bus_fires_after_init);
+    RUN(loader_shutdown_clears_cleanly);
 
     printf("%d/%d tests passed\n", test_pass, test_count);
     return test_fail > 0 ? 1 : 0;

@@ -78,6 +78,7 @@ static void usage(const char *prog)
     fprintf(stderr,
         "Usage: %s [options]\n"
         "Options:\n"
+        "  --config <path>    Config file path (default: server.toml)\n"
         "  -p <port>          Listen port (default: 22101)\n"
         "  -n <name>          Server name (default: \"OpenBC Server\")\n"
         "  -m <mode>          Game mode (default: \"Multiplayer.Episode.Mission1.Mission1\")\n"
@@ -186,11 +187,20 @@ int main(int argc, char **argv)
     const char *log_file_path = NULL;
     bool no_log_file = false;
 
-    /* Load server.toml (optional).
-     * Layering: hardcoded defaults → server.toml → CLI args.
+    /* Pre-scan for --config (must resolve before obc_config_load). */
+    const char *config_path = "server.toml";
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            config_path = argv[i + 1];
+            break;
+        }
+    }
+
+    /* Load config file (optional).
+     * Layering: hardcoded defaults → config file → CLI args.
      * Missing file is silently ignored; CLI always wins. */
     obc_config_defaults(&g_server_cfg);
-    obc_config_load("server.toml", &g_server_cfg);
+    obc_config_load(config_path, &g_server_cfg);
 
     /* Apply TOML values (CLI args parsed below will override these). */
     port        = (u16)g_server_cfg.port;
@@ -282,6 +292,8 @@ int main(int argc, char **argv)
             log_level = LOG_TRACE;
         } else if (strcmp(argv[i], "-v") == 0) {
             log_level = LOG_DEBUG;
+        } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            ++i; /* already handled in pre-scan; consume the argument */
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
