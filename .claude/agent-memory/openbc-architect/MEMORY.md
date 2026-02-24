@@ -69,6 +69,18 @@ Phase 1 architecture was COMPLETELY REWRITTEN. The Python/SWIG/flecs design is D
 - StateUpdate: dirty-flag format, compressed types, S->C vs C->S direction split
 - DoDamage: collision/weapon/explosion formulas documented
 
+### Phase 2 Config System (PR #173, A4)
+- **server.toml**: TOML config via vendored toml-c (MIT, src/toml/)
+- **Layering**: obc_config_defaults() -> obc_config_load("server.toml") -> CLI args
+- **obc_server_cfg_t**: ~176KB struct (modules[16] with kv[32] dominates)
+- **Global**: g_server_cfg in server_state.h/c, modules get scoped access via engine API
+- **Source tree reorg**: src/shared/ (both), src/server/ (server-only), src/client/ (client-only)
+- **Makefile**: SHARED_OBJ vs SERVER_LIB_OBJ enforces client/server split
+- **Module config**: all values stored as strings, typed accessors (string/int/float/bool)
+- **Float round-trip**: %.17g format preserves IEEE 754 doubles losslessly
+- **Dead fields**: difficulty, respawn_time, mode_file, gamespy_enabled, lan_discovery, heartbeat_interval parsed but not wired to globals (Phase 2 modules will consume)
+- **Win32 stack risk**: 176KB struct on stack hits MinGW __chkstk bug; tests work only because call stack is shallow
+
 ### Open Risks
 - Manifest hash vs. live hash cross-validation needed
 - Ship data accuracy (ships.toml vs. hardpoint scripts)
