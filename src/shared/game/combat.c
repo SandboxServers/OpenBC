@@ -597,7 +597,7 @@ bool bc_cloak_stop(bc_ship_state_t *ship)
 /* Bug 9: on DECLOAKING->DECLOAKED, reset any 0 HP facing to 1.0 */
 void bc_cloak_tick(bc_ship_state_t *ship, f32 cloak_efficiency, f32 dt)
 {
-    if (dt <= 0.0f) return;
+    if (dt <= 0.0f) { return; }
 
     /* Sanitize efficiency: NaN/inf → 0, then clamp to [0,1] */
     if (!isfinite(cloak_efficiency) || cloak_efficiency < 0.0f) {
@@ -738,8 +738,8 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
     }
 
     /* Bug 3: multiplicative drag formula from spec.
-     * force = max_damage * system_condition_pct * distance_ratio * dt
-     * tractor_ratio = force / max_damage
+     * force = max_damage * system_condition_pct * dt
+     * tractor_ratio = force / max_damage  (simplifies to sys_hp_pct * dt)
      * Drag applies to SOURCE ship's engine stats. */
     if (ss->max_condition <= 0.0f || ss->max_damage <= 0.0f) {
         ship->tractor_target_id = -1;

@@ -823,7 +823,8 @@ int main(int argc, char **argv)
 
                     /* Cloak state machine (energy-failure auto-decloak) */
                     f32 clk_eff = bc_powered_efficiency(&p->ship, cls, "cloak");
-                    bc_cloak_tick(&p->ship, clk_eff, dt);
+                    bc_cloak_tick(&p->ship, /* cloak_efficiency */ clk_eff,
+                                 /* dt */ dt);
 
                     /* Repair */
                     bc_repair_tick(&p->ship, cls, dt);

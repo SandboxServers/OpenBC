@@ -308,7 +308,7 @@ static void ai_update(int idx, f32 dt)
 
     case AI_CLOAK_ATTACK:
         /* Approach cloaked, decloak at close range, alpha strike */
-        bc_cloak_tick(&p->ship, 1.0f, dt);
+        bc_cloak_tick(&p->ship, /* cloak_efficiency */ 1.0f, /* dt */ dt);
 
         if (p->ship.cloak_state == BC_CLOAK_CLOAKING) {
             /* Wait for cloak to complete */
@@ -436,7 +436,8 @@ TEST(dynamic_battle)
             bc_combat_shield_tick(&g_players[i].ship, g_players[i].cls, 1.0f, dt);
 
             /* Cloak tick */
-            bc_cloak_tick(&g_players[i].ship, 1.0f, dt);
+            bc_cloak_tick(&g_players[i].ship, /* cloak_efficiency */ 1.0f,
+                         /* dt */ dt);
 
             /* Tractor tick */
             if (g_players[i].ship.tractor_target_id >= 0) {
@@ -697,7 +698,8 @@ TEST(bop_cloak_attack_cycle)
     ASSERT(!bc_combat_can_fire_phaser(&bop, bop_cls, 0));
 
     /* 2. Complete cloak */
-    bc_cloak_tick(&bop, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&bop, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)bop.cloak_state, BC_CLOAK_CLOAKED);
 
     /* 3. Approach (just verify movement works while cloaked) */
@@ -714,7 +716,8 @@ TEST(bop_cloak_attack_cycle)
     ASSERT(!bc_combat_can_fire_phaser(&bop, bop_cls, 0));
 
     /* 5. Complete decloak */
-    bc_cloak_tick(&bop, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&bop, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)bop.cloak_state, BC_CLOAK_DECLOAKED);
 
     /* 6. Now can fire (alpha strike) */

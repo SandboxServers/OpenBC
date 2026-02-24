@@ -9,9 +9,11 @@ CodeRabbit automatically reviews every push to an open PR. The review process is
 ## The Loop
 
 ### 1. Push a commit
+
 Push your changes to the PR branch.
 
 ### 2. Monitor CodeRabbit status
+
 Check the CodeRabbit summary comment (first auto-generated comment on the PR). It indicates whether the review is:
 - **In progress**: "Currently processing new changes..."
 - **Rate limited**: Review delayed due to rate limits
@@ -19,11 +21,13 @@ Check the CodeRabbit summary comment (first auto-generated comment on the PR). I
 - **Complete**: None of the above flags present
 
 ### 3. Wait for review
+
 Check for new review comments since the last commit.
 
 **Important**: Reviews can contain "outside diff range" comments in the top-level review body — always read the **full review body**, not just inline comments.
 
 ### 4. Evaluate findings
+
 For each actionable comment CodeRabbit posts:
 - **Verify** each finding against the actual code before fixing
 - **Fix every issue**, no matter how trivial
@@ -31,12 +35,14 @@ For each actionable comment CodeRabbit posts:
 - **Open a GitHub issue** if a comment requires substantial rearchitecting or goes against the spirit of the change — include detailed reasoning
 
 ### 5. Rate limit discipline
+
 - Free plan allows **3 back-to-back reviews** upfront, then throttles to **~2 reviews per hour** (summary-only thereafter)
 - Must wait at least **20 minutes** after the last review completed before pushing
 - Once the hourly cap is reached, effective wait is approximately **30 minutes** between reviews
 - **After a rate limit**: CodeRabbit does NOT auto-retry. You must retrigger by commenting `@coderabbitai review` on the PR or pushing a new commit
 
 ### 6. Push the fix commit
+
 - Run `make PLATFORM=Windows all` — zero warnings required
 - Run `make PLATFORM=Windows test` — all tests must pass
 - CI runs builds on all three platforms (Windows, Linux, macOS) per the three-OS hard rule. Local cross-compile targets Windows; CI validates Linux and macOS.
@@ -44,14 +50,17 @@ For each actionable comment CodeRabbit posts:
 - Commit and push
 
 ### 7. Loop
+
 Go back to step 2 and wait for the next CodeRabbit review.
 
 ### 8. Exit condition
+
 CodeRabbit is considered satisfied when:
 - CodeRabbit's status check is **green**, AND
 - Either: (a) CodeRabbit posted a review with **no actionable comments**, OR (b) **no new review** appears within 5 minutes of the status check going green
 
 ### 9. Notify for human review
+
 Ping the user for human review and **stop processing**.
 
 ## Checking PR Status

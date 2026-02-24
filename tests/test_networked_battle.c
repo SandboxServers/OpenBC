@@ -718,7 +718,7 @@ static void nb_ai_update(int idx)
         break;
 
     case AI_CLOAK_ATTACK:
-        bc_cloak_tick(&p->ship, 1.0f, NB_DT);
+        bc_cloak_tick(&p->ship, /* cloak_efficiency */ 1.0f, /* dt */ NB_DT);
 
         if (p->ship.cloak_state == BC_CLOAK_CLOAKING ||
             p->ship.cloak_state == BC_CLOAK_CLOAKED) {
@@ -921,7 +921,8 @@ static int run_networked_battle(void)
             nb_shield_regen_tick(&g_bp[i]);
 
             /* Cloak tick */
-            bc_cloak_tick(&g_bp[i].ship, 1.0f, NB_DT);
+            bc_cloak_tick(&g_bp[i].ship, /* cloak_efficiency */ 1.0f,
+                         /* dt */ NB_DT);
 
             /* AI decision + combat */
             nb_ai_update(i);

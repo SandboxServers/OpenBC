@@ -677,7 +677,8 @@ TEST(cloak_full_cycle)
     ASSERT(!bc_cloak_shields_active(&ship));
 
     /* Tick through transition */
-    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKED);
 
     /* Still can't fire while cloaked */
@@ -692,7 +693,8 @@ TEST(cloak_full_cycle)
     ASSERT(!bc_cloak_shields_active(&ship));
 
     /* Tick through decloak transition */
-    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
 
     /* Now can fire and shields active again */
@@ -726,7 +728,8 @@ TEST(cloak_prevents_phaser_fire)
     ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
 
     /* Complete cloak, still can't fire */
-    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
 
     /* Decloak, still can't fire during transition */
@@ -734,7 +737,8 @@ TEST(cloak_prevents_phaser_fire)
     ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
 
     /* Complete decloak, now can fire */
-    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT(bc_combat_can_fire_phaser(&ship, cls, 0));
 }
 
@@ -746,7 +750,8 @@ TEST(cloak_no_charge_while_cloaked)
 
     ship.phaser_charge[0] = 0.0f;
     bc_cloak_start(&ship, cls);
-    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f); /* fully cloaked */
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f); /* fully cloaked */
 
     bc_combat_charge_tick(&ship, cls, 1.0f, 5.0f);
     ASSERT(ship.phaser_charge[0] == 0.0f); /* no recharge while cloaked */
