@@ -875,6 +875,10 @@ TEST(tractor_applies_drag)
     bc_combat_tractor_tick(&ship, &target, cls, 1.0f);
     ASSERT(ship.speed < orig_speed * 0.999f); /* meaningful speed reduction */
     ASSERT(ship.tractor_drag < 1.0f);         /* angular velocity reduced */
+
+    /* Tractor drag only applies to the SOURCE ship; target is read-only
+     * (only target->pos is used for range checking). */
+    ASSERT(target.tractor_drag == 1.0f);
 }
 
 TEST(tractor_auto_releases_out_of_range)
