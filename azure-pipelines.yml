@@ -1,0 +1,62 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+jobs:
+- job: Build
+  strategy:
+    matrix:
+      Linux:
+        vmImage: 'ubuntu-latest'
+        artifactName: 'openbc-linux'
+      macOS:
+        vmImage: 'macOS-latest'
+        artifactName: 'openbc-macos'
+      Windows:
+        vmImage: 'windows-latest'
+        artifactName: 'openbc-windows'
+  pool:
+    vmImage: $(vmImage)
+
+  steps:
+  - checkout: self
+
+  # Windows: install MinGW-w64 toolchain via pre-installed MSYS2
+  - script: |
+      set MSYSTEM=MINGW64
+      C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-gcc make"
+    condition: eq(variables['Agent.OS'], 'Windows_NT')
+    displayName: 'Install MSYS2 toolchain'
+
+  # Linux / macOS: build and test
+  - script: make all && make test
+    condition: ne(variables['Agent.OS'], 'Windows_NT')
+    displayName: 'Build and test'
+
+  # Windows: build and test inside MSYS2 MINGW64 shell
+  - script: |
+      set MSYSTEM=MINGW64
+      C:\msys64\usr\bin\bash -lc "cd '%BUILD_SOURCESDIRECTORY%' && make all PLATFORM=Windows CC=gcc && make test PLATFORM=Windows CC=gcc"
+    condition: eq(variables['Agent.OS'], 'Windows_NT')
+    displayName: 'Build and test (MSYS2)'
+
+  # Stage binaries for publishing
+  - task: CopyFiles@2
+    inputs:
+      sourceFolder: $(Build.SourcesDirectory)/build
+      contents: |
+        openbc-server*
+        openbc-hash*
+        openbc-client*
+      targetFolder: $(Build.ArtifactStagingDirectory)
+    displayName: 'Stage artifacts'
+
+  - publish: $(Build.ArtifactStagingDirectory)
+    artifact: $(artifactName)
+    displayName: 'Publish artifacts'
