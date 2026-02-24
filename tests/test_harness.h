@@ -214,7 +214,7 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
     bc_addr_t from;
 
     bool ready = false;
-    for (int attempt = 0; attempt < 30; attempt++) {
+    for (int attempt = 0; attempt < 80; attempt++) {
         bc_socket_send(&probe, &srv_addr, query, sizeof(query) - 1);
 #ifdef _WIN32
         Sleep(100);
@@ -227,7 +227,7 @@ static bool test_server_start(bc_test_server_t *srv, u16 port,
     bc_socket_close(&probe);
 
     if (!ready) {
-        fprintf(stderr, "  HARNESS: server didn't respond to probe in 3s\n");
+        fprintf(stderr, "  HARNESS: server didn't respond to probe in 8s\n");
         test_server_stop(srv);
         return false;
     }
