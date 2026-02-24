@@ -6,7 +6,10 @@ language: en-US
 tone_instructions: >
   Be direct and security-focused. Flag buffer overflows, integer overflows,
   and memory safety issues immediately. For network-facing code, assume
-  hostile inputs from untrusted UDP peers.
+  hostile inputs from untrusted UDP peers. This project has coding style
+  guides in docs/guides/ (coding-patterns.md, cross-platform.md,
+  tech-stack-gotchas.md) -- treat those as the baseline standard but also
+  suggest further improvements beyond what they cover.
 
 early_access: true
 
@@ -23,9 +26,23 @@ reviews:
   # NOTE: Only use exclusions (!) here. Adding include patterns causes CodeRabbit
   # to ONLY review files matching those includes, skipping everything else.
   path_filters:
-    # Documentation - handled manually
-    - "!docs/**"
-    - "!**/*.md"
+    # Documentation -- exclude most docs, but keep guides reviewed
+    - "!docs/architecture/**"
+    - "!docs/archive/**"
+    - "!docs/bugs/**"
+    - "!docs/game-systems/**"
+    - "!docs/modding/**"
+    - "!docs/network-flows/**"
+    - "!docs/planning/**"
+    - "!docs/protocol/**"
+    - "!docs/wire-formats/**"
+
+    # Markdown -- exclude most, but keep guideline files reviewed
+    # (CLAUDE.md, METHODOLOGY.md, docs/guides/*.md are NOT excluded)
+    - "!README.md"
+    - "!AGENTS.md"
+    - "!.claude/**/*.md"
+    - "!.github/**/*.md"
 
     # Build artifacts and logs
     - "!build/**"
@@ -54,6 +71,9 @@ reviews:
         WIRE COMPATIBILITY CRITICAL: This code must produce byte-identical
         output to the stock Bridge Commander 1.1 client/server.
 
+        Coding standards: docs/guides/coding-patterns.md (C11, snprintf,
+        static init rules). Cross-platform: docs/guides/cross-platform.md.
+
         Review for:
         1. Buffer overflows in encode/decode (all reads must bounds-check)
         2. Integer overflow in length fields and arithmetic
@@ -67,6 +87,9 @@ reviews:
     - path: "src/network/**"
       instructions: |
         NETWORK SECURITY: This code processes raw UDP from untrusted peers.
+
+        Coding standards: docs/guides/coding-patterns.md. Platform portability:
+        docs/guides/cross-platform.md (socket API divergence table).
 
         Review for:
         1. Buffer overflows on malformed/truncated packets
@@ -96,6 +119,10 @@ reviews:
       instructions: |
         SERVER CORE: Main loop, dispatch, and state management.
 
+        Coding standards: docs/guides/coding-patterns.md. Platform gotchas:
+        docs/guides/cross-platform.md and docs/guides/tech-stack-gotchas.md
+        (MinGW stack probing, DLL loading, C/C++ ABI boundaries).
+
         Review for:
         1. Large stack allocations (Win32 4KB guard page issue with MinGW)
         2. GCC -O2 dead-store elimination on struct fields after memset()
@@ -114,6 +141,25 @@ reviews:
         2. File tree traversal format (u8 subdir_count, names-first-then-trees)
         3. Hash manifest loading and validation
         4. Directory name normalization (leaf-only, no trailing separators)
+
+    # Coding guides define project standards
+    - path: "docs/guides/**"
+      instructions: |
+        These are the project's coding standards. Review changes for:
+        1. Internal consistency (no contradictory advice)
+        2. Completeness (new patterns should be documented)
+        3. Accuracy (platform-specific claims must be correct)
+
+    # Project guideline files
+    - path: "CLAUDE.md"
+      instructions: |
+        Project instructions file read by AI coding assistants.
+        Review for accuracy, completeness, and consistency with docs/guides/.
+
+    - path: "METHODOLOGY.md"
+      instructions: |
+        Project methodology documentation.
+        Review for accuracy and consistency with CLAUDE.md and docs/guides/.
 
     # Test code should be thorough
     - path: "tests/**"
