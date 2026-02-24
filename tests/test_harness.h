@@ -569,7 +569,7 @@ static bool test_client_connect(bc_test_client_t *c, u16 port,
 }
 
 /* Send a reliable game payload (wrap in client transport, encrypt, send). */
-static bool test_client_send_reliable(bc_test_client_t *c,
+static bool __attribute__((unused)) test_client_send_reliable(bc_test_client_t *c,
                                        const u8 *payload, int len)
 {
     u8 pkt[512];
@@ -581,7 +581,7 @@ static bool test_client_send_reliable(bc_test_client_t *c,
 }
 
 /* Send an unreliable game payload. */
-static bool test_client_send_unreliable(bc_test_client_t *c,
+static bool __attribute__((unused)) test_client_send_unreliable(bc_test_client_t *c,
                                          const u8 *payload, int len)
 {
     u8 pkt[512];
