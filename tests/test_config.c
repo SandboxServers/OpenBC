@@ -161,6 +161,7 @@ TEST(test_load_str_int_range_validation)
         "port = 70000\n"
         "\n"
         "[game]\n"
+        "system = 0\n"
         "difficulty = 99\n"
         "respawn_time = -5\n"
         "\n"
@@ -171,6 +172,7 @@ TEST(test_load_str_int_range_validation)
 
     /* Invalid values must be rejected and defaults preserved. */
     ASSERT_EQ_INT(22101, (int)cfg.port);
+    ASSERT_EQ_INT(1, cfg.system);        /* system=0 rejected (range 1..9) */
     ASSERT_EQ_INT(1, cfg.difficulty);
     ASSERT_EQ_INT(10, cfg.respawn_time);
     ASSERT_EQ_INT(60, cfg.heartbeat_interval);
@@ -186,6 +188,7 @@ TEST(test_load_str_int_range_valid_boundaries)
         "port = 65535\n"
         "\n"
         "[game]\n"
+        "system = 9\n"
         "difficulty = 0\n"
         "respawn_time = 3600\n"
         "\n"
@@ -194,6 +197,7 @@ TEST(test_load_str_int_range_valid_boundaries)
 
     ASSERT(obc_config_load_str(toml, &cfg) == true);
     ASSERT_EQ_INT(65535, (int)cfg.port);
+    ASSERT_EQ_INT(9, cfg.system);
     ASSERT_EQ_INT(0, cfg.difficulty);
     ASSERT_EQ_INT(3600, cfg.respawn_time);
     ASSERT_EQ_INT(10, cfg.heartbeat_interval);

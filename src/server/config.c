@@ -132,10 +132,10 @@ static void process_game_section(toml_table_t *root, obc_server_cfg_t *cfg)
     value = toml_table_int(game, "system");
     if (value.ok) {
         int parsed_system = 0;
-        if (parse_i64_for_int(value.u.i, &parsed_system))
+        if (parse_i64_for_int_range(value.u.i, 1, 9, &parsed_system))
             cfg->system = parsed_system;
         else
-            warn_invalid_i64("[game].system", value.u.i, "32-bit signed integer");
+            warn_invalid_i64("[game].system", value.u.i, "1..9");
     }
 
     value = toml_table_int(game, "time_limit");
@@ -455,9 +455,12 @@ bool obc_config_load_str(const char *src, obc_server_cfg_t *cfg)
 {
     if (!src || !cfg) return false;
 
-    /* toml_parse() modifies the input buffer, so we must copy it. */
-    char *buf = strdup(src);
+    /* toml_parse() modifies the input buffer, so we must copy it.
+     * Use malloc+memcpy instead of strdup for C11 portability. */
+    size_t len = strlen(src);
+    char *buf = malloc(len + 1);
     if (!buf) return false;
+    memcpy(buf, src, len + 1);
 
     char errbuf[256];
     toml_table_t *root = toml_parse(buf, errbuf, sizeof(errbuf));
