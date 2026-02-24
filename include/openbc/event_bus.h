@@ -8,6 +8,7 @@
  *
  * Modules subscribe to named events during load. The engine (and other modules)
  * fire events as they occur. Handlers run in priority order (lower number first).
+ * The bus is single-threaded; concurrent cross-thread access is not supported.
  *
  * See docs/architecture/event-system.md for the full event catalog.
  */
@@ -29,17 +30,18 @@ typedef struct obc_engine_api obc_engine_api_t;
  * Event context passed to every handler.
  *
  * Handlers may:
- *   - Read event_data to react (always safe; cast to the typed event struct)
+ *   - Read event_data to react (read-only; cast to the typed event struct)
  *   - Set cancelled = true to stop lower-priority handlers from running
  *   - Set suppress_relay = true to prevent network relay of this event
  *   - Call engine API functions to mutate game state
  */
 typedef struct obc_event_ctx {
-    const char *event_name;     /* Event identifier (e.g. "ship_killed")        */
-    int         sender_slot;    /* Player slot that triggered this; -1 if engine */
-    void       *event_data;     /* Typed payload; cast based on event_name       */
-    bool        cancelled;      /* Set true to stop further handler dispatch      */
-    bool        suppress_relay; /* Set true to prevent network relay              */
+    const char *event_name;     /* Event identifier (e.g. "ship_killed")          */
+    int         sender_slot;    /* Player slot that triggered this; -1 if engine.
+                                 * Caller-asserted: the bus does NOT validate it. */
+    const void *event_data;     /* Read-only typed payload; cast by event_name     */
+    bool        cancelled;      /* One-way latch: once true, further dispatch stops. */
+    bool        suppress_relay; /* One-way latch: once true, later handlers cannot clear. */
 } obc_event_ctx_t;
 
 /* Handler function type. api is the same table received at module load. */
@@ -95,6 +97,6 @@ void obc_event_unsubscribe(const char *event_name, obc_event_handler_fn fn);
 obc_event_result_t obc_event_fire(const obc_engine_api_t *api,
                                    const char             *event_name,
                                    int                     sender_slot,
-                                   void                   *data);
+                                   const void             *data);
 
 #endif /* OPENBC_EVENT_BUS_H */

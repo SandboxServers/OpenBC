@@ -16,7 +16,8 @@
 static int g_call_order[16];
 static int g_call_count = 0;
 static int g_sender_slot_received = 0;
-static void *g_data_received = NULL;
+static const void *g_data_received = NULL;
+static int g_recursive_budget = 0;
 
 static void reset_state(void)
 {
@@ -24,7 +25,16 @@ static void reset_state(void)
     g_call_count = 0;
     g_sender_slot_received = 0;
     g_data_received = NULL;
+    g_recursive_budget = 0;
     obc_event_bus_init();
+}
+
+static void make_event_name(char *out, size_t chars, char fill)
+{
+    for (size_t i = 0; i < chars; i++) {
+        out[i] = fill;
+    }
+    out[chars] = '\0';
 }
 
 /* --- Handlers ------------------------------------------------------------- */
@@ -67,6 +77,12 @@ static void handler_suppress(const obc_engine_api_t *api, obc_event_ctx_t *ctx)
     ctx->suppress_relay = true;
 }
 
+static void handler_clear_suppress(const obc_engine_api_t *api, obc_event_ctx_t *ctx)
+{
+    (void)api;
+    ctx->suppress_relay = false;
+}
+
 static void handler_check_ctx(const obc_engine_api_t *api, obc_event_ctx_t *ctx)
 {
     (void)api;
@@ -97,6 +113,28 @@ static void handler_sub_during_fire(const obc_engine_api_t *api,
     g_call_count++;
 }
 
+static void handler_shutdown_during_fire(const obc_engine_api_t *api,
+                                         obc_event_ctx_t        *ctx)
+{
+    (void)api;
+    (void)ctx;
+    if (g_call_count < 16) g_call_order[g_call_count] = 'S';
+    g_call_count++;
+    obc_event_bus_shutdown();
+}
+
+static void handler_recursive_fire(const obc_engine_api_t *api, obc_event_ctx_t *ctx)
+{
+    (void)ctx;
+    if (g_call_count < 16) g_call_order[g_call_count] = 'R';
+    g_call_count++;
+
+    if (g_recursive_budget > 0) {
+        g_recursive_budget--;
+        obc_event_fire(api, "recursive", -1, NULL);
+    }
+}
+
 /* --- Tests ---------------------------------------------------------------- */
 
 TEST(single_handler_fires)
@@ -120,6 +158,42 @@ TEST(null_event_name_no_crash)
     reset_state();
     obc_event_fire(NULL, NULL, -1, NULL);
     ASSERT_EQ_INT(g_call_count, 0);
+}
+
+TEST(empty_event_name_rejected)
+{
+    reset_state();
+    ASSERT_EQ_INT(obc_event_subscribe("", handler_a, 50), -1);
+    obc_event_result_t res = obc_event_fire(NULL, "", -1, NULL);
+    ASSERT(!res.cancelled);
+    ASSERT(!res.suppress_relay);
+    obc_event_unsubscribe("", handler_a);
+    ASSERT_EQ_INT(g_call_count, 0);
+}
+
+TEST(event_name_length_boundary_enforced)
+{
+    reset_state();
+    char boundary[OBC_EVENT_NAME_MAX];
+    char too_long[OBC_EVENT_NAME_MAX + 1];
+    make_event_name(boundary, OBC_EVENT_NAME_MAX - 1, 'B'); /* length 63 */
+    make_event_name(too_long, OBC_EVENT_NAME_MAX, 'L');     /* length 64 (invalid) */
+
+    ASSERT_EQ_INT(obc_event_subscribe(boundary, handler_a, 50), 0);
+    ASSERT_EQ_INT(obc_event_subscribe(too_long, handler_b, 50), -1);
+
+    obc_event_fire(NULL, boundary, -1, NULL);
+    ASSERT_EQ_INT(g_call_count, 1);
+    ASSERT_EQ_INT(g_call_order[0], 'A');
+
+    obc_event_result_t res = obc_event_fire(NULL, too_long, -1, NULL);
+    ASSERT(!res.cancelled);
+    ASSERT(!res.suppress_relay);
+    ASSERT_EQ_INT(g_call_count, 1);
+
+    obc_event_unsubscribe(too_long, handler_a);
+    obc_event_fire(NULL, boundary, -1, NULL);
+    ASSERT_EQ_INT(g_call_count, 2);
 }
 
 TEST(priority_ordering)
@@ -213,6 +287,16 @@ TEST(suppress_relay_result_returned)
     reset_state();
     obc_event_subscribe("suppress", handler_suppress, 50);
     obc_event_result_t res = obc_event_fire(NULL, "suppress", -1, NULL);
+    ASSERT(res.suppress_relay);
+}
+
+TEST(suppress_relay_is_latched)
+{
+    /* Once true, suppress_relay remains true for the rest of the fire cycle. */
+    reset_state();
+    obc_event_subscribe("suppress_latch", handler_suppress, 10);
+    obc_event_subscribe("suppress_latch", handler_clear_suppress, 20);
+    obc_event_result_t res = obc_event_fire(NULL, "suppress_latch", -1, NULL);
     ASSERT(res.suppress_relay);
 }
 
@@ -331,20 +415,57 @@ TEST(subscribe_during_fire_deferred)
     ASSERT_EQ_INT(g_call_count, 1);            /* only handler_sub_during_fire */
     ASSERT_EQ_INT(g_call_order[0], 'A');
 
-    /* Second fire: both handlers should now run. */
-    reset_state();
-    obc_event_subscribe("sub_during", handler_sub_during_fire, 10);
-    /* handler_b was added after the first fire above and is still registered;
-     * re-init clears it, so add it explicitly for a clean second cycle. */
-    obc_event_subscribe("sub_during", handler_b, 50);
+    /* Second fire (no reset): deferred addition should now be active. */
     obc_event_fire(NULL, "sub_during", -1, NULL);
+    ASSERT_EQ_INT(g_call_count, 3);
+    ASSERT_EQ_INT(g_call_order[1], 'A');
+    ASSERT_EQ_INT(g_call_order[2], 'B');
+}
+
+TEST(recursive_fire_depth_guard)
+{
+    /* Recursive self-fire should be bounded by the internal fire-depth guard. */
+    reset_state();
+    g_recursive_budget = 32; /* Without a depth guard, all 33 calls would run. */
+    obc_event_subscribe("recursive", handler_recursive_fire, 50);
+    obc_event_fire(NULL, "recursive", -1, NULL);
+
+    ASSERT(g_call_count > 0);
+    ASSERT(g_call_count < 33);
+    ASSERT(g_recursive_budget > 0);
+}
+
+TEST(shutdown_during_fire_is_ignored)
+{
+    /* shutdown() called from a handler must not clear active dispatch state. */
+    reset_state();
+    obc_event_subscribe("shutdown_guard", handler_shutdown_during_fire, 10);
+    obc_event_subscribe("shutdown_guard", handler_b, 50);
+
+    obc_event_fire(NULL, "shutdown_guard", -1, NULL);
     ASSERT_EQ_INT(g_call_count, 2);
+    ASSERT_EQ_INT(g_call_order[0], 'S');
+    ASSERT_EQ_INT(g_call_order[1], 'B');
+
+    g_call_count = 0;
+    memset(g_call_order, 0, sizeof(g_call_order));
+    obc_event_fire(NULL, "shutdown_guard", -1, NULL);
+    ASSERT_EQ_INT(g_call_count, 2);
+    ASSERT_EQ_INT(g_call_order[0], 'S');
+    ASSERT_EQ_INT(g_call_order[1], 'B');
+
+    obc_event_bus_shutdown(); /* out-of-fire shutdown should clear everything */
+    g_call_count = 0;
+    obc_event_fire(NULL, "shutdown_guard", -1, NULL);
+    ASSERT_EQ_INT(g_call_count, 0);
 }
 
 TEST_MAIN_BEGIN()
     RUN(single_handler_fires);
     RUN(no_subscribers_no_crash);
     RUN(null_event_name_no_crash);
+    RUN(empty_event_name_rejected);
+    RUN(event_name_length_boundary_enforced);
     RUN(priority_ordering);
     RUN(equal_priority_registration_order);
     RUN(cancellation_stops_dispatch);
@@ -354,6 +475,7 @@ TEST_MAIN_BEGIN()
     RUN(unsubscribe_unknown_handler_no_crash);
     RUN(ctx_sender_slot_and_data_passed);
     RUN(suppress_relay_result_returned);
+    RUN(suppress_relay_is_latched);
     RUN(safe_unsubscribe_from_within_handler);
     RUN(multiple_events_independent);
     RUN(priority_clamp_high);
@@ -362,4 +484,6 @@ TEST_MAIN_BEGIN()
     RUN(max_events_overflow);
     RUN(duplicate_handler_fires_twice);
     RUN(subscribe_during_fire_deferred);
+    RUN(recursive_fire_depth_guard);
+    RUN(shutdown_during_fire_is_ignored);
 TEST_MAIN_END()
