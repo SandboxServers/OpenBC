@@ -600,10 +600,11 @@ void bc_cloak_tick(bc_ship_state_t *ship, f32 cloak_efficiency, f32 dt)
     if (dt <= 0.0f) return;
 
     /* Sanitize efficiency: NaN/inf → 0, then clamp to [0,1] */
-    if (!isfinite(cloak_efficiency) || cloak_efficiency < 0.0f)
+    if (!isfinite(cloak_efficiency) || cloak_efficiency < 0.0f) {
         cloak_efficiency = 0.0f;
-    else if (cloak_efficiency > 1.0f)
+    } else if (cloak_efficiency > 1.0f) {
         cloak_efficiency = 1.0f;
+    }
 
     switch (ship->cloak_state) {
     case BC_CLOAK_CLOAKING:
@@ -746,16 +747,21 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
         return;
     }
     f32 sys_hp_pct = ship->subsystem_hp[ss_idx] / ss->max_condition;
-    if (sys_hp_pct < 0.0f) sys_hp_pct = 0.0f;
-    else if (sys_hp_pct > 1.0f) sys_hp_pct = 1.0f;
+    if (sys_hp_pct < 0.0f) {
+        sys_hp_pct = 0.0f;
+    } else if (sys_hp_pct > 1.0f) {
+        sys_hp_pct = 1.0f;
+    }
 
-    f32 dist_ratio = (dist <= ss->max_damage_distance)
-                     ? 1.0f
-                     : ss->max_damage_distance / dist;
-    f32 force = ss->max_damage * sys_hp_pct * dist_ratio * dt;
+    /* dist is guaranteed <= max_damage_distance (early return above),
+     * so force is full-strength when in range, zero when out. */
+    f32 force = ss->max_damage * sys_hp_pct * dt;
     f32 tractor_ratio = force / ss->max_damage;
-    if (tractor_ratio < 0.0f) tractor_ratio = 0.0f;
-    else if (tractor_ratio > 1.0f) tractor_ratio = 1.0f;
+    if (tractor_ratio < 0.0f) {
+        tractor_ratio = 0.0f;
+    } else if (tractor_ratio > 1.0f) {
+        tractor_ratio = 1.0f;
+    }
 
     f32 drag = 1.0f - tractor_ratio;
     ship->speed *= drag;

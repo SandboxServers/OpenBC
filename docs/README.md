@@ -14,7 +14,7 @@ Navigation index for all design documents, protocol references, and system speci
 | [modding/](modding/) | Modding guides: getting started, DLL, Lua, TOML, total conversion | [getting-started.md](modding/getting-started.md) |
 | [planning/](planning/) | Future work: game modes, extensibility, cut content analysis | [gamemode-system.md](planning/gamemode-system.md) |
 | [bugs/](bugs/) | Bug analyses, postmortems, and fix documentation | -- |
-| [guides/](guides/) | Coding patterns, cross-platform portability, tech stack gotchas | [coding-patterns.md](guides/coding-patterns.md) |
+| [guides/](guides/) | Coding patterns, cross-platform portability, tech stack gotchas, PR review process | [coding-patterns.md](guides/coding-patterns.md), [pr-review-process.md](guides/pr-review-process.md) |
 | [archive/](archive/) | Historical planning documents kept for reference | [phase1-requirements.md](archive/phase1-requirements.md) |
 
 ## Quick Reference

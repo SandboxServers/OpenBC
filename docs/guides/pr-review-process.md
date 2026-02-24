@@ -31,12 +31,15 @@ For each actionable comment CodeRabbit posts:
 - **Open a GitHub issue** if a comment requires substantial rearchitecting or goes against the spirit of the change — include detailed reasoning
 
 ### 5. Rate limit discipline
-- Max **3 CodeRabbit reviews per hour** on the free plan
+- Free plan allows **3 back-to-back reviews** upfront, then throttles to **~2 reviews per hour** (summary-only thereafter)
 - Must wait at least **20 minutes** after the last review completed before pushing
+- Once the hourly cap is reached, effective wait is approximately **30 minutes** between reviews
+- **After a rate limit**: CodeRabbit does NOT auto-retry. You must retrigger by commenting `@coderabbitai review` on the PR or pushing a new commit
 
 ### 6. Push the fix commit
 - Run `make PLATFORM=Windows all` — zero warnings required
 - Run `make PLATFORM=Windows test` — all tests must pass
+- CI runs builds on all three platforms (Windows, Linux, macOS) per the three-OS hard rule. Local cross-compile targets Windows; CI validates Linux and macOS.
 - If any remote CI build failures were found on the previous push, bundle that fix into this push
 - Commit and push
 
@@ -73,7 +76,7 @@ gh pr view <PR> --json comments
 |------|---------|
 | Fix all feedback | Every CodeRabbit comment gets addressed, no matter how trivial |
 | Don't reply | Never respond to CodeRabbit's reviews or comments |
-| Open issues for big changes | Substantial/rearchitecture feedback → GitHub issue with reasons |
+| Open issues for substantial changes | Substantial/rearchitecture feedback → GitHub issue with reasons |
 | Tests must pass | All tests green, zero warnings before every push |
-| Rate limits | Wait 20 min between pushes, max 3 reviews/hour |
+| Rate limits | 3 upfront reviews, then ~2/hour; wait 20+ min between pushes; retrigger after rate limit |
 | Never push to main | Always get user confirmation before pushing to main |
