@@ -2,8 +2,6 @@
 
 #include <string.h>
 
-#define OBC_EVENT_MAX_FIRE_DEPTH 8
-
 /*
  * Internal storage: one entry per distinct event name, with a sorted list
  * of subscribers (sorted ascending by priority so lower numbers fire first).
@@ -139,11 +137,17 @@ static void flush_removals(obc_event_entry_t *e)
     e->remove_count = 0;
 }
 
-/* Apply all pending additions accumulated during a fire(). */
+/* Apply all pending additions accumulated during a fire().
+ * insert_sub may fail if sub_count has reached OBC_EVENT_MAX_SUBS
+ * (e.g. due to removals not freeing enough slots). Failures are
+ * silently dropped -- the capacity guard in obc_event_subscribe
+ * already prevents most overflow, and this is a best-effort flush. */
 static void flush_additions(obc_event_entry_t *e)
 {
-    for (int a = 0; a < e->add_count; a++)
-        insert_sub(e, e->add_pending[a].fn, e->add_pending[a].priority);
+    for (int a = 0; a < e->add_count; a++) {
+        if (insert_sub(e, e->add_pending[a].fn, e->add_pending[a].priority) != 0)
+            break;  /* remaining entries would also fail */
+    }
     e->add_count = 0;
 }
 
@@ -151,6 +155,12 @@ static void flush_additions(obc_event_entry_t *e)
 
 void obc_event_bus_init(void)
 {
+    /* Refuse to reset while an event is being dispatched. */
+    for (int i = 0; i < g_event_count; i++) {
+        if (g_events[i].fire_depth > 0)
+            return;
+    }
+
     memset(g_events, 0, sizeof(g_events));
     g_event_count = 0;
 }
@@ -218,8 +228,10 @@ obc_event_result_t obc_event_fire(const obc_engine_api_t *api,
     obc_event_entry_t *e = find_entry(event_name);
     if (!e || e->sub_count == 0) return result;
 
-    if (e->fire_depth >= OBC_EVENT_MAX_FIRE_DEPTH)
+    if (e->fire_depth >= OBC_EVENT_MAX_FIRE_DEPTH) {
+        result.cancelled = true;
         return result;
+    }
 
     obc_event_ctx_t ctx;
     ctx.event_name     = event_name;

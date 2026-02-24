@@ -93,7 +93,12 @@ void obc_event_unsubscribe(const char *event_name, obc_event_handler_fn fn);
  * api is passed unchanged to every handler. May be NULL in unit tests.
  * Returns an obc_event_result_t so the caller can react to handler decisions
  * (e.g. skip network relay when result.suppress_relay is true).
+ *
+ * Recursive fire depth is capped at OBC_EVENT_MAX_FIRE_DEPTH (8).  When
+ * the limit is hit, the call returns immediately with result.cancelled = true
+ * and no handlers run.
  */
+#define OBC_EVENT_MAX_FIRE_DEPTH 8
 obc_event_result_t obc_event_fire(const obc_engine_api_t *api,
                                    const char             *event_name,
                                    int                     sender_slot,

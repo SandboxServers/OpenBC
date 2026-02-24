@@ -29,8 +29,11 @@ static void reset_state(void)
     obc_event_bus_init();
 }
 
-static void make_event_name(char *out, size_t chars, char fill)
+/* Fill out[0..chars-1] with fill, then NUL-terminate.
+ * Caller must ensure out has room for at least chars+1 bytes. */
+static void make_event_name(char *out, size_t bufsz, size_t chars, char fill)
 {
+    if (chars + 1 > bufsz) chars = bufsz - 1;
     for (size_t i = 0; i < chars; i++) {
         out[i] = fill;
     }
@@ -176,8 +179,8 @@ TEST(event_name_length_boundary_enforced)
     reset_state();
     char boundary[OBC_EVENT_NAME_MAX];
     char too_long[OBC_EVENT_NAME_MAX + 1];
-    make_event_name(boundary, OBC_EVENT_NAME_MAX - 1, 'B'); /* length 63 */
-    make_event_name(too_long, OBC_EVENT_NAME_MAX, 'L');     /* length 64 (invalid) */
+    make_event_name(boundary, sizeof(boundary), OBC_EVENT_NAME_MAX - 1, 'B'); /* length 63 */
+    make_event_name(too_long, sizeof(too_long), OBC_EVENT_NAME_MAX, 'L');     /* length 64 (invalid) */
 
     ASSERT_EQ_INT(obc_event_subscribe(boundary, handler_a, 50), 0);
     ASSERT_EQ_INT(obc_event_subscribe(too_long, handler_b, 50), -1);
@@ -431,7 +434,7 @@ TEST(recursive_fire_depth_guard)
     obc_event_fire(NULL, "recursive", -1, NULL);
 
     ASSERT(g_call_count > 0);
-    ASSERT(g_call_count < 33);
+    ASSERT(g_call_count <= OBC_EVENT_MAX_FIRE_DEPTH);
     ASSERT(g_recursive_budget > 0);
 }
 
