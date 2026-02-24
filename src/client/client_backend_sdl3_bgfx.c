@@ -4,6 +4,7 @@
 #include <bgfx/defines.h>
 #include <SDL3/SDL.h>
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -79,6 +80,11 @@ bool bc_client_backend_init(const bc_client_config_t *cfg)
     bgfx_init_t init;
 
     if (!cfg || !cfg->title || cfg->width == 0 || cfg->height == 0) {
+        return false;
+    }
+    if (cfg->width > INT_MAX || cfg->height > INT_MAX) {
+        fprintf(stderr, "Requested window size exceeds SDL int range: %lu x %lu\n",
+                (unsigned long)cfg->width, (unsigned long)cfg->height);
         return false;
     }
 
