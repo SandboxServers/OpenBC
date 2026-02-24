@@ -22,6 +22,7 @@ CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2 $(POSIX_DEFS)
 DEPFLAGS  = -MMD -MP -MF $(@:.o=.d)
 LDFLAGS  :=
 LDLIBS   := -lm
+PKG_CONFIG ?= pkg-config
 
 # Build directory
 BUILD    := build
@@ -37,7 +38,42 @@ LOG_SRC      := src/server/log.c
 SERVER_SRC   := src/server/main.c src/server/server_state.c \
                 src/server/server_send.c src/server/server_handshake.c \
                 src/server/server_dispatch.c src/server/server_stats.c
-CLIENT_SRC   := src/client/main.c
+
+CLIENT_BACKEND ?= noop
+SDL3_CFLAGS ?=
+SDL3_LIBS ?=
+BGFX_CFLAGS ?=
+BGFX_LIBS ?=
+CLIENT_CFLAGS :=
+CLIENT_LDLIBS :=
+CLIENT_SRC := src/client/main.c
+
+ifeq ($(CLIENT_BACKEND),sdl3-bgfx)
+CLIENT_SRC += src/client/client_backend_sdl3_bgfx.c
+ifneq ($(strip $(SDL3_CFLAGS)),)
+CLIENT_CFLAGS += $(SDL3_CFLAGS)
+else
+CLIENT_CFLAGS += $(shell $(PKG_CONFIG) --cflags sdl3 2>/dev/null)
+endif
+ifneq ($(strip $(SDL3_LIBS)),)
+CLIENT_LDLIBS += $(SDL3_LIBS)
+else
+CLIENT_LDLIBS += $(shell $(PKG_CONFIG) --libs sdl3 2>/dev/null)
+endif
+CLIENT_CFLAGS += $(BGFX_CFLAGS) -DOPENBC_CLIENT_SDL3_BGFX
+ifeq ($(strip $(CLIENT_LDLIBS)),)
+$(error CLIENT_BACKEND=sdl3-bgfx requires SDL3 pkg-config support or explicit SDL3_LIBS/SDL3_CFLAGS)
+endif
+ifneq ($(strip $(BGFX_LIBS)),)
+CLIENT_LDLIBS += $(BGFX_LIBS)
+else
+CLIENT_LDLIBS += -lbgfx
+endif
+else ifeq ($(CLIENT_BACKEND),noop)
+CLIENT_SRC += src/client/client_backend_noop.c
+else
+$(error Unsupported CLIENT_BACKEND='$(CLIENT_BACKEND)'. Use 'noop' or 'sdl3-bgfx')
+endif
 
 # Object files
 CHECKSUM_OBJ := $(CHECKSUM_SRC:%.c=$(BUILD)/%.o)
@@ -81,7 +117,7 @@ client: $(BUILD)/openbc-client$(EXE)
 
 $(BUILD)/openbc-client$(EXE): $(SHARED_OBJ) $(CLIENT_OBJ)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(CLIENT_LDLIBS)
 
 # --- Test runner ---
 test: $(TEST_BIN)
@@ -104,6 +140,9 @@ test: $(TEST_BIN)
 $(BUILD)/tests/test_%$(EXE): tests/test_%.c $(LIB_OBJ)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -O1 $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS)
+
+# Apply backend-specific defines/includes only to client compilation units.
+$(BUILD)/src/client/%.o: CFLAGS += $(CLIENT_CFLAGS)
 
 # --- Generic object compilation ---
 $(BUILD)/%.o: %.c
