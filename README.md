@@ -24,7 +24,11 @@ Zero copyrighted content is shipped. The game client will require a legitimate B
 | C. Lobby Server | UDP transport, handshake, checksum, chat, GameSpy | Complete |
 | D. Relay Server | Game events, combat relay, object lifecycle | Complete |
 | E. Simulation Server | Ship data registry, movement, combat simulation | Complete |
-| **2. Game Client** | Rendering, audio, UI, input | Planning |
+| **2. Plugin Architecture + Game Client** | | |
+| A. Plugin System | Event bus, module loader, engine API, TOML config | Planning |
+| B. Module Extraction | Extract 9 stock modules as DLLs | Planning |
+| C. Lua Runtime | Embedded Lua 5.4, sandbox, mod scripting | Planning |
+| D. Game Client | Rendering, audio, UI, input (Quick Battle) | Planning |
 
 ### Validated in stock BC 1.1 client sessions
 
@@ -168,7 +172,21 @@ docs/          Design documents and protocol reference
 | Data | JSON (machine-generated) | Ship/projectile registry, hash manifests |
 | Discovery | GameSpy protocol | LAN browser + 333networks-compatible master server |
 
-**Client (planned):** The Phase 2 game client will use a modern rendering engine, ECS architecture, and cross-platform audio/input. Technology choices are under evaluation.
+**Client (planned):**
+
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| Windowing/Input | SDL3 | Cross-platform, zlib license |
+| Rendering | bgfx | Multi-backend (D3D11, Vulkan, Metal, GL), BSD-2 |
+| Math | cglm | MIT, C-native, SIMD |
+| Audio | miniaudio | Single-file, public domain |
+| Config | TOML (human-authored), JSON (machine data) | Clean data format split |
+| Scene graph | Custom (simple tree, Eberly-style) | BC has no ECS needs |
+| NIF parser | Custom (V3.1 only) | ~2-3K LOC minimal parser |
+| UI | Custom LCARS (on bgfx) | Purpose-built Star Trek UI |
+| Physics | Custom (~500 LOC) | BC has no gravity/terrain/ragdoll |
+| Scripting | Lua 5.4 (sandboxed) | Modding tier between TOML config and C DLLs |
+| Dev tools | Dear ImGui (cimgui) | Debug overlays, NIF inspector |
 
 ## Protocol Analysis
 
@@ -199,6 +217,11 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 
 **Design & Architecture:**
 - [Server Architecture RFC](docs/architecture/server-architecture.md) -- Standalone server design: network, checksum, game state, physics, data registry, mod system
+- [Plugin System Architecture](docs/architecture/plugin-system.md) -- DLL module system, lifecycle, stock module split
+- [Event System](docs/architecture/event-system.md) -- Event names, handler signatures, priority ordering, cancellation
+- [Module API Reference](docs/architecture/module-api-reference.md) -- Complete engine API table for module development
+- [Data Format Guide](docs/architecture/data-format-guide.md) -- JSON (machine data) vs TOML (human config) design split
+- [Shared Code Architecture](docs/architecture/shared-code.md) -- src/shared/ structure, server/client code split
 - [Engine Architecture](docs/architecture/engine-reference.md) -- Original BC engine architecture (behavioral reference)
 - [Data Registry](docs/game-systems/data-registry.md) -- Ship, map, rules, and manifest data schemas
 - [Server Authority](docs/architecture/server-authority.md) -- Authority model: what the server computes vs. relays
@@ -227,6 +250,13 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 - [Ship Death Lifecycle](docs/game-systems/ship-death-lifecycle.md) -- Destruction sequence, delete-player animation, respawn
 - [PythonEvent Wire Format](docs/wire-formats/pythonevent-wire-format.md) -- Factory IDs, event types, subsystem and explosion events
 
+**Modding:**
+- [Getting Started](docs/modding/getting-started.md) -- Overview: TOML config, Lua scripting, C DLL development
+- [DLL Module Guide](docs/modding/dll-module-guide.md) -- Writing C module DLLs, building, replacing stock systems
+- [Lua Scripting Guide](docs/modding/lua-scripting-guide.md) -- Sandbox API reference, examples, resource limits
+- [TOML Reference](docs/modding/toml-reference.md) -- All TOML config formats: server, modes, missions, modules
+- [Total Conversion Guide](docs/modding/total-conversion-guide.md) -- Replacing all stock modules, data packs, manifests
+
 **Testing & Tools:**
 - [Test Suite](tests/README.md) -- 19 test suites, test frameworks, adding new tests
 - [Tools](tools/README.md) -- CLI tools, data scraper, diagnostic utilities
@@ -246,6 +276,32 @@ Contributions are welcome. The most useful things right now:
 **Code style:** Builds must pass with zero warnings under `-Wall -Wextra -Wpedantic`. Run `make test` before submitting.
 
 Open an issue to discuss before starting large changes.
+
+## Future Plans (Phase 2)
+
+Phase 2 has two parallel tracks: **modular plugin architecture** and **game client**.
+
+### Modular Plugin Architecture
+
+All game functionality will be refactored into DLL modules loaded via TOML configuration. The stock game becomes the reference implementation -- stock modules use the exact same API that mod DLLs use. Three tiers of extensibility:
+
+- **C DLLs** -- Full engine API access, custom game logic, replace any stock system
+- **Lua scripts** -- Sandboxed scripting for custom rules, scoring, spawn logic
+- **TOML config** -- Declarative game modes, missions, event handler bindings
+
+Nine stock modules (protocol, lobby, combat, scoring, power, repair, movement, gamespy, chat) will be extracted from the monolithic server into standalone DLLs. A total conversion mod replaces any combination of these and the engine doesn't know the difference.
+
+See the [Plugin System Architecture](docs/architecture/plugin-system.md), [Event System](docs/architecture/event-system.md), and [Module API Reference](docs/architecture/module-api-reference.md) for the design. The [Modding Guide](docs/modding/getting-started.md) covers all three extensibility tiers.
+
+### Game Client
+
+A new game client for Quick Battle mode, built on SDL3 + bgfx with a custom NIF V3.1 parser, scene graph, and LCARS UI. The client shares protocol, combat math, and ship data code with the server via `src/shared/`.
+
+Key rendering approach: 3 shaders total (Standard lit, Additive effects, Skybox). All visual effects (phasers, torpedoes, shields, explosions, engine glow) use additive blending. Custom physics (~500 LOC) handles sphere collision, beam raycast, and torpedo projectiles -- BC has no gravity, terrain, or ragdoll.
+
+### Phase 3 (Future): Campaign
+
+TOML mission files with C handler DLLs per episode. Bridge interiors, NIF animation, cinematics, dialogue. Campaign uses the same plugin system as multiplayer.
 
 ## Related Projects
 
