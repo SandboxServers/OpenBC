@@ -80,8 +80,8 @@ void bc_ship_turn_toward(bc_ship_state_t *ship,
 
     if (angle < 1e-5f) return; /* already facing target */
 
-    /* Max turn this tick */
-    f32 max_turn = cls->max_angular_velocity * dt;
+    /* Max turn this tick (tractor_drag reduces angular velocity) */
+    f32 max_turn = cls->max_angular_velocity * ship->tractor_drag * dt;
     if (max_turn <= 0.0f) return;
 
     f32 t = (angle <= max_turn) ? 1.0f : (max_turn / angle);
@@ -191,7 +191,8 @@ int bc_ship_build_state_update(const bc_ship_state_t *cur,
         bc_buf_write_cf16(&fb, cur->speed);
     }
     if (dirty & BC_DIRTY_CLOAK) {
-        bc_buf_write_u8(&fb, cur->cloak_state);
+        /* Wire format: WriteBit boolean (1 = shields on/decloaked, 0 = shields off) */
+        bc_buf_write_bit(&fb, cur->cloak_state == BC_CLOAK_DECLOAKED);
     }
 
     return bc_build_state_update(buf, buf_size,

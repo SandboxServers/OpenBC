@@ -115,6 +115,10 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
  * BC engine uses ~3s; not exposed in hardpoint scripts. */
 #define BC_CLOAK_TRANSITION_TIME  3.0f
 
+/* Cloak energy threshold: if the cloaking device's power efficiency
+ * drops below this, the cloak fails and decloaking begins. */
+#define BC_CLOAK_ENERGY_THRESHOLD 0.5f
+
 /* Begin cloaking. Shields functionally disabled (stop absorbing/recharging)
  * but HP preserved. Weapons disabled.
  * Returns false if ship cannot cloak (no device, dead, already cloaking/cloaked). */
@@ -126,8 +130,11 @@ bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls);
 bool bc_cloak_stop(bc_ship_state_t *ship);
 
 /* Advance cloak state machine timer. Call each tick.
+ * cloak_efficiency: 0.0-1.0 power efficiency for the cloaking device.
+ *   If below BC_CLOAK_ENERGY_THRESHOLD while CLOAKED, auto-decloak begins.
+ *   Pass 1.0f to disable the energy-failure check.
  * On DECLOAKING->DECLOAKED transition: any shield facing at 0 HP set to 1.0. */
-void bc_cloak_tick(bc_ship_state_t *ship, f32 dt);
+void bc_cloak_tick(bc_ship_state_t *ship, f32 cloak_efficiency, f32 dt);
 
 /* Check if ship can fire weapons (only when fully DECLOAKED). */
 bool bc_cloak_can_fire(const bc_ship_state_t *ship);
@@ -152,7 +159,8 @@ int bc_combat_tractor_engage(bc_ship_state_t *ship,
 /* Release tractor beam. */
 void bc_combat_tractor_disengage(bc_ship_state_t *ship);
 
-/* Tick tractor beam: apply multiplicative drag to target's speed.
+/* Tick tractor beam: apply multiplicative drag to SOURCE ship's engine stats.
+ * Reduces speed directly and sets tractor_drag for angular velocity scaling.
  * No damage applied (spec: tractor beams do NOT apply direct damage). */
 void bc_combat_tractor_tick(bc_ship_state_t *ship,
                              bc_ship_state_t *target,

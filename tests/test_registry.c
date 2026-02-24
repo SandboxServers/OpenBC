@@ -677,7 +677,7 @@ TEST(cloak_full_cycle)
     ASSERT(!bc_cloak_shields_active(&ship));
 
     /* Tick through transition */
-    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKED);
 
     /* Still can't fire while cloaked */
@@ -692,7 +692,7 @@ TEST(cloak_full_cycle)
     ASSERT(!bc_cloak_shields_active(&ship));
 
     /* Tick through decloak transition */
-    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
 
     /* Now can fire and shields active again */
@@ -726,7 +726,7 @@ TEST(cloak_prevents_phaser_fire)
     ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
 
     /* Complete cloak, still can't fire */
-    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
 
     /* Decloak, still can't fire during transition */
@@ -734,7 +734,7 @@ TEST(cloak_prevents_phaser_fire)
     ASSERT(!bc_combat_can_fire_phaser(&ship, cls, 0));
 
     /* Complete decloak, now can fire */
-    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f);
+    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT(bc_combat_can_fire_phaser(&ship, cls, 0));
 }
 
@@ -746,7 +746,7 @@ TEST(cloak_no_charge_while_cloaked)
 
     ship.phaser_charge[0] = 0.0f;
     bc_cloak_start(&ship, cls);
-    bc_cloak_tick(&ship, BC_CLOAK_TRANSITION_TIME + 0.1f); /* fully cloaked */
+    bc_cloak_tick(&ship, 1.0f, BC_CLOAK_TRANSITION_TIME + 0.1f); /* fully cloaked */
 
     bc_combat_charge_tick(&ship, cls, 1.0f, 5.0f);
     ASSERT(ship.phaser_charge[0] == 0.0f); /* no recharge while cloaked */
@@ -802,12 +802,13 @@ TEST(tractor_applies_drag)
     /* Place target within tractor range */
     ship.pos = (bc_vec3_t){0, 0, 0};
     target.pos = (bc_vec3_t){10, 0, 0};
-    target.speed = 50.0f;
+    ship.speed = 50.0f;
 
     bc_combat_tractor_engage(&ship, cls, 0, target.object_id);
-    f32 orig_speed = target.speed;
+    f32 orig_speed = ship.speed;
     bc_combat_tractor_tick(&ship, &target, cls, 1.0f);
-    ASSERT(target.speed < orig_speed); /* drag applied */
+    ASSERT(ship.speed < orig_speed);       /* drag on source ship */
+    ASSERT(ship.tractor_drag < 1.0f);      /* angular velocity reduced */
 }
 
 TEST(tractor_auto_releases_out_of_range)

@@ -821,8 +821,9 @@ int main(int argc, char **argv)
                     bc_combat_charge_tick(&p->ship, cls, min_wep, dt);
                     bc_combat_torpedo_tick(&p->ship, cls, dt);
 
-                    /* Cloak state machine */
-                    bc_cloak_tick(&p->ship, dt);
+                    /* Cloak state machine (energy-failure auto-decloak) */
+                    f32 clk_eff = bc_powered_efficiency(&p->ship, cls, "cloak");
+                    bc_cloak_tick(&p->ship, clk_eff, dt);
 
                     /* Repair */
                     bc_repair_tick(&p->ship, cls, dt);

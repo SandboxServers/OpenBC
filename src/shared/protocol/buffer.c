@@ -256,7 +256,7 @@ u16 bc_cf16_encode(f32 value)
     /* Compute mantissa relative to sub-range [lo, hi).
      * Matches decode: result = lo + mantissa/4095 * (hi - lo) */
     f32 range = hi - lo;
-    i32 mantissa = (range > 0.0f) ? (i32)((value - lo) / range * 4096.0f) : 0;
+    i32 mantissa = (range > 0.0f) ? (i32)((value - lo) / range * 4095.0f) : 0;
     if (mantissa > 0xFFF) mantissa = 0xFFF;
     if (mantissa < 0) mantissa = 0;
 

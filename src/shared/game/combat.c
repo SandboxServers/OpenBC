@@ -595,7 +595,7 @@ bool bc_cloak_stop(bc_ship_state_t *ship)
 }
 
 /* Bug 9: on DECLOAKING->DECLOAKED, reset any 0 HP facing to 1.0 */
-void bc_cloak_tick(bc_ship_state_t *ship, f32 dt)
+void bc_cloak_tick(bc_ship_state_t *ship, f32 cloak_efficiency, f32 dt)
 {
     if (dt <= 0.0f) return;
 
@@ -605,6 +605,13 @@ void bc_cloak_tick(bc_ship_state_t *ship, f32 dt)
         if (ship->cloak_timer <= 0.0f) {
             ship->cloak_timer = 0.0f;
             ship->cloak_state = BC_CLOAK_CLOAKED;
+        }
+        break;
+    case BC_CLOAK_CLOAKED:
+        /* Energy failure: if cloak can't get enough power, force decloak */
+        if (cloak_efficiency < BC_CLOAK_ENERGY_THRESHOLD) {
+            ship->cloak_state = BC_CLOAK_DECLOAKING;
+            ship->cloak_timer = BC_CLOAK_TRANSITION_TIME;
         }
         break;
     case BC_CLOAK_DECLOAKING:
@@ -686,10 +693,13 @@ int bc_combat_tractor_engage(bc_ship_state_t *ship,
 void bc_combat_tractor_disengage(bc_ship_state_t *ship)
 {
     ship->tractor_target_id = -1;
+    ship->tractor_drag = 1.0f;
 }
 
 /* Bug 2: tractor beams do NOT apply damage.
- * Bug 3: multiplicative drag, not additive. */
+ * Bug 3: multiplicative drag, not additive.
+ * Drag applies to SOURCE ship (the one projecting the tractor beam)
+ * and reduces all 4 engine stats via tractor_drag multiplier. */
 void bc_combat_tractor_tick(bc_ship_state_t *ship,
                              bc_ship_state_t *target,
                              const bc_ship_class_t *cls,
@@ -697,6 +707,7 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
 {
     if (ship->tractor_target_id < 0 || !ship->alive || !target->alive) {
         ship->tractor_target_id = -1;
+        ship->tractor_drag = 1.0f;
         return;
     }
     if (dt <= 0.0f) return;
@@ -705,6 +716,7 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
     int ss_idx = find_tractor_subsys(cls, 0);
     if (ss_idx < 0 || ship->subsystem_hp[ss_idx] <= 0.0f) {
         ship->tractor_target_id = -1;
+        ship->tractor_drag = 1.0f;
         return;
     }
 
@@ -714,13 +726,14 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
     f32 dist = bc_vec3_dist(ship->pos, target->pos);
     if (dist > ss->max_damage_distance) {
         ship->tractor_target_id = -1; /* out of range, auto-release */
+        ship->tractor_drag = 1.0f;
         return;
     }
 
     /* Bug 3: multiplicative drag formula from spec.
      * force = max_damage * system_condition_pct * distance_ratio * dt
      * tractor_ratio = force / max_damage
-     * effective_speed *= (1.0 - tractor_ratio) */
+     * Drag applies to SOURCE ship's engine stats. */
     f32 sys_hp_pct = ship->subsystem_hp[ss_idx] / ss->max_condition;
     f32 dist_ratio = (dist <= ss->max_damage_distance)
                      ? 1.0f
@@ -728,7 +741,10 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
     f32 force = ss->max_damage * sys_hp_pct * dist_ratio * dt;
     f32 tractor_ratio = force / ss->max_damage;
     if (tractor_ratio > 1.0f) tractor_ratio = 1.0f;
-    target->speed *= (1.0f - tractor_ratio);
+
+    f32 drag = 1.0f - tractor_ratio;
+    ship->speed *= drag;
+    ship->tractor_drag = drag; /* affects max_angular_velocity in movement */
 
     /* Bug 2: NO damage applied — tractor beams do not deal direct damage */
 }

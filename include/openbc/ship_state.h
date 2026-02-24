@@ -54,6 +54,7 @@ typedef struct {
 
     /* Tractor */
     i32        tractor_target_id; /* -1 = none */
+    f32        tractor_drag;      /* 1.0 = no drag, <1.0 = engine stats reduced */
 
     /* Power allocation (indexed by ser_list entry index) */
     u8         power_pct[BC_SS_MAX_ENTRIES];     /* 0-125, Powered entries only */
