@@ -48,6 +48,9 @@ static bool set_platform_data(SDL_Window *window)
 #else
     pd.ndt = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
     pd.nwh = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, NULL);
+    if (pd.nwh) {
+        pd.type = BGFX_NATIVE_WINDOW_HANDLE_TYPE_WAYLAND;
+    }
 
     if (!pd.nwh) {
         uint64_t x11_window = (uint64_t)SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
@@ -93,13 +96,25 @@ bool bc_client_backend_init(const bc_client_config_t *cfg)
         return false;
     }
 
-    if (!SDL_GetWindowSizeInPixels(g_window, (int *)&g_width, (int *)&g_height)) {
+    int win_w = 0;
+    int win_h = 0;
+
+    if (!SDL_GetWindowSizeInPixels(g_window, &win_w, &win_h)) {
         fprintf(stderr, "SDL_GetWindowSizeInPixels failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(g_window);
         g_window = NULL;
         SDL_Quit();
         return false;
     }
+    if (win_w <= 0 || win_h <= 0 || win_w > UINT16_MAX || win_h > UINT16_MAX) {
+        fprintf(stderr, "SDL_GetWindowSizeInPixels returned out-of-range size: %d x %d\n", win_w, win_h);
+        SDL_DestroyWindow(g_window);
+        g_window = NULL;
+        SDL_Quit();
+        return false;
+    }
+    g_width = (uint16_t)win_w;
+    g_height = (uint16_t)win_h;
 
     if (!set_platform_data(g_window)) {
         fprintf(stderr, "Failed to acquire native window handle for bgfx\n");
@@ -147,7 +162,8 @@ bool bc_client_backend_frame(uint32_t clear_rgba)
 
         case SDL_EVENT_WINDOW_RESIZED:
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-            if (event.window.data1 > 0 && event.window.data2 > 0) {
+            if (event.window.data1 > 0 && event.window.data2 > 0 &&
+                event.window.data1 <= UINT16_MAX && event.window.data2 <= UINT16_MAX) {
                 g_width = (uint16_t)event.window.data1;
                 g_height = (uint16_t)event.window.data2;
                 bgfx_reset(g_width, g_height, BGFX_RESET_VSYNC, BGFX_TEXTURE_FORMAT_COUNT);
