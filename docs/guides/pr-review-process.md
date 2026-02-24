@@ -37,15 +37,15 @@ For each actionable comment CodeRabbit posts:
 ### 5. Rate limit discipline
 
 - Free plan allows **3 back-to-back reviews** upfront, then throttles to **~2 reviews per hour** (summary-only thereafter)
-- Must wait at least **20 minutes** after the last review completed before pushing
-- Once the hourly cap is reached, effective wait is approximately **30 minutes** between reviews
+- Must wait at least **30 minutes** after the last review completed before pushing (allows for both the minimum cooldown and the throttled cadence)
 - **After a rate limit**: CodeRabbit does NOT auto-retry. You must retrigger by commenting `@coderabbitai review` on the PR or pushing a new commit
 
 ### 6. Push the fix commit
 
-- Run `make PLATFORM=Windows all` — zero warnings required
-- Run `make PLATFORM=Windows test` — all tests must pass
-- CI runs builds on all three platforms (Windows, Linux, macOS) per the three-OS hard rule. Local cross-compile targets Windows; CI validates Linux and macOS.
+- **Local build** (cross-compile from WSL2 to Win32):
+  - `make PLATFORM=Windows all` — zero warnings required
+  - `make PLATFORM=Windows test` — all tests must pass
+- **CI validates all three platforms** (Windows, Linux, macOS) per the three-OS hard rule. Direct Linux/macOS builds require native toolchains provided by CI; the local cross-compile targets Windows only.
 - If any remote CI build failures were found on the previous push, bundle that fix into this push
 - Commit and push
 

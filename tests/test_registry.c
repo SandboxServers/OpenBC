@@ -702,6 +702,38 @@ TEST(cloak_full_cycle)
     ASSERT(bc_cloak_shields_active(&ship));
 }
 
+TEST(cloak_auto_decloak_on_low_power)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 6);
+    ASSERT(cls != NULL);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
+
+    /* Cloak and complete transition */
+    ASSERT(bc_cloak_start(&ship, cls));
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKED);
+
+    /* Drop efficiency below threshold → auto-decloak */
+    bc_cloak_tick(&ship, /* cloak_efficiency */ BC_CLOAK_ENERGY_THRESHOLD - 0.01f,
+                  /* dt */ 0.1f);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKING);
+
+    /* Vulnerability window: can't fire, no shields */
+    ASSERT(!bc_cloak_can_fire(&ship));
+    ASSERT(!bc_cloak_shields_active(&ship));
+
+    /* Complete decloak transition */
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 0.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
+
+    /* Fully decloaked: can fire and shields active */
+    ASSERT(bc_cloak_can_fire(&ship));
+    ASSERT(bc_cloak_shields_active(&ship));
+}
+
 TEST(non_cloaker_cannot_cloak)
 {
     /* Galaxy (species 3) has no cloak */
@@ -953,6 +985,7 @@ TEST_MAIN_BEGIN()
     RUN(shield_dead_recharge_uses_backup_battery);
     RUN(charge_tick_recharges);
     RUN(cloak_full_cycle);
+    RUN(cloak_auto_decloak_on_low_power);
     RUN(non_cloaker_cannot_cloak);
     RUN(cloak_prevents_phaser_fire);
     RUN(cloak_no_charge_while_cloaked);
