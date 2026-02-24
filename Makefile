@@ -17,7 +17,12 @@ else
     CXX      := c++
     EXE      :=
     NET_LIBS :=
-    DL_LIBS  := -ldl
+    # macOS: dlopen lives in libSystem (always linked); Linux needs -ldl
+    ifeq ($(PLATFORM),Darwin)
+        DL_LIBS :=
+    else
+        DL_LIBS := -ldl
+    endif
     # Expose POSIX.1-2008 + BSD extensions (getaddrinfo, usleep, opendir, DT_*)
     POSIX_DEFS := -D_DEFAULT_SOURCE
 endif

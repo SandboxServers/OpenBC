@@ -57,6 +57,8 @@ TEST(path_validate_traversal_prefix)
 {
 #ifdef _WIN32
     ASSERT_EQ_INT(-1, obc_module_path_validate("../evil.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(-1, obc_module_path_validate("../evil.dylib"));
 #else
     ASSERT_EQ_INT(-1, obc_module_path_validate("../evil.so"));
 #endif
@@ -66,6 +68,8 @@ TEST(path_validate_traversal_backslash)
 {
 #ifdef _WIN32
     ASSERT_EQ_INT(-1, obc_module_path_validate("..\\evil.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(-1, obc_module_path_validate("..\\evil.dylib"));
 #else
     ASSERT_EQ_INT(-1, obc_module_path_validate("..\\evil.so"));
 #endif
@@ -75,6 +79,8 @@ TEST(path_validate_traversal_mid)
 {
 #ifdef _WIN32
     ASSERT_EQ_INT(-1, obc_module_path_validate("foo/../bar.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(-1, obc_module_path_validate("foo/../bar.dylib"));
 #else
     ASSERT_EQ_INT(-1, obc_module_path_validate("foo/../bar.so"));
 #endif
@@ -90,6 +96,8 @@ TEST(path_validate_absolute_unix)
 {
 #ifdef _WIN32
     ASSERT_EQ_INT(-1, obc_module_path_validate("/usr/lib/evil.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(-1, obc_module_path_validate("/usr/lib/evil.dylib"));
 #else
     ASSERT_EQ_INT(-1, obc_module_path_validate("/usr/lib/evil.so"));
 #endif
@@ -100,6 +108,9 @@ TEST(path_validate_absolute_win_drive)
 #ifdef _WIN32
     ASSERT_EQ_INT(-1, obc_module_path_validate("C:\\mods\\evil.dll"));
     ASSERT_EQ_INT(-1, obc_module_path_validate("D:/mods/evil.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(-1, obc_module_path_validate("C:\\mods\\evil.dylib"));
+    ASSERT_EQ_INT(-1, obc_module_path_validate("D:/mods/evil.dylib"));
 #else
     ASSERT_EQ_INT(-1, obc_module_path_validate("C:\\mods\\evil.so"));
     ASSERT_EQ_INT(-1, obc_module_path_validate("D:/mods/evil.so"));
@@ -109,12 +120,19 @@ TEST(path_validate_absolute_win_drive)
 TEST(path_validate_wrong_extension)
 {
 #ifdef _WIN32
-    /* .so is wrong on Windows */
+    /* .so / .dylib wrong on Windows */
+    ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.so"));
+    ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.dylib"));
+    ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.exe"));
+#elif defined(__APPLE__)
+    /* .dll / .so wrong on macOS */
+    ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.dll"));
     ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.so"));
     ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.exe"));
 #else
-    /* .dll is wrong on Linux */
+    /* .dll / .dylib wrong on Linux */
     ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.dll"));
+    ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.dylib"));
     ASSERT_EQ_INT(-1, obc_module_path_validate("mymod.exe"));
 #endif
 }
@@ -123,6 +141,8 @@ TEST(path_validate_valid_simple)
 {
 #ifdef _WIN32
     ASSERT_EQ_INT(0, obc_module_path_validate("mymod.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(0, obc_module_path_validate("mymod.dylib"));
 #else
     ASSERT_EQ_INT(0, obc_module_path_validate("mymod.so"));
 #endif
@@ -132,6 +152,8 @@ TEST(path_validate_valid_subdir)
 {
 #ifdef _WIN32
     ASSERT_EQ_INT(0, obc_module_path_validate("mods/mymod.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(0, obc_module_path_validate("mods/mymod.dylib"));
 #else
     ASSERT_EQ_INT(0, obc_module_path_validate("mods/mymod.so"));
 #endif
@@ -142,6 +164,8 @@ TEST(path_validate_dotdot_in_filename_ok)
     /* ".." inside a filename is not a traversal */
 #ifdef _WIN32
     ASSERT_EQ_INT(0, obc_module_path_validate("my..mod.dll"));
+#elif defined(__APPLE__)
+    ASSERT_EQ_INT(0, obc_module_path_validate("my..mod.dylib"));
 #else
     ASSERT_EQ_INT(0, obc_module_path_validate("my..mod.so"));
 #endif
@@ -361,8 +385,16 @@ TEST(loader_invalid_path_fails)
     obc_config_defaults(&cfg);
     cfg.module_count = 1;
     snprintf(cfg.modules[0].name, sizeof(cfg.modules[0].name), "badmod");
+#ifdef _WIN32
     snprintf(cfg.modules[0].dll, sizeof(cfg.modules[0].dll),
              "../traversal.dll");
+#elif defined(__APPLE__)
+    snprintf(cfg.modules[0].dll, sizeof(cfg.modules[0].dll),
+             "../traversal.dylib");
+#else
+    snprintf(cfg.modules[0].dll, sizeof(cfg.modules[0].dll),
+             "../traversal.so");
+#endif
     cfg.modules[0].lua[0] = '\0';
 
     obc_event_bus_init();
@@ -384,6 +416,9 @@ TEST(loader_missing_dll_fails)
 #ifdef _WIN32
     snprintf(cfg.modules[0].dll, sizeof(cfg.modules[0].dll),
              "nonexistent_module.dll");
+#elif defined(__APPLE__)
+    snprintf(cfg.modules[0].dll, sizeof(cfg.modules[0].dll),
+             "nonexistent_module.dylib");
 #else
     snprintf(cfg.modules[0].dll, sizeof(cfg.modules[0].dll),
              "nonexistent_module.so");

@@ -131,6 +131,8 @@ int obc_module_path_validate(const char *path)
     size_t len = strlen(path);
 #ifdef _WIN32
     const char *required_ext = ".dll";
+#elif defined(__APPLE__)
+    const char *required_ext = ".dylib";
 #else
     const char *required_ext = ".so";
 #endif
