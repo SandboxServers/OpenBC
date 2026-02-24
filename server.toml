@@ -1,0 +1,44 @@
+# OpenBC Server Configuration
+# All settings are optional; absent values use hardcoded defaults.
+# CLI arguments override values set here.
+# See docs/modding/toml-reference.md for full documentation.
+
+[server]
+port        = 22101                # UDP listen port
+max_players = 6                    # Maximum concurrent players (1-9)
+name        = "OpenBC Server"      # Server name shown in GameSpy browser
+log_level   = "info"               # quiet|error|warn|info|debug|trace
+log_file    = ""                   # Log file path; empty = auto-generate timestamped name
+
+[game]
+map               = "Multiplayer.Episode.Mission1.Mission1"  # Mission script string
+system            = 1              # Star system index (1-9)
+time_limit        = -1             # Time limit in minutes (-1 = no limit)
+frag_limit        = -1             # Kill limit (-1 = no limit)
+collision_damage  = true           # Enable collision damage
+friendly_fire     = false          # Enable team damage
+difficulty        = 1              # 0=Easy, 1=Normal, 2=Hard
+respawn_time      = 10             # Seconds before dead player respawns
+mode_file         = ""             # Optional game-mode TOML file path
+
+[data]
+registry  = ""                     # Ship data directory; empty = auto-detect from data/
+manifest  = ""                     # Hash manifest JSON; empty = auto-detect from manifests/
+mod_packs = []                     # Additional data pack directories
+
+[gamespy]
+enabled       = true               # Enable GameSpy LAN/master protocol
+lan_discovery = true               # Respond to LAN browser queries (port 6500)
+master        = []                 # Master server addresses (host:port); empty = use defaults
+
+[master]
+heartbeat_interval = 60            # Seconds between master server heartbeats
+
+# Module definitions:
+# [[modules]]
+# name = "combat"
+# dll  = "modules/combat.dll"
+# [modules.config]
+# collision_damage  = true
+# friendly_fire     = false
+# collision_cooldown = 0.5

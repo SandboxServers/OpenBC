@@ -1,5 +1,9 @@
 #include "openbc/server_state.h"
 
+/* --- Server configuration (loaded from server.toml, then overridden by CLI) --- */
+
+obc_server_cfg_t g_server_cfg;
+
 /* --- Session statistics --- */
 
 bc_session_stats_t g_stats;
