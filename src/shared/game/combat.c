@@ -741,6 +741,7 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
      * tractor_ratio = force / max_damage
      * Drag applies to SOURCE ship's engine stats. */
     if (ss->max_condition <= 0.0f || ss->max_damage <= 0.0f) {
+        ship->tractor_target_id = -1;
         ship->tractor_drag = 1.0f;
         return;
     }
