@@ -570,6 +570,7 @@ void obc_module_api_build(obc_engine_api_t *api, const obc_server_cfg_t *cfg)
 {
     memset(api, 0, sizeof(*api));
     s_cfg = cfg;
+    s_api_self = api;
 
     api->api_version = 1;
 
