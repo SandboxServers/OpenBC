@@ -84,29 +84,26 @@ tests/             # 19 test suites (unit + integration)
 docs/              # Design documents and protocol reference
 ```
 
-## Agent Roster (14 agents in .claude/agents/)
+## Agent Roster (11 agents in .claude/agents/)
 
 ### Tier 1 -- Core Architecture
 - **openbc-architect** -- System architecture, cross-cutting design decisions
 - **protocol-analyst** -- Behavioral protocol analysis from packet captures and observable wire behavior
-- **design-intent** -- Design judgment calls based on observable game behavior and readable Python scripts
-- **network-protocol** -- Protocol engineering (wire format, opcodes, reliability)
+- **design-intent** -- Design judgment calls based on observable game behavior and era-appropriate reasoning
+- **network-protocol** -- Wire protocol engineering (raw UDP, cipher, reliable layer, GameSpy)
 
 ### Tier 2 -- Engine Subsystems
 - **physics-sim** -- Ship dynamics, collision detection, damage model
-- **nif-asset-pipeline** -- NIF file format, collision mesh extraction
-- **build-ci** -- Build system, CI/CD, packaging, Docker
+- **nif-asset-pipeline** -- NIF V3.1 file parsing, mesh/texture extraction
+- **build-ci** -- Make build system, MinGW cross-compile, CI/CD
 
-### Tier 3 -- Future Phases (Client)
-- **bgfx-renderer** -- Rendering pipeline (Phase D+)
-- **rmlui-specialist** -- UI reimplementation (Phase D+)
-- **platform-integration** -- SDL3, miniaudio, cross-platform (Phase D+)
+### Tier 3 -- Client
+- **bgfx-renderer** -- Rendering pipeline, shaders, custom LCARS UI rendering
+- **platform-integration** -- SDL3, miniaudio, cglm, Dear ImGui dev tools
+- **lua-scripting** -- Lua 5.4 embedding, mod API, sandbox
 
-### Tier 4 -- Legacy / Reference
-- **swig-api-compat** -- SWIG API reference (historical, informs data registry design)
-- **flecs-ecs-architect** -- ECS design reference (historical)
-- **python-migration** -- Python compatibility reference (historical)
-- **mod-compat-tester** -- Community mod compatibility testing
+### Tier 4 -- Community
+- **mod-compat-tester** -- Mod ecosystem testing, data pack validation
 
 ## Implementation Gotchas
 
