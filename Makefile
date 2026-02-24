@@ -27,38 +27,42 @@ LDLIBS   := -lm
 BUILD    := build
 
 # Source files by component
-CHECKSUM_SRC := src/checksum/string_hash.c src/checksum/file_hash.c src/checksum/hash_tables.c src/checksum/manifest.c
-PROTOCOL_SRC := src/protocol/cipher.c src/protocol/buffer.c src/protocol/opcodes.c src/protocol/handshake.c src/protocol/game_events.c src/protocol/game_builders.c
-NETWORK_SRC  := src/network/net.c src/network/peer.c src/network/transport.c src/network/gamespy.c src/network/reliable.c src/network/master.c src/network/client_transport.c
-JSON_SRC     := src/json/json_parse.c
-GAME_SRC     := src/game/ship_data.c src/game/ship_state.c src/game/ship_power.c src/game/movement.c src/game/combat.c src/game/torpedo_tracker.c
+CHECKSUM_SRC := src/shared/checksum/string_hash.c src/shared/checksum/file_hash.c src/shared/checksum/hash_tables.c src/shared/checksum/manifest.c
+PROTOCOL_SRC := src/shared/protocol/cipher.c src/shared/protocol/buffer.c src/shared/protocol/opcodes.c src/shared/protocol/handshake.c src/shared/protocol/game_events.c src/shared/protocol/game_builders.c src/shared/protocol/client_transport.c
+SERVER_NET_SRC := src/server/network/net.c src/server/network/peer.c src/server/network/transport.c src/server/network/gamespy.c src/server/network/reliable.c src/server/network/master.c
+JSON_SRC     := src/shared/json/json_parse.c
+GAME_SRC     := src/shared/game/ship_data.c src/shared/game/ship_state.c src/shared/game/ship_power.c src/shared/game/movement.c src/shared/game/combat.c src/shared/game/torpedo_tracker.c
 MANIFEST_SRC := tools/manifest.c
 LOG_SRC      := src/server/log.c
 SERVER_SRC   := src/server/main.c src/server/server_state.c \
                 src/server/server_send.c src/server/server_handshake.c \
                 src/server/server_dispatch.c src/server/server_stats.c
+CLIENT_SRC   := src/client/main.c
 
 # Object files
 CHECKSUM_OBJ := $(CHECKSUM_SRC:%.c=$(BUILD)/%.o)
 PROTOCOL_OBJ := $(PROTOCOL_SRC:%.c=$(BUILD)/%.o)
-NETWORK_OBJ  := $(NETWORK_SRC:%.c=$(BUILD)/%.o)
+SERVER_NET_OBJ := $(SERVER_NET_SRC:%.c=$(BUILD)/%.o)
 JSON_OBJ     := $(JSON_SRC:%.c=$(BUILD)/%.o)
 GAME_OBJ     := $(GAME_SRC:%.c=$(BUILD)/%.o)
 MANIFEST_OBJ := $(MANIFEST_SRC:%.c=$(BUILD)/%.o)
 LOG_OBJ      := $(LOG_SRC:%.c=$(BUILD)/%.o)
 SERVER_OBJ   := $(SERVER_SRC:%.c=$(BUILD)/%.o)
+CLIENT_OBJ   := $(CLIENT_SRC:%.c=$(BUILD)/%.o)
 
 # All library objects (everything except tools and server main)
-LIB_OBJ      := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(NETWORK_OBJ) $(JSON_OBJ) $(GAME_OBJ) $(LOG_OBJ)
+SHARED_OBJ   := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(JSON_OBJ) $(GAME_OBJ) $(LOG_OBJ)
+SERVER_LIB_OBJ := $(SHARED_OBJ) $(SERVER_NET_OBJ)
+LIB_OBJ      := $(SERVER_LIB_OBJ)
 
 # Test files
 TEST_SRC     := $(wildcard tests/test_*.c)
 TEST_BIN     := $(TEST_SRC:tests/%.c=$(BUILD)/tests/%$(EXE))
 
 # Targets
-.PHONY: all clean test server
+.PHONY: all clean test server client
 
-all: $(BUILD)/openbc-hash$(EXE) $(BUILD)/openbc-server$(EXE)
+all: $(BUILD)/openbc-hash$(EXE) $(BUILD)/openbc-server$(EXE) $(BUILD)/openbc-client$(EXE)
 
 # --- Hash manifest tool ---
 $(BUILD)/openbc-hash$(EXE): $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(JSON_OBJ) $(LOG_OBJ) $(MANIFEST_OBJ)
@@ -68,9 +72,16 @@ $(BUILD)/openbc-hash$(EXE): $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(JSON_OBJ) $(LOG_OB
 # --- Server binary ---
 server: $(BUILD)/openbc-server$(EXE)
 
-$(BUILD)/openbc-server$(EXE): $(LIB_OBJ) $(SERVER_OBJ)
+$(BUILD)/openbc-server$(EXE): $(SERVER_LIB_OBJ) $(SERVER_OBJ)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS)
+
+# --- Client binary ---
+client: $(BUILD)/openbc-client$(EXE)
+
+$(BUILD)/openbc-client$(EXE): $(SHARED_OBJ) $(CLIENT_OBJ)
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 # --- Test runner ---
 test: $(TEST_BIN)
