@@ -87,5 +87,5 @@ gh pr view <PR> --json comments
 | Don't reply | Never respond to CodeRabbit's reviews or comments |
 | Open issues for substantial changes | Substantial/rearchitecture feedback → GitHub issue with reasons |
 | Tests must pass | All tests green, zero warnings before every push |
-| Rate limits | 3 upfront reviews, then ~2/hour; wait 20+ min between pushes; retrigger after rate limit |
+| Rate limits | 3 upfront reviews, then ~2/hour; wait ~30 min between pushes; retrigger after rate limit |
 | Never push to main | Always get user confirmation before pushing to main |

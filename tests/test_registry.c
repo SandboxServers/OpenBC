@@ -657,6 +657,15 @@ TEST(charge_tick_recharges)
 
 /* === Cloaking tests === */
 
+/* Helper: cloak a ship and tick through the full transition to CLOAKED */
+static void ship_do_full_cloak(bc_ship_state_t *ship, const bc_ship_class_t *cls)
+{
+    ASSERT(bc_cloak_start(ship, cls));
+    bc_cloak_tick(ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT_EQ((int)ship->cloak_state, BC_CLOAK_CLOAKED);
+}
+
 TEST(cloak_full_cycle)
 {
     /* BirdOfPrey (species 6) can cloak */
@@ -709,11 +718,7 @@ TEST(cloak_auto_decloak_on_low_power)
     bc_ship_state_t ship;
     bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
 
-    /* Cloak and complete transition */
-    ASSERT(bc_cloak_start(&ship, cls));
-    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
-                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
-    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKED);
+    ship_do_full_cloak(&ship, cls);
 
     /* Drop efficiency below threshold → auto-decloak */
     bc_cloak_tick(&ship, /* cloak_efficiency */ BC_CLOAK_ENERGY_THRESHOLD - 0.01f,
@@ -732,6 +737,30 @@ TEST(cloak_auto_decloak_on_low_power)
     /* Fully decloaked: can fire and shields active */
     ASSERT(bc_cloak_can_fire(&ship));
     ASSERT(bc_cloak_shields_active(&ship));
+}
+
+TEST(cloak_energy_loss_during_transition)
+{
+    /* Energy threshold only applies in CLOAKED state, not CLOAKING.
+     * A ship losing power mid-transition completes cloaking first,
+     * then auto-decloaks on the next tick. */
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 6);
+    ASSERT(cls != NULL);
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 5, bc_make_ship_id(0), 0, 0);
+
+    ASSERT(bc_cloak_start(&ship, cls));
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKING);
+
+    /* Low efficiency during CLOAKING — transition completes anyway */
+    bc_cloak_tick(&ship, /* cloak_efficiency */ BC_CLOAK_ENERGY_THRESHOLD - 0.01f,
+                  /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKED);
+
+    /* Now in CLOAKED, low efficiency triggers auto-decloak */
+    bc_cloak_tick(&ship, /* cloak_efficiency */ BC_CLOAK_ENERGY_THRESHOLD - 0.01f,
+                  /* dt */ 0.1f);
+    ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKING);
 }
 
 TEST(non_cloaker_cannot_cloak)
@@ -839,13 +868,13 @@ TEST(tractor_applies_drag)
     /* Place target within tractor range */
     ship.pos = (bc_vec3_t){0, 0, 0};
     target.pos = (bc_vec3_t){10, 0, 0};
-    ship.speed = 50.0f;
+    bc_ship_set_speed(&ship, cls, cls->max_speed);
 
     bc_combat_tractor_engage(&ship, cls, 0, target.object_id);
-    f32 orig_speed = ship.speed;
+    f32 orig_speed = ship.speed; /* == cls->max_speed */
     bc_combat_tractor_tick(&ship, &target, cls, 1.0f);
-    ASSERT(ship.speed < orig_speed);       /* drag on source ship */
-    ASSERT(ship.tractor_drag < 1.0f);      /* angular velocity reduced */
+    ASSERT(ship.speed < orig_speed * 0.999f); /* meaningful speed reduction */
+    ASSERT(ship.tractor_drag < 1.0f);         /* angular velocity reduced */
 }
 
 TEST(tractor_auto_releases_out_of_range)
@@ -986,6 +1015,7 @@ TEST_MAIN_BEGIN()
     RUN(charge_tick_recharges);
     RUN(cloak_full_cycle);
     RUN(cloak_auto_decloak_on_low_power);
+    RUN(cloak_energy_loss_during_transition);
     RUN(non_cloaker_cannot_cloak);
     RUN(cloak_prevents_phaser_fire);
     RUN(cloak_no_charge_while_cloaked);
