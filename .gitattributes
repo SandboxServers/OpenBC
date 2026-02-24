@@ -1,0 +1,8 @@
+# Force consistent line endings (LF) for all text files
+* text=auto eol=lf
+
+# Binary files that must never be CRLF-converted
+*.pyc binary
+*.exe binary
+*.bin binary
+*.json text eol=lf
