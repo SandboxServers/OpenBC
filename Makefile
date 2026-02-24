@@ -40,6 +40,7 @@ JSON_SRC     := src/shared/json/json_parse.c
 GAME_SRC     := src/shared/game/ship_data.c src/shared/game/ship_state.c src/shared/game/ship_power.c src/shared/game/movement.c src/shared/game/combat.c src/shared/game/torpedo_tracker.c
 MANIFEST_SRC := tools/manifest.c
 LOG_SRC      := src/server/log.c
+EVENT_BUS_SRC := src/server/event_bus.c
 SERVER_SRC   := src/server/main.c src/server/server_state.c \
                 src/server/server_send.c src/server/server_handshake.c \
                 src/server/server_dispatch.c src/server/server_stats.c
@@ -85,12 +86,13 @@ JSON_OBJ     := $(JSON_SRC:%.c=$(BUILD)/%.o)
 GAME_OBJ     := $(GAME_SRC:%.c=$(BUILD)/%.o)
 MANIFEST_OBJ := $(MANIFEST_SRC:%.c=$(BUILD)/%.o)
 LOG_OBJ      := $(LOG_SRC:%.c=$(BUILD)/%.o)
+EVENT_BUS_OBJ := $(EVENT_BUS_SRC:%.c=$(BUILD)/%.o)
 SERVER_OBJ   := $(SERVER_SRC:%.c=$(BUILD)/%.o)
 CLIENT_OBJ   := $(CLIENT_SRC:%.c=$(BUILD)/%.o)
 
 # All library objects (everything except tools and server main)
 SHARED_OBJ   := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(JSON_OBJ) $(GAME_OBJ) $(LOG_OBJ)
-SERVER_LIB_OBJ := $(SHARED_OBJ) $(SERVER_NET_OBJ)
+SERVER_LIB_OBJ := $(SHARED_OBJ) $(SERVER_NET_OBJ) $(EVENT_BUS_OBJ)
 LIB_OBJ      := $(SERVER_LIB_OBJ)
 
 # Test files
