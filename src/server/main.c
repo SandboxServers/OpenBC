@@ -23,6 +23,8 @@
 #include "openbc/game_builders.h"
 #include "openbc/config.h"
 #include "openbc/log.h"
+#include "openbc/module_loader.h"
+#include "openbc/event_bus.h"
 
 #ifdef _WIN32
 #  include <windows.h>  /* For Sleep(), GetTickCount() */
@@ -32,6 +34,10 @@
 #  include <dirent.h>   /* For opendir(), readdir() */
 #  include <sys/stat.h> /* For stat(), S_ISDIR() */
 #endif
+
+/* --- Module loader --- */
+
+static obc_module_loader_t g_module_loader;
 
 /* --- Signal handler --- */
 
@@ -72,6 +78,7 @@ static void usage(const char *prog)
     fprintf(stderr,
         "Usage: %s [options]\n"
         "Options:\n"
+        "  --config <path>    Config file path (default: server.toml)\n"
         "  -p <port>          Listen port (default: 22101)\n"
         "  -n <name>          Server name (default: \"OpenBC Server\")\n"
         "  -m <mode>          Game mode (default: \"Multiplayer.Episode.Mission1.Mission1\")\n"
@@ -180,11 +187,20 @@ int main(int argc, char **argv)
     const char *log_file_path = NULL;
     bool no_log_file = false;
 
-    /* Load server.toml (optional).
-     * Layering: hardcoded defaults → server.toml → CLI args.
+    /* Pre-scan for --config (must resolve before obc_config_load). */
+    const char *config_path = "server.toml";
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            config_path = argv[i + 1];
+            break;
+        }
+    }
+
+    /* Load config file (optional).
+     * Layering: hardcoded defaults → config file → CLI args.
      * Missing file is silently ignored; CLI always wins. */
     obc_config_defaults(&g_server_cfg);
-    obc_config_load("server.toml", &g_server_cfg);
+    obc_config_load(config_path, &g_server_cfg);
 
     /* Apply TOML values (CLI args parsed below will override these). */
     port        = (u16)g_server_cfg.port;
@@ -276,6 +292,8 @@ int main(int argc, char **argv)
             log_level = LOG_TRACE;
         } else if (strcmp(argv[i], "-v") == 0) {
             log_level = LOG_DEBUG;
+        } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            ++i; /* already handled in pre-scan; consume the argument */
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -646,6 +664,23 @@ int main(int argc, char **argv)
     }
     printf("Press Ctrl+C to stop.\n\n");
 
+    /* Initialize event bus and load modules */
+    obc_event_bus_init();
+    if (g_server_cfg.module_count > 0) {
+        if (obc_module_loader_init(&g_module_loader, &g_server_cfg) != 0) {
+            LOG_ERROR("init", "Module loading failed -- aborting");
+            obc_event_bus_shutdown();
+            if (g_query_socket_open) {
+                bc_socket_close(&g_query_socket);
+                g_query_socket_open = false;
+            }
+            bc_socket_close(&g_socket);
+            bc_net_shutdown();
+            bc_log_shutdown();
+            return 1;
+        }
+    }
+
     /* Diagnostic: check for ghost peers created during startup/probe.
      * Only slot 0 (dedi) should be non-empty at this point. */
     for (int i = 1; i < BC_MAX_PLAYERS; i++) {
@@ -990,6 +1025,11 @@ int main(int argc, char **argv)
     }
 
     LOG_INFO("shutdown", "Shutting down...");
+
+    /* Shut down modules before network teardown (shutdown callbacks may
+     * fire events or send messages that need the network layer alive). */
+    obc_module_loader_shutdown(&g_module_loader);
+    obc_event_bus_shutdown();
 
     /* Log session summary before tearing down */
     bc_log_session_summary();

@@ -105,6 +105,16 @@ docs/              # Design documents and protocol reference
 ### Tier 4 -- Community
 - **mod-compat-tester** -- Mod ecosystem testing, data pack validation
 
+## Coding & Portability Guides
+
+**Consult these before writing any new code.** They live in `docs/guides/`:
+
+- **[coding-patterns.md](docs/guides/coding-patterns.md)** — C11 `-Wpedantic` rules, `snprintf` safety, `memcpy` type-puns for dlsym/GetProcAddress, `const` correctness, Cppcheck/CodeRabbit patterns, `goto fail` cleanup, test link patterns, stub patterns
+- **[cross-platform.md](docs/guides/cross-platform.md)** — Three-OS portability (Windows/Linux/macOS), master divergence table, macOS `.dylib` gotcha, macOS `-ldl` gotcha, socket differences, path handling, preprocessor indent convention
+- **[tech-stack-gotchas.md](docs/guides/tech-stack-gotchas.md)** — Per-dependency pitfalls: C++ ABI/interop, bgfx (shader compilation, backends, C++ linking, memory), SDL3 (build, SDL2 migration), Lua 5.4 (embedding, stack discipline, sandbox, platform defines), cglm (SIMD/ARM), miniaudio (backends, threading), Dear ImGui (bgfx integration, high-DPI), toml-c, pkg-config
+
+**Hard rule: all code must build and run on Windows, Linux, and macOS.** Three-way `#ifdef` for platform divergences. Never silently drop a platform.
+
 ## Implementation Gotchas
 
 Hard-won bugs — do not repeat:
