@@ -46,6 +46,17 @@ typedef struct obc_event_ctx {
 typedef void (*obc_event_handler_fn)(const obc_engine_api_t *api,
                                      obc_event_ctx_t        *ctx);
 
+/*
+ * Result returned by obc_event_fire so callers can observe handler decisions.
+ *
+ * cancelled:      true if any handler set ctx->cancelled
+ * suppress_relay: true if any handler set ctx->suppress_relay
+ */
+typedef struct obc_event_result {
+    bool cancelled;
+    bool suppress_relay;
+} obc_event_result_t;
+
 /* --- Lifecycle ------------------------------------------------------------ */
 
 /* Initialise the event bus. Must be called once before any other function. */
@@ -61,6 +72,8 @@ void obc_event_bus_shutdown(void);
  * Equal-priority handlers fire in registration order.
  * Returns 0 on success, -1 if OBC_EVENT_MAX_EVENTS or OBC_EVENT_MAX_SUBS
  * would be exceeded.
+ * Safe to call from within a handler: the subscription is deferred until the
+ * current fire completes and the new handler will not run in that same cycle.
  */
 int obc_event_subscribe(const char *event_name, obc_event_handler_fn fn,
                         int priority);
@@ -76,8 +89,12 @@ void obc_event_unsubscribe(const char *event_name, obc_event_handler_fn fn);
  * Fire event_name. Calls all registered handlers in priority order.
  * Stops early if any handler sets ctx->cancelled = true.
  * api is passed unchanged to every handler. May be NULL in unit tests.
+ * Returns an obc_event_result_t so the caller can react to handler decisions
+ * (e.g. skip network relay when result.suppress_relay is true).
  */
-void obc_event_fire(const obc_engine_api_t *api, const char *event_name,
-                    int sender_slot, void *data);
+obc_event_result_t obc_event_fire(const obc_engine_api_t *api,
+                                   const char             *event_name,
+                                   int                     sender_slot,
+                                   void                   *data);
 
 #endif /* OPENBC_EVENT_BUS_H */
