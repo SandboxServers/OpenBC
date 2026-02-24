@@ -1,0 +1,137 @@
+# CodeRabbit configuration
+# https://docs.coderabbit.ai/reference/configuration
+
+language: en-US
+
+tone_instructions: >
+  Be direct and security-focused. Flag buffer overflows, integer overflows,
+  and memory safety issues immediately. For network-facing code, assume
+  hostile inputs from untrusted UDP peers.
+
+early_access: true
+
+reviews:
+  profile: assertive
+
+  auto_review:
+    enabled: true
+    drafts: false
+
+  collapse_walkthrough: true
+
+  # Path filters - exclude files we don't need reviewed
+  # NOTE: Only use exclusions (!) here. Adding include patterns causes CodeRabbit
+  # to ONLY review files matching those includes, skipping everything else.
+  path_filters:
+    # Documentation - handled manually
+    - "!docs/**"
+    - "!**/*.md"
+
+    # Build artifacts and logs
+    - "!build/**"
+    - "!**/obj/**"
+
+    # IDE and editor configs
+    - "!.vscode/**"
+    - "!.idea/**"
+    - "!.editorconfig"
+
+    # Generated data files (machine-generated JSON registries)
+    - "!data/**"
+    - "!manifests/**"
+
+    # CI pipeline configs (review manually when needed)
+    - "!azure-pipelines.yml"
+
+    # Git config
+    - "!.gitattributes"
+    - "!.gitignore"
+
+  path_instructions:
+    # Protocol codec is wire-compatibility critical
+    - path: "src/protocol/**"
+      instructions: |
+        WIRE COMPATIBILITY CRITICAL: This code must produce byte-identical
+        output to the stock Bridge Commander 1.1 client/server.
+
+        Review for:
+        1. Buffer overflows in encode/decode (all reads must bounds-check)
+        2. Integer overflow in length fields and arithmetic
+        3. Correct endianness (little-endian wire format throughout)
+        4. Cipher correctness (AlbyRules stream cipher with plaintext feedback)
+        5. Off-by-one errors in compressed float (CF16) encode/decode
+        6. Packet format matches docs/protocol/ and docs/wire-formats/ specs
+        7. No use of uninitialized memory in codec structs
+
+    # Network layer handles untrusted UDP input
+    - path: "src/network/**"
+      instructions: |
+        NETWORK SECURITY: This code processes raw UDP from untrusted peers.
+
+        Review for:
+        1. Buffer overflows on malformed/truncated packets
+        2. Denial-of-service vectors (amplification, resource exhaustion)
+        3. Proper peer authentication and slot management
+        4. GameSpy protocol correctness (LAN broadcast + master server)
+        5. Reliable transport sequence handling and ACK logic
+        6. No unbounded allocations from attacker-controlled lengths
+        7. Timeout and cleanup for stale/disconnected peers
+
+    # Game simulation must match observable client behavior
+    - path: "src/game/**"
+      instructions: |
+        SIMULATION ACCURACY: Game systems must match observable Bridge Commander
+        behavior as documented in docs/game-systems/.
+
+        Review for:
+        1. Floating-point precision issues in physics/combat calculations
+        2. Ship data registry lookups with proper bounds checking
+        3. Subsystem health hierarchy consistency
+        4. Power budget conservation (reactor + battery model)
+        5. State machine correctness (cloak, tractor, repair states)
+        6. Division by zero guards in damage/power calculations
+
+    # Server core ties everything together
+    - path: "src/server/**"
+      instructions: |
+        SERVER CORE: Main loop, dispatch, and state management.
+
+        Review for:
+        1. Large stack allocations (Win32 4KB guard page issue with MinGW)
+        2. GCC -O2 dead-store elimination on struct fields after memset()
+        3. Correct tick timing and update ordering
+        4. Config/TOML parsing with proper validation
+        5. Log format consistency
+
+    # Checksum validation is security-relevant
+    - path: "src/checksum/**"
+      instructions: |
+        INTEGRITY: Hash algorithms must produce identical output to the
+        stock BC StringHash and FileHash functions.
+
+        Review for:
+        1. Pearson hash table correctness
+        2. File tree traversal format (u8 subdir_count, names-first-then-trees)
+        3. Hash manifest loading and validation
+        4. Directory name normalization (leaf-only, no trailing separators)
+
+    # Test code should be thorough
+    - path: "tests/**"
+      instructions: |
+        Review for:
+        1. Test isolation (no port conflicts between test suites)
+        2. Proper cleanup of resources (sockets, memory)
+        3. Deterministic behavior (seeded RNG where randomness is used)
+        4. Coverage of edge cases and error paths
+
+  tools:
+    github-checks:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local
+  opt_out: false
