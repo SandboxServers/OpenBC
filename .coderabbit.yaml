@@ -4,12 +4,10 @@
 language: en-US
 
 tone_instructions: >
-  Be direct and security-focused. Flag buffer overflows, integer overflows,
-  and memory safety issues immediately. For network-facing code, assume
-  hostile inputs from untrusted UDP peers. This project has coding style
-  guides in docs/guides/ (coding-patterns.md, cross-platform.md,
-  tech-stack-gotchas.md) -- treat those as the baseline standard but also
-  suggest further improvements beyond what they cover.
+  Direct and security-focused. Flag buffer overflows, integer overflows,
+  and memory safety in network-facing C code handling untrusted UDP.
+  Follow coding guides in docs/guides/. Suggest improvements beyond
+  baseline standards.
 
 early_access: true
 
