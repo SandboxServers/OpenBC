@@ -28,8 +28,8 @@ static int  stub_event_subscribe(const char *ev, obc_event_handler_fn fn, int p)
     { (void)ev; (void)fn; (void)p; return 0; }
 static void stub_event_unsubscribe(const char *ev, obc_event_handler_fn fn)
     { (void)ev; (void)fn; }
-static void stub_event_fire(const char *ev, int slot, void *data)
-    { (void)ev; (void)slot; (void)data; }
+static obc_event_result_t stub_event_fire(const char *ev, int slot, const void *data)
+    { (void)ev; (void)slot; (void)data; obc_event_result_t r = {0}; return r; }
 
 static int  stub_peer_count(void)          { return 0; }
 static int  stub_peer_max(void)            { return 0; }
@@ -52,6 +52,12 @@ static void stub_ship_kill(int s, int k, int m)         { (void)s;(void)k;(void)
 static void stub_ship_respawn(int s)                    { (void)s; }
 static void stub_ship_set_pos(int s, float x, float y, float z)
     { (void)s;(void)x;(void)y;(void)z; }
+static void stub_ship_set_orient(int s, float fx, float fy, float fz,
+                                  float ux, float uy, float uz)
+    { (void)s;(void)fx;(void)fy;(void)fz;(void)ux;(void)uy;(void)uz; }
+static void stub_ship_damage_at(int s, float a, float dx, float dy, float dz,
+                                 float r, int src)
+    { (void)s;(void)a;(void)dx;(void)dy;(void)dz;(void)r;(void)src; }
 
 static void stub_score_add(int s, int k, int d, int p) { (void)s;(void)k;(void)d;(void)p; }
 static int  stub_score_kills(int s)   { (void)s; return 0; }
@@ -85,6 +91,10 @@ static int         stub_game_in_progress(void) { return 0; }
 
 static const obc_ship_class_t *stub_ship_class_by_species(int id) { (void)id; return NULL; }
 static int stub_ship_class_count(void) { return 0; }
+static const obc_ship_class_t *stub_ship_class_by_index(int i) { (void)i; return NULL; }
+
+static float stub_ship_shield_hp(int s, int f)     { (void)s;(void)f; return 0.f; }
+static float stub_ship_shield_hp_max(int s, int f)  { (void)s;(void)f; return 0.f; }
 
 /* A stub module load function with the correct signature. */
 static int stub_module_load(const obc_engine_api_t *api, obc_module_t *self)
@@ -175,10 +185,12 @@ TEST(test_function_pointer_compatibility)
     api.subsystem_count  = stub_subsys_count;
 
     api.ship_apply_damage           = stub_ship_damage;
+    api.ship_apply_damage_at        = stub_ship_damage_at;
     api.ship_apply_subsystem_damage = stub_ship_sub_damage;
     api.ship_kill                   = stub_ship_kill;
     api.ship_respawn                = stub_ship_respawn;
     api.ship_set_position           = stub_ship_set_pos;
+    api.ship_set_orientation        = stub_ship_set_orient;
 
     api.score_add        = stub_score_add;
     api.score_kills      = stub_score_kills;
@@ -207,12 +219,20 @@ TEST(test_function_pointer_compatibility)
 
     api.ship_class_by_species = stub_ship_class_by_species;
     api.ship_class_count      = stub_ship_class_count;
+    api.ship_class_by_index   = stub_ship_class_by_index;
+
+    api.ship_shield_hp        = stub_ship_shield_hp;
+    api.ship_shield_hp_max    = stub_ship_shield_hp_max;
 
     /* Exercise all stubs through the API table to confirm dispatch works */
     ASSERT_EQ_INT(1, api.api_version);
     ASSERT_EQ_INT(0, api.event_subscribe("ev", NULL, 0));
     api.event_unsubscribe("ev", NULL);
-    api.event_fire("ev", -1, NULL);
+    {
+        obc_event_result_t res = api.event_fire("ev", -1, NULL);
+        ASSERT_EQ_INT(0, res.cancelled);
+        ASSERT_EQ_INT(0, res.suppress_relay);
+    }
 
     ASSERT_EQ_INT(0, api.peer_count());
     ASSERT_EQ_INT(0, api.peer_max());
@@ -238,6 +258,10 @@ TEST(test_function_pointer_compatibility)
 
     ASSERT(api.ship_class_by_species(0) == NULL);
     ASSERT_EQ_INT(0, api.ship_class_count());
+    ASSERT(api.ship_class_by_index(0) == NULL);
+
+    ASSERT(api.ship_shield_hp(0, 0) == 0.f);
+    ASSERT(api.ship_shield_hp_max(0, 0) == 0.f);
 }
 
 TEST(test_module_load_fn_typedef)

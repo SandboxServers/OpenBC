@@ -103,8 +103,16 @@ typedef struct obc_engine_api {
      * sender_slot is the player slot that caused the event, or -1 for
      * engine/module-initiated events.
      * data is a typed payload; cast based on event_name.
+     *
+     * Returns an obc_event_result_t so the caller can observe whether any
+     * handler cancelled the event or suppressed network relay.
+     *
+     * Note: the standalone obc_event_fire() also takes an api pointer as
+     * its first argument; the wrapper closes over it so modules do not
+     * need to pass api back.
      */
-    void (*event_fire)(const char *event_name, int sender_slot, void *data);
+    obc_event_result_t (*event_fire)(const char *event_name, int sender_slot,
+                                      const void *data);
 
     /* ------------------------------------------------------------------ */
     /* Peer / Player                                                         */
@@ -162,10 +170,21 @@ typedef struct obc_engine_api {
     /* ------------------------------------------------------------------ */
 
     /*
-     * Apply damage to hull.  source_slot identifies the attacker for kill
-     * attribution; pass -1 for environmental damage.
+     * Apply environmental / directionless damage to hull.  Damage is
+     * spread equally across all shield facings (area-effect).
+     * source_slot identifies the attacker for kill attribution; pass -1
+     * for environmental damage.
      */
     void (*ship_apply_damage)(int slot, float amount, int source_slot);
+
+    /*
+     * Apply directed damage at a specific impact direction.  The engine
+     * uses dir to select the shield facing and spatially target subsystems.
+     * radius controls the subsystem search area (0.0 = hull only).
+     */
+    void (*ship_apply_damage_at)(int slot, float amount,
+                                   float dir_x, float dir_y, float dir_z,
+                                   float radius, int source_slot);
 
     /* Apply damage to a specific subsystem. HP floored at 0. */
     void (*ship_apply_subsystem_damage)(int slot, int subsys_index, float amount);
@@ -182,6 +201,13 @@ typedef struct obc_engine_api {
 
     /* Teleport the ship to (x, y, z).  No-op if slot has no ship. */
     void (*ship_set_position)(int slot, float x, float y, float z);
+
+    /*
+     * Set the ship's orientation via forward and up vectors.
+     * Both vectors should be unit-length.  No-op if slot has no ship.
+     */
+    void (*ship_set_orientation)(int slot, float fx, float fy, float fz,
+                                  float ux, float uy, float uz);
 
     /* ------------------------------------------------------------------ */
     /* Scoring                                                              */
@@ -288,6 +314,19 @@ typedef struct obc_engine_api {
 
     /* Total number of ship classes in the registry. */
     int (*ship_class_count)(void);
+
+    /* Look up ship class by zero-based index.  Returns NULL if out of range. */
+    const obc_ship_class_t *(*ship_class_by_index)(int index);
+
+    /* ------------------------------------------------------------------ */
+    /* Shield State                                                         */
+    /* ------------------------------------------------------------------ */
+
+    /* Current shield HP for a facing (0-5).  Returns 0.0 if invalid. */
+    float (*ship_shield_hp)(int slot, int facing);
+
+    /* Maximum shield HP for a facing (0-5).  Returns 0.0 if invalid. */
+    float (*ship_shield_hp_max)(int slot, int facing);
 
     /*
      * --- APPEND NEW POINTERS BELOW THIS LINE ---
