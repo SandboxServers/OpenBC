@@ -10,12 +10,14 @@ ifeq ($(PLATFORM),Windows)
     CXX      := i686-w64-mingw32-g++
     EXE      := .exe
     NET_LIBS := -lws2_32
+    DL_LIBS  :=
     POSIX_DEFS :=
 else
     CC       := cc
     CXX      := c++
     EXE      :=
     NET_LIBS :=
+    DL_LIBS  := -ldl
     # Expose POSIX.1-2008 + BSD extensions (getaddrinfo, usleep, opendir, DT_*)
     POSIX_DEFS := -D_DEFAULT_SOURCE
 endif
@@ -43,9 +45,11 @@ TOML_SRC     := src/toml/toml.c
 CONFIG_SRC   := src/server/config.c
 LOG_SRC      := src/server/log.c
 EVENT_BUS_SRC := src/server/event_bus.c
+MODULE_LOADER_SRC := src/server/module_loader.c
 SERVER_SRC   := src/server/main.c src/server/server_state.c \
                 src/server/server_send.c src/server/server_handshake.c \
-                src/server/server_dispatch.c src/server/server_stats.c
+                src/server/server_dispatch.c src/server/server_stats.c \
+                $(MODULE_LOADER_SRC)
 
 CLIENT_BACKEND ?= noop
 SDL3_CFLAGS ?=
@@ -91,6 +95,7 @@ TOML_OBJ     := $(TOML_SRC:%.c=$(BUILD)/%.o)
 CONFIG_OBJ   := $(CONFIG_SRC:%.c=$(BUILD)/%.o)
 LOG_OBJ      := $(LOG_SRC:%.c=$(BUILD)/%.o)
 EVENT_BUS_OBJ := $(EVENT_BUS_SRC:%.c=$(BUILD)/%.o)
+MODULE_LOADER_OBJ := $(MODULE_LOADER_SRC:%.c=$(BUILD)/%.o)
 SERVER_OBJ   := $(SERVER_SRC:%.c=$(BUILD)/%.o)
 CLIENT_OBJ   := $(CLIENT_SRC:%.c=$(BUILD)/%.o)
 
@@ -118,7 +123,7 @@ server: $(BUILD)/openbc-server$(EXE)
 
 $(BUILD)/openbc-server$(EXE): $(SERVER_LIB_OBJ) $(SERVER_OBJ)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS) $(DL_LIBS)
 
 # --- Client binary ---
 client: $(BUILD)/openbc-client$(EXE)
@@ -155,6 +160,12 @@ test: $(TEST_BIN)
 	done; \
 	echo "=== $$pass passed, $$fail failed ===";\
 	[ $$fail -eq 0 ]
+
+# test_module_loader needs module_loader.o + server_state.o (provides globals)
+# in addition to LIB_OBJ. It also needs DL_LIBS for dlopen/dlclose.
+$(BUILD)/tests/test_module_loader$(EXE): tests/test_module_loader.c $(LIB_OBJ) $(MODULE_LOADER_OBJ) $(BUILD)/src/server/server_state.o
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -O1 $(LDFLAGS) -o $@ $^ $(LDLIBS) $(NET_LIBS) $(DL_LIBS)
 
 # Each test binary links against all library objects.
 # Tests use -O1 to avoid i686-w64-mingw32-gcc -O2 dead-store bugs that occur

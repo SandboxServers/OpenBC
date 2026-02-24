@@ -23,6 +23,8 @@
 #include "openbc/game_builders.h"
 #include "openbc/config.h"
 #include "openbc/log.h"
+#include "openbc/module_loader.h"
+#include "openbc/event_bus.h"
 
 #ifdef _WIN32
 #  include <windows.h>  /* For Sleep(), GetTickCount() */
@@ -32,6 +34,10 @@
 #  include <dirent.h>   /* For opendir(), readdir() */
 #  include <sys/stat.h> /* For stat(), S_ISDIR() */
 #endif
+
+/* --- Module loader --- */
+
+static obc_module_loader_t g_module_loader;
 
 /* --- Signal handler --- */
 
@@ -646,6 +652,23 @@ int main(int argc, char **argv)
     }
     printf("Press Ctrl+C to stop.\n\n");
 
+    /* Initialize event bus and load modules */
+    obc_event_bus_init();
+    if (g_server_cfg.module_count > 0) {
+        if (obc_module_loader_init(&g_module_loader, &g_server_cfg) != 0) {
+            LOG_ERROR("init", "Module loading failed -- aborting");
+            obc_event_bus_shutdown();
+            if (g_query_socket_open) {
+                bc_socket_close(&g_query_socket);
+                g_query_socket_open = false;
+            }
+            bc_socket_close(&g_socket);
+            bc_net_shutdown();
+            bc_log_shutdown();
+            return 1;
+        }
+    }
+
     /* Diagnostic: check for ghost peers created during startup/probe.
      * Only slot 0 (dedi) should be non-empty at this point. */
     for (int i = 1; i < BC_MAX_PLAYERS; i++) {
@@ -990,6 +1013,11 @@ int main(int argc, char **argv)
     }
 
     LOG_INFO("shutdown", "Shutting down...");
+
+    /* Shut down modules before network teardown (shutdown callbacks may
+     * fire events or send messages that need the network layer alive). */
+    obc_module_loader_shutdown(&g_module_loader);
+    obc_event_bus_shutdown();
 
     /* Log session summary before tearing down */
     bc_log_session_summary();
