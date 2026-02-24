@@ -21,6 +21,7 @@
 #include "openbc/combat.h"
 #include "openbc/torpedo_tracker.h"
 #include "openbc/game_builders.h"
+#include "openbc/config.h"
 #include "openbc/log.h"
 
 #ifdef _WIN32
@@ -173,10 +174,49 @@ int main(int argc, char **argv)
     const char *data_path = NULL;
     const char *user_masters[BC_MAX_MASTERS];
     int user_master_count = 0;
+    bool cli_master_seen = false;
     bool no_master = false;
     bc_log_level_t log_level = LOG_INFO;
     const char *log_file_path = NULL;
     bool no_log_file = false;
+
+    /* Load server.toml (optional).
+     * Layering: hardcoded defaults → server.toml → CLI args.
+     * Missing file is silently ignored; CLI always wins. */
+    obc_config_defaults(&g_server_cfg);
+    obc_config_load("server.toml", &g_server_cfg);
+
+    /* Apply TOML values (CLI args parsed below will override these). */
+    port        = (u16)g_server_cfg.port;
+    max_players = g_server_cfg.max_players;
+    if (max_players < 1)             max_players = 1;
+    if (max_players > BC_MAX_PLAYERS) max_players = BC_MAX_PLAYERS;
+    name        = g_server_cfg.name;
+    map         = g_server_cfg.map;
+
+    g_system_index = g_server_cfg.system;
+    if (g_system_index < 1) g_system_index = 1;
+    if (g_system_index > 9) g_system_index = 9;
+
+    g_time_limit  = g_server_cfg.time_limit;
+    g_frag_limit  = g_server_cfg.frag_limit;
+    g_collision_dmg  = g_server_cfg.collision_damage;
+    g_friendly_fire  = g_server_cfg.friendly_fire;
+
+    if (g_server_cfg.manifest_path[0])
+        manifest_path = g_server_cfg.manifest_path;
+    if (g_server_cfg.registry[0])
+        data_path = g_server_cfg.registry;
+
+    for (int ci = 0; ci < g_server_cfg.master_count &&
+                     user_master_count < BC_MAX_MASTERS; ci++) {
+        user_masters[user_master_count++] = g_server_cfg.masters[ci];
+    }
+
+    if (g_server_cfg.log_level[0])
+        log_level = parse_log_level(g_server_cfg.log_level);
+    if (g_server_cfg.log_file[0])
+        log_file_path = g_server_cfg.log_file;
 
     /* Parse args */
     for (int i = 1; i < argc; i++) {
@@ -215,6 +255,11 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--no-friendly-fire") == 0) {
             g_friendly_fire = false;
         } else if (strcmp(argv[i], "--master") == 0 && i + 1 < argc) {
+            /* First CLI --master replaces any masters loaded from server.toml. */
+            if (!cli_master_seen) {
+                user_master_count = 0;
+                cli_master_seen = true;
+            }
             if (user_master_count < BC_MAX_MASTERS)
                 user_masters[user_master_count++] = argv[++i];
         } else if (strcmp(argv[i], "--no-master") == 0) {

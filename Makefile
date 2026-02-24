@@ -20,7 +20,7 @@ else
     POSIX_DEFS := -D_DEFAULT_SOURCE
 endif
 
-CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -g -O2 $(POSIX_DEFS)
+CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -Iinclude -Isrc -g -O2 $(POSIX_DEFS)
 DEPFLAGS  = -MMD -MP -MF $(@:.o=.d)
 LDFLAGS  :=
 LDLIBS   := -lm
@@ -39,6 +39,8 @@ SERVER_NET_SRC := src/server/network/net.c src/server/network/peer.c src/server/
 JSON_SRC     := src/shared/json/json_parse.c
 GAME_SRC     := src/shared/game/ship_data.c src/shared/game/ship_state.c src/shared/game/ship_power.c src/shared/game/movement.c src/shared/game/combat.c src/shared/game/torpedo_tracker.c
 MANIFEST_SRC := tools/manifest.c
+TOML_SRC     := src/toml/toml.c
+CONFIG_SRC   := src/server/config.c
 LOG_SRC      := src/server/log.c
 EVENT_BUS_SRC := src/server/event_bus.c
 SERVER_SRC   := src/server/main.c src/server/server_state.c \
@@ -85,6 +87,8 @@ SERVER_NET_OBJ := $(SERVER_NET_SRC:%.c=$(BUILD)/%.o)
 JSON_OBJ     := $(JSON_SRC:%.c=$(BUILD)/%.o)
 GAME_OBJ     := $(GAME_SRC:%.c=$(BUILD)/%.o)
 MANIFEST_OBJ := $(MANIFEST_SRC:%.c=$(BUILD)/%.o)
+TOML_OBJ     := $(TOML_SRC:%.c=$(BUILD)/%.o)
+CONFIG_OBJ   := $(CONFIG_SRC:%.c=$(BUILD)/%.o)
 LOG_OBJ      := $(LOG_SRC:%.c=$(BUILD)/%.o)
 EVENT_BUS_OBJ := $(EVENT_BUS_SRC:%.c=$(BUILD)/%.o)
 SERVER_OBJ   := $(SERVER_SRC:%.c=$(BUILD)/%.o)
@@ -92,7 +96,7 @@ CLIENT_OBJ   := $(CLIENT_SRC:%.c=$(BUILD)/%.o)
 
 # All library objects (everything except tools and server main)
 SHARED_OBJ   := $(CHECKSUM_OBJ) $(PROTOCOL_OBJ) $(JSON_OBJ) $(GAME_OBJ) $(LOG_OBJ)
-SERVER_LIB_OBJ := $(SHARED_OBJ) $(SERVER_NET_OBJ) $(EVENT_BUS_OBJ)
+SERVER_LIB_OBJ := $(SHARED_OBJ) $(SERVER_NET_OBJ) $(EVENT_BUS_OBJ) $(TOML_OBJ) $(CONFIG_OBJ)
 LIB_OBJ      := $(SERVER_LIB_OBJ)
 
 # Test files

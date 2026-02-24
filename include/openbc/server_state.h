@@ -1,6 +1,7 @@
 #ifndef OPENBC_SERVER_STATE_H
 #define OPENBC_SERVER_STATE_H
 
+#include "openbc/config.h"
 #include "openbc/types.h"
 #include "openbc/net.h"
 #include "openbc/peer.h"
@@ -48,6 +49,7 @@ typedef struct {
 
 /* --- Server globals --- */
 
+extern obc_server_cfg_t    g_server_cfg;
 extern bc_session_stats_t  g_stats;
 extern volatile bool       g_running;
 #ifdef _WIN32
