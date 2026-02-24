@@ -599,6 +599,12 @@ void bc_cloak_tick(bc_ship_state_t *ship, f32 cloak_efficiency, f32 dt)
 {
     if (dt <= 0.0f) return;
 
+    /* Sanitize efficiency: NaN/inf → 0, then clamp to [0,1] */
+    if (!isfinite(cloak_efficiency) || cloak_efficiency < 0.0f)
+        cloak_efficiency = 0.0f;
+    else if (cloak_efficiency > 1.0f)
+        cloak_efficiency = 1.0f;
+
     switch (ship->cloak_state) {
     case BC_CLOAK_CLOAKING:
         ship->cloak_timer -= dt;
@@ -734,13 +740,21 @@ void bc_combat_tractor_tick(bc_ship_state_t *ship,
      * force = max_damage * system_condition_pct * distance_ratio * dt
      * tractor_ratio = force / max_damage
      * Drag applies to SOURCE ship's engine stats. */
+    if (ss->max_condition <= 0.0f || ss->max_damage <= 0.0f) {
+        ship->tractor_drag = 1.0f;
+        return;
+    }
     f32 sys_hp_pct = ship->subsystem_hp[ss_idx] / ss->max_condition;
+    if (sys_hp_pct < 0.0f) sys_hp_pct = 0.0f;
+    else if (sys_hp_pct > 1.0f) sys_hp_pct = 1.0f;
+
     f32 dist_ratio = (dist <= ss->max_damage_distance)
                      ? 1.0f
                      : ss->max_damage_distance / dist;
     f32 force = ss->max_damage * sys_hp_pct * dist_ratio * dt;
     f32 tractor_ratio = force / ss->max_damage;
-    if (tractor_ratio > 1.0f) tractor_ratio = 1.0f;
+    if (tractor_ratio < 0.0f) tractor_ratio = 0.0f;
+    else if (tractor_ratio > 1.0f) tractor_ratio = 1.0f;
 
     f32 drag = 1.0f - tractor_ratio;
     ship->speed *= drag;
