@@ -17,6 +17,7 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+    auto_pause_after_reviewed_commits: 20
 
   collapse_walkthrough: true
 

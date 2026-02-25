@@ -18,6 +18,7 @@ void bc_ship_init(bc_ship_state_t *ship,
     ship->team_id = team_id;
     ship->alive = true;
     ship->tractor_target_id = -1;
+    ship->tractor_drag = 1.0f;
 
     /* Full HP */
     ship->hull_hp = cls->hull_hp;
