@@ -62,6 +62,10 @@ int bc_build_destroy_obj(u8 *buf, int buf_size, i32 object_id);
  * 5 bytes total. Server -> Client: object ID could not be resolved. */
 int bc_build_obj_not_found(u8 *buf, int buf_size, i32 object_id);
 
+/* EnterSet: [0x1F][objectID:i32][nameLength:i32][setName:ascii][null:u8]
+ * Total: 10 + nameLength bytes. S->C only. */
+int bc_build_enter_set(u8 *buf, int buf_size, i32 object_id, const char *set_name);
+
 /* Chat: [0x2C|0x2D][slot:u8][pad:3][len:u16][ascii...]
  * team=false -> 0x2C, team=true -> 0x2D. */
 int bc_build_chat(u8 *buf, int buf_size,
@@ -128,6 +132,10 @@ int bc_build_restart_game(u8 *buf, int buf_size);
 #define BC_FACTORY_SUBSYSTEM_EVENT  0x00000101
 #define BC_FACTORY_OBJ_PTR_EVENT    0x0000010C
 #define BC_FACTORY_OBJECT_EXPLODING 0x00008129
+#define BC_FACTORY_SUBSYSTEM_CONTROL_EVENT  0x00000104  /* SubsysStatus (0x0A): +1 byte */
+#define BC_FACTORY_CHAR_EVENT               0x00000105  /* SetPhaserLevel (0x12), TorpTypeChange (0x1B): +1 byte */
+#define BC_FACTORY_START_FIRING_EVENT       0x00008128  /* StartFiring (0x07): +8 bytes, always duplicate pair */
+#define BC_FACTORY_START_WARP_EVENT         0x0000812A  /* StartWarp (0x10): +string +4×f32 */
 
 /* PythonEvent type constants */
 #define BC_EVENT_ADD_TO_REPAIR      0x008000DF
@@ -146,6 +154,12 @@ int bc_build_restart_game(u8 *buf, int buf_size);
 #define BC_EVENT_TRACTOR_STOPPED    0x0080007F  /* obj_ptr = target ID */
 #define BC_EVENT_REPAIR_PRIORITY    0x00800076  /* obj_ptr = subsystem ID */
 #define BC_EVENT_STOP_AT_TARGET     0x008000DC  /* obj_ptr = target ID or 0; host-only (opcode 0x09) */
+#define BC_EVENT_SUBSYS_STATUS      0x0080006C  /* SubsysStatus (0x0A) receiver override */
+#define BC_EVENT_START_FIRING       0x008000D7  /* StartFiring (0x07) receiver override */
+#define BC_EVENT_STOP_FIRING        0x008000D9  /* StopFiring (0x08) receiver override */
+#define BC_EVENT_SET_PHASER_LEVEL   0x008000E0  /* SetPhaserLevel (0x12) pass-through */
+#define BC_EVENT_START_WARP         0x008000ED  /* StartWarp (0x10) receiver override */
+#define BC_EVENT_TORP_TYPE_CHANGE   0x008000FE  /* TorpTypeChange (0x1B) receiver override */
 
 /* DeletePlayerUI (0x17) factory and event codes.
  * Wire format: [0x17][factory:i32][event_code:i32][src:i32][tgt:i32][wire_peer:u8]

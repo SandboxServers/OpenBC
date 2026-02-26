@@ -6,7 +6,8 @@
  * had zero test coverage.
  *
  * Covers:
- *   - Relay-only opcodes: StopFiringAt, ClientEvent, PythonEvent2, TorpTypeChange
+ *   - Relay-only opcodes: StopFiringAt, ClientEvent, TorpTypeChange
+ *   - Absorbed opcodes: PythonEvent2 (C->S only, not relayed)
  *   - Warp anti-cheat: alive relay
  *   - RequestObj / ObjNotFound
  *   - TeamMessage relay
@@ -121,8 +122,10 @@ static void client_event_relay(bc_test_client_t *cA, bc_test_client_t *cB)
     CHECK(memcmp(msg, payload, (size_t)len) == 0);
 }
 
-static void python_event2_relay(bc_test_client_t *cA, bc_test_client_t *cB)
+static void python_event2_absorbed(bc_test_client_t *cA, bc_test_client_t *cB)
 {
+    /* PythonEvent2 (0x0D) is C->S only; server absorbs, does NOT relay
+     * (0 S->C instances in stock trace). */
     u8 data[16];
     memset(data, 0, sizeof(data));
     /* factory (i32) */
@@ -140,12 +143,11 @@ static void python_event2_relay(bc_test_client_t *cA, bc_test_client_t *cB)
     CHECK(len == 17);
     CHECK(test_client_send_reliable(cA, payload, len));
 
+    /* Should NOT be relayed to other clients */
     int recv_len = 0;
     const u8 *msg = test_client_expect_opcode(cB, BC_OP_PYTHON_EVENT2,
                                                 &recv_len, OC_TIMEOUT);
-    CHECK(msg != NULL);
-    CHECK_EQ(recv_len, len);
-    CHECK(memcmp(msg, payload, (size_t)len) == 0);
+    CHECK(msg == NULL);
 }
 
 static void torp_type_change_relay(bc_test_client_t *cA, bc_test_client_t *cB)
@@ -403,7 +405,7 @@ int main(void)
 
     RUN2(stop_firing_at_relay);
     RUN2(client_event_relay);
-    RUN2(python_event2_relay);
+    RUN2(python_event2_absorbed);
     RUN2(torp_type_change_relay);
     RUN2(start_warp_alive_relays);
     RUN1(request_obj_not_found_sends_nf, &clientB);

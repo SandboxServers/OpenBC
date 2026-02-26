@@ -30,20 +30,29 @@ original sender. No validation, no filtering, no deduplication.
 
 ## Opcode Table
 
-| Opcode | Name | Event Code Override | Frequency (33.5min, 3 players) |
-|--------|------|---------------------|-------------------------------|
-| 0x07 | StartFiring | 0x008000D7 | 2,918 |
-| 0x08 | StopFiring | 0x008000D9 | 1,448 |
-| 0x09 | StopFiringAtTarget | 0x008000DB | 0 |
-| 0x0A | SubsystemStatusChanged | 0x0080006C | 63 |
-| 0x0B | AddToRepairList | None (pass-through) | 0 |
-| 0x0C | ClientEvent | None (pass-through) | 0 |
-| 0x0E | StartCloaking | 0x008000E3 | 4 |
-| 0x0F | StopCloaking | 0x008000E5 | ~4 |
-| 0x10 | StartWarp | 0x008000ED | 1 |
-| 0x11 | RepairListPriority | None (pass-through) | 0 |
-| 0x12 | SetPhaserLevel | None (pass-through) | 0 |
-| 0x1B | TorpedoTypeChange | 0x008000FD | 12 |
+| Opcode | Name | Event Code Override | Factory | Frequency (3p / 2p) |
+|--------|------|---------------------|---------|---------------------|
+| 0x07 | StartFiring | 0x008000D7 | 0x8128 | 2,918 / 346 |
+| 0x08 | StopFiring | 0x008000D9 | 0x0101 | 1,448 / 339 |
+| 0x09 | StopFiringAtTarget | 0x008000DB | (unconfirmed) | 0 / 0 |
+| 0x0A | SubsystemStatusChanged | 0x0080006C | 0x0104 | 63 / 132 |
+| 0x0B | AddToRepairList | None (pass-through) | (unconfirmed) | 0 / 0 |
+| 0x0C | ClientEvent | None (pass-through) | (unconfirmed) | 0 / 0 |
+| 0x0E | StartCloaking | 0x008000E3 | (dead code) | 0 / 0 |
+| 0x0F | StopCloaking | 0x008000E5 | (dead code) | 0 / 0 |
+| 0x10 | StartWarp | 0x008000ED | 0x812A | 1 / 4 |
+| 0x11 | RepairListPriority | None (pass-through) | 0x010C | 0 / 8 |
+| 0x12 | SetPhaserLevel | None (pass-through) | 0x0105 | 0 / 10 |
+| 0x1B | TorpedoTypeChange | 0x008000FD | 0x0105 | 12 / 2 |
+
+**Correction (Feb 2026)**: 0x0E and 0x0F are **dead code in multiplayer**. Zero instances
+observed across two stock dedicated server traces (3-player, 33.5 min + 2-player, 21 min)
+despite active cloaking by both Bird of Prey and Warbird. Cloak state propagates exclusively
+via StateUpdate CLK flag (bit 0x40). See [cloaking-system.md](../game-systems/cloaking-system.md).
+
+**Correction (Feb 2026)**: 0x11, 0x12, and 0x1B showed zero in the 3-player trace due to a
+packet trace decoder bug (missing name labels). The 2-player trace confirmed their presence
+and factory IDs.
 
 Opcodes with "None (pass-through)" deliver the event with its original event code from the
 wire. Opcodes with an override replace the event code after deserialization.
@@ -74,8 +83,22 @@ Offset  Size  Type    Field                    Notes
 |----------|------|-------------|------------|
 | 0x0002 | Event (base) | None | 17 bytes |
 | 0x0101 | SubsystemEvent | None (same as base) | 17 bytes |
+| 0x0104 | SubsystemControlEvent | +1 byte value | 18 bytes |
 | 0x0105 | CharEvent | +1 byte value | 18 bytes |
 | 0x010C | ObjPtrEvent | +4 byte object ID | 21 bytes |
+| 0x0866 | DeletePlayerEvent | +1 byte (team) | 18 bytes |
+| 0x8128 | StartFiringEvent | +8 bytes (unknown) | 25 bytes |
+| 0x812A | StartWarpEvent | +1 str_len + name + 4×f32 | Variable |
+
+**Notes on newly documented factories** (verified from 2-player stock dedi trace, Feb 2026):
+- **0x0104**: Used exclusively by SubsysStatus (0x0A). Same wire layout as CharEvent (0x0105)
+  — 18 bytes, with one extra byte beyond the base event. Sibling class, different factory ID.
+- **0x0866**: Used exclusively by DeletePlayerUI (0x17). 18 bytes total, extra byte is team number.
+- **0x8128**: Used exclusively by StartFiring (0x07). 25 bytes total (17 base + 8 extra). Content
+  of the 8 extra bytes is opaque on the wire. StartFiring is always sent as a **duplicate pair**
+  (two identical reliable messages in the same datagram).
+- **0x812A**: Used exclusively by StartWarp (0x10). Variable length. After the 17-byte base event:
+  1 byte string length, N bytes set name, then 4 × float32 (destination X/Y/Z + warp speed).
 
 ---
 
@@ -159,6 +182,32 @@ For a server that tracks game state:
 4. Update local state (e.g., track which ships are cloaked, firing, etc.)
 5. Relay to all other peers
 
+### StartFiring Duplicate Pair Behavior
+
+StartFiring (0x07) uses factory 0x8128 and is **always sent as a duplicate pair** — two
+identical reliable messages in the same UDP datagram. This behavior is consistent across all
+observed instances (88 messages = 44 actual fire events in a 2-player trace). The receiving
+side should handle or deduplicate both copies. StopFiring (0x08) uses factory 0x0101 and is
+sent as a single message (NOT paired).
+
+### Factory Differences Between Opcodes
+
+Not all opcodes in this group use the same event class factory:
+
+| Opcode | Observed Factory | Wire Size | Notes |
+|--------|-----------------|-----------|-------|
+| 0x07 StartFiring | 0x8128 | 25 bytes | Always duplicate pair, +8 extra bytes |
+| 0x08 StopFiring | 0x0101 | 17 bytes | Standard SubsystemEvent, single message |
+| 0x0A SubsysStatus | 0x0104 | 18 bytes | NOT 0x0105; sibling class, same +1 byte layout |
+| 0x10 StartWarp | 0x812A | Variable | +string + 4×f32 (destination + speed) |
+| 0x11 RepairListPriority | 0x010C | 21 bytes | ObjPtrEvent (+4 byte subsystem obj ID), event 0x00800076 |
+| 0x12 SetPhaserLevel | 0x0105 | 18 bytes | CharEvent (+1 byte), event 0x008000E0, values 0x00/0x02 |
+| 0x1B TorpTypeChange | 0x0105 | 18 bytes | CharEvent (+1 byte), event 0x008000FE |
+
+Opcodes 0x09, 0x0B, 0x0C were not observed in available traces and their factories are
+unconfirmed. Opcodes 0x0E and 0x0F are dead code in multiplayer (zero instances despite
+active cloaking).
+
 ### Rate Limiting
 
 For anti-cheat purposes, the server can rate-limit these messages per source ship:
@@ -174,12 +223,17 @@ For anti-cheat purposes, the server can rate-limit these messages per source shi
 | Opcode Group | Handler | Relay? | Notes |
 |--------------|---------|--------|-------|
 | 0x07-0x12, 0x1B | GenericEventForward | Yes (N-1 relay) | This document |
-| 0x06 | PythonEvent | Server-generated | NOT relayed — server creates and sends |
-| 0x0D | PythonEvent2 | C→S only | Client-generated, NOT relayed |
+| 0x06 | PythonEvent | Host-generated | Host creates and sends directly to clients |
+| 0x0D | PythonEvent2 | C→S only, NOT relayed | Client targeting updates, absorbed by server |
 | 0x19 | TorpedoFire | Yes (N-1 relay) | Separate handler, same relay pattern |
 | 0x1A | BeamFire | Yes (N-1 relay) | Separate handler, same relay pattern |
 | 0x13 | HostMsg | C→S only | Not relayed — server processes locally |
-| 0x15 | CollisionEffect | C→S only | Not relayed — server processes locally |
+| 0x15 | CollisionEffect | C→S only | Not relayed — server applies damage, generates 0x06 events |
+
+**Verified (Feb 2026 stock dedi server trace)**: 0x0D (31 C→S, 0 S→C), 0x15 (2 C→S, 0 S→C),
+0x13 (3 C→S, 0 S→C). All three are absorbed by the server without relay. 0x0D carries
+TARGET_WAS_CHANGED (0x00800058) exclusively. 0x15 triggers server-side damage + PythonEvent
+(0x06) generation for repair queue updates.
 
 ---
 

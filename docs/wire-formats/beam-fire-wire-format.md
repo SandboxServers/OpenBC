@@ -69,8 +69,8 @@ World-space hit point, encoded as CompressedVector3: three signed bytes, each en
 
 | Bit | Name | Meaning |
 |-----|------|---------|
-| 0 | isDualFire | Beam is dual-fire mode (both emitters firing simultaneously) |
-| 1 | hasTarget | If set: `targetObjectID` field follows |
+| 0 | hasShieldEffect | Shield glow visual on target (cosmetic only, no extra data) |
+| 1 | hasSecondaryObject | If set: `targetObjectID` field follows |
 
 **Conditional field**: `targetObjectID` is present ONLY when bit 1 is set.
 

@@ -64,11 +64,14 @@ bool bc_parse_torpedo_fire(const u8 *payload, int len, bc_torpedo_event_t *out)
  * BeamFire (opcode 0x1A)
  *
  * Wire format:
- *   [0x1A][object_id:i32][flags:u8][target_pos:cv3][more_flags:u8]
- *   if more_flags bit 0: [target_id:i32]
+ *   [0x1A][target_id:i32][weapon_param:u8][hit_dir:cv3][flags:u8]
+ *   if flags bit 1: [secondary_obj_id:i32]
+ *
+ *   flags bit 0: hasShieldEffect (visual only, no extra data)
+ *   flags bit 1: hasSecondaryObject (4-byte object ID follows)
  *
  * Minimum: 1+4+1+3+1 = 10 bytes
- * With target: 10+4 = 14 bytes
+ * With secondary object: 10+4 = 14 bytes
  */
 bool bc_parse_beam_fire(const u8 *payload, int len, bc_beam_event_t *out)
 {
@@ -86,8 +89,9 @@ bool bc_parse_beam_fire(const u8 *payload, int len, bc_beam_event_t *out)
     if (!bc_buf_read_cv3(&buf, &out->dir_x, &out->dir_y, &out->dir_z)) return false;
     if (!bc_buf_read_u8(&buf, &out->more_flags)) return false;
 
-    /* more_flags bit 0 = has_target_id */
-    out->has_target = (out->more_flags & 0x01) != 0;
+    /* more_flags bit 1 = hasSecondaryObject (extra i32 follows).
+     * bit 0 = hasShieldEffect (visual only, no extra data). */
+    out->has_target = (out->more_flags & 0x02) != 0;
     if (out->has_target) {
         if (!bc_buf_read_i32(&buf, &out->target_id)) return false;
     }

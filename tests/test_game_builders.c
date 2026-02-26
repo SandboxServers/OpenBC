@@ -405,6 +405,42 @@ TEST(state_update_with_fields)
     ASSERT_EQ(buf[10], 0x11); /* first field byte */
 }
 
+/* === EnterSet === */
+
+TEST(enter_set_basic)
+{
+    u8 buf[32];
+    int len = bc_build_enter_set(buf, sizeof(buf),
+                                  bc_make_ship_id(1), "Multi1");
+
+    ASSERT_EQ_INT(len, 16); /* 1+4+4+6+1 */
+    ASSERT_EQ(buf[0], BC_OP_ENTER_SET);
+    ASSERT_EQ_INT(read_i32_le(buf + 1), bc_make_ship_id(1));
+    ASSERT_EQ_INT(read_i32_le(buf + 5), 6);  /* nameLength */
+    ASSERT(memcmp(buf + 9, "Multi1", 6) == 0);
+    ASSERT_EQ(buf[15], 0x00); /* null terminator */
+}
+
+TEST(enter_set_empty_name)
+{
+    u8 buf[32];
+    int len = bc_build_enter_set(buf, sizeof(buf),
+                                  bc_make_ship_id(0), "");
+
+    ASSERT_EQ_INT(len, 10); /* 1+4+4+0+1 */
+    ASSERT_EQ(buf[0], BC_OP_ENTER_SET);
+    ASSERT_EQ_INT(read_i32_le(buf + 5), 0);  /* nameLength */
+    ASSERT_EQ(buf[9], 0x00); /* null terminator */
+}
+
+TEST(enter_set_buffer_too_small)
+{
+    u8 buf[8]; /* too small for even the shortest EnterSet (10 bytes) */
+    int len = bc_build_enter_set(buf, sizeof(buf),
+                                  bc_make_ship_id(0), "");
+    ASSERT_EQ_INT(len, -1);
+}
+
 /* === Event forward === */
 
 TEST(event_forward_generic)
@@ -501,6 +537,11 @@ TEST_MAIN_BEGIN()
 
     /* StateUpdate */
     RUN(state_update_with_fields);
+
+    /* EnterSet */
+    RUN(enter_set_basic);
+    RUN(enter_set_empty_name);
+    RUN(enter_set_buffer_too_small);
 
     /* Event forward */
     RUN(event_forward_generic);
