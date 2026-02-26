@@ -139,7 +139,7 @@ Offset  Size  Field
 ------  ----  -----
 0       1     type          Always 0x01
 1       2     seq_num       LE uint16 — sequence number being acknowledged
-3       1     flags         bit 0: is_fragment_ack, bit 1: unused
+3       1     flags         bit 0: is_fragment_ack, bit 1: is_below_0x32 (channel discriminator)
 [if is_fragment_ack:]
 4       1     frag_idx      Fragment index being acknowledged
 ```

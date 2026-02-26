@@ -278,7 +278,12 @@ Offset  Size  Type    Field
 7       var   bytes   message_text (ASCII, no null terminator)
 ```
 
-Direction: Client → Host → "NoMe" group (relay pattern)
+Direction: Client → Host → ALL clients (including sender)
+
+**Correction (Feb 2026)**: Previous documentation stated relay uses the "NoMe" group (excludes
+sender). A stock dedi server trace showed 5 chat messages received → 10 sent (2 per message
+in a 2-player game), confirming the server echoes chat to ALL clients including the original
+sender. This uses broadcast-to-all, not the "NoMe" group.
 
 ### TEAM_CHAT_MESSAGE (0x2D)
 

@@ -70,7 +70,9 @@ int bc_build_beam_fire(u8 *buf, int buf_size,
     if (!bc_buf_write_u8(&b, flags)) return -1;
     if (!bc_buf_write_cv3(&b, dx, dy, dz)) return -1;
 
-    u8 more_flags = has_target ? 0x01 : 0x00;
+    /* bit 1 = hasSecondaryObject (extra i32 follows).
+     * bit 0 = hasShieldEffect (visual only, caller controls via flags). */
+    u8 more_flags = has_target ? 0x02 : 0x00;
     if (!bc_buf_write_u8(&b, more_flags)) return -1;
 
     if (has_target) {
@@ -115,6 +117,26 @@ int bc_build_obj_not_found(u8 *buf, int buf_size, i32 object_id)
 
     if (!bc_buf_write_u8(&b, BC_OP_OBJ_NOT_FOUND)) return -1;
     if (!bc_buf_write_i32(&b, object_id)) return -1;
+
+    return (int)b.pos;
+}
+
+int bc_build_enter_set(u8 *buf, int buf_size, i32 object_id, const char *set_name)
+{
+    /* Wire: [0x1F][obj:i32][len:i32][name:bytes][0x00] */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    int name_len = (int)strlen(set_name);
+
+    if (!bc_buf_write_u8(&b, BC_OP_ENTER_SET)) return -1;
+    if (!bc_buf_write_i32(&b, object_id)) return -1;
+    if (!bc_buf_write_i32(&b, (i32)name_len)) return -1;
+    if (name_len > 0) {
+        if (!bc_buf_write_bytes(&b, (const u8 *)set_name, (size_t)name_len))
+            return -1;
+    }
+    if (!bc_buf_write_u8(&b, 0x00)) return -1;
 
     return (int)b.pos;
 }

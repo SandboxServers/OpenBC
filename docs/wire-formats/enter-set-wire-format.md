@@ -10,9 +10,13 @@ Wire format specification for the EnterSet message in Bridge Commander multiplay
 
 EnterSet (opcode 0x1F — `VERIFY_ENTER_SET_MESSAGE`) notifies the host that a client's ship is entering a named game Set (scene region / star system zone).
 
-**Direction**: Client → Host only
+**Direction**: Host → Client(s) (server-generated broadcast)
 **Delivery**: Reliable (ACK required)
-**Trigger**: A client sends this when its own ship begins a warp transit and its destination Set is NOT the default space combat set.
+**Trigger**: The server sends this to clients when a ship enters a named game Set during warp transit.
+
+**Correction (Feb 2026)**: Previous documentation stated "Client → Host only." A stock dedi
+server-side trace showed 4 instances S→C (sent by server) and 0 instances C→S (received from
+clients). The server generates EnterSet broadcasts; clients do not send this opcode.
 
 **Priority**: Low. Zero instances observed in any standard multiplayer FFA trace (3-player, 33.5 minutes). All ships stay in the default space Set for standard game modes. This opcode is only relevant for custom multi-zone missions.
 
@@ -25,10 +29,17 @@ Offset  Size  Type    Field
 ------  ----  ----    -----
 0       1     u8      opcode          0x1F
 1       4     i32     objectID        Network object ID of the ship (LE)
-5       var   cstr    setName         Target Set name (null-terminated ASCII)
+5       4     i32     nameLength      Length of set name string (LE)
+9       var   ascii   setName         Target Set name (nameLength bytes, ASCII)
++0      1     u8      null            Null terminator (0x00)
 ```
 
-Total size: 6 + strlen(setName) + 1 bytes.
+Total size: 10 + nameLength bytes.
+
+**Correction (Feb 2026)**: Previous documentation stated the set name was "null-terminated
+ASCII — NOT a length-prefixed string." A 2-player client-side trace captured 2 EnterSet
+messages showing the string IS written with a 4-byte int32 length prefix (via WriteInt32)
+AND is null-terminated. Both the length prefix and the null terminator are present.
 
 ---
 
@@ -90,11 +101,12 @@ The message is sent to the "NoMe" network group (all peers except self).
 
 1. **Dead code in standard modes**: This opcode can be safely stubbed for FFA/TDM implementations. It only matters for custom multi-zone missions.
 
-2. **String encoding**: Null-terminated ASCII — NOT a length-prefixed string. The string is immediately after the 4-byte object ID and continues until a null byte (0x00).
+2. **String encoding**: The set name is **both** length-prefixed (4-byte int32) AND null-terminated.
+   The int32 length prefix precedes the ASCII string, which ends with a 0x00 null terminator.
 
 3. **Mod relevance**: Custom mission mods that implement warp-between-systems gameplay would use this opcode. An implementation should handle it for mod compatibility even if standard modes don't trigger it.
 
-4. **Direction correction**: This opcode flows Client → Host only, not Server → Clients. The host acts on it locally and does not relay it as-is.
+4. **Direction correction (Feb 2026)**: This opcode flows Host → Client(s), not Client → Host. The server generates EnterSet broadcasts when a ship transitions to a new Set during warp. Zero instances were received from clients in a stock dedi trace.
 
 ---
 

@@ -13,7 +13,8 @@ The cloaking device is a PoweredSubsystem that makes a ship invisible. It uses a
 See also:
 - [shield-system.md](shield-system.md) — shield disable/re-enable during cloak
 - [power-system.md](power-system.md) — power draw and energy failure conditions
-- [event-forward-wire-format.md](../wire-formats/event-forward-wire-format.md) — network opcodes 0x0E/0x0F for cloak/decloak
+- [stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md) — StateUpdate flag 0x40 (CLK) for cloak state propagation
+- [event-forward-wire-format.md](../wire-formats/event-forward-wire-format.md) — opcodes 0x0E/0x0F are registered but NOT used in multiplayer
 
 ---
 
@@ -242,37 +243,58 @@ The shimmer makes ships briefly visible in a shimmering outline during transitio
 
 ## Network Serialization
 
-### Cloak Control Opcodes
+### Cloak Propagation: StateUpdate CLK Flag ONLY
 
-| Opcode | Direction | Event | Description |
-|--------|-----------|-------|-------------|
-| 0x0E | Client → Server → All | ET_START_CLOAKING | Engage cloak |
-| 0x0F | Client → Server → All | ET_STOP_CLOAKING | Disengage cloak |
+**Correction (Feb 2026)**: In multiplayer, cloaking does NOT use dedicated network opcodes.
+A stock dedicated server trace with active cloaking (both Bird of Prey and Warbird) showed
+**zero** StartCloak (0x0E) or StopCloak (0x0F) messages across all four trace files (server
+packet trace, client packet trace, server message trace, client message trace). Zero instances
+of event codes ET_START_CLOAKING or ET_STOP_CLOAKING were observed on the wire.
 
-These go through the generic event forward handler (see [event-forward-wire-format.md](../wire-formats/event-forward-wire-format.md)).
-
-### StateUpdate Flag 0x40
-
-The cloak on/off state is serialized in StateUpdate:
+Cloak state propagates **entirely via StateUpdate flag 0x40** (the CLK flag):
 
 ```
 if flag 0x40 is set:
     WriteBit(isEnabled)    // 1 = shields on (uncloaked), 0 = shields off (cloaked)
 ```
 
-**Important**: The network transmits the `isEnabled` boolean, NOT the state machine value. Clients receive "cloak on" or "cloak off" and run their own local state machine transitions, including visual effects and timers.
+**Important**: The network transmits the `isEnabled` boolean, NOT the state machine value.
+Clients receive "cloak on" or "cloak off" and run their own local state machine transitions,
+including visual effects and timers.
 
-### Event Registration
+### Observed Behavior
 
-The cloaking subsystem registers for TWO pairs of events:
+In a session with both BoP and Warbird actively cloaking:
+- 119 cloak=ON state transitions observed in StateUpdate
+- 484 cloak=OFF state transitions observed in StateUpdate
+- Both ships spawned with cloak initially ON (first StateUpdate has CLK flag set)
+- Zero 0x0E or 0x0F opcodes in any direction
+
+### Opcodes 0x0E and 0x0F
+
+These opcodes are registered in the generic event forward handler table (see
+[event-forward-wire-format.md](../wire-formats/event-forward-wire-format.md)) and appear
+in the opcode dispatch tables, but they are **dead code in multiplayer**. The cloak toggle
+event is handled locally on the originating client, and only the resulting boolean state
+(cloaked or not) crosses the wire via the periodic StateUpdate.
+
+This is consistent with the design pattern: discrete toggles that change infrequently
+(SubsystemStatus 0x0A for on/off) get dedicated opcodes for immediate notification, while
+the cloak state — which transitions through multiple intermediate states (CLOAKING →
+CLOAKED → DECLOAKING → DECLOAKED) — relies on the state replication system instead.
+
+### Event Registration (Local Only in MP)
+
+The cloaking subsystem registers for TWO pairs of events, but in multiplayer only the
+local/subsystem-level pair fires:
 
 **Subsystem-level** (actual cloak handler):
 - ET_START_CLOAKING_NOTIFY → StartCloaking
 - ET_STOP_CLOAKING_NOTIFY → StopCloaking
 
-**MultiplayerGame-level** (network serialization):
-- ET_START_CLOAKING → serialize to opcode 0x0E, relay to all
-- ET_STOP_CLOAKING → serialize to opcode 0x0F, relay to all
+**MultiplayerGame-level** (registered but NOT observed on wire):
+- ET_START_CLOAKING → would serialize to opcode 0x0E (but never fires in MP)
+- ET_STOP_CLOAKING → would serialize to opcode 0x0F (but never fires in MP)
 
 The _NOTIFY variants are offset by +1 from the request variants.
 
@@ -299,7 +321,7 @@ An OpenBC server implementation SHALL:
 7. **Reset 0 HP shield facings to 1.0** on decloak
 8. **Disable weapon subsystems** when cloaking begins (via subsystem status events)
 9. **Serialize cloak state** via StateUpdate flag 0x40 as a single bit
-10. **Forward cloak/decloak events** via opcodes 0x0E/0x0F to all connected clients
+10. **Do NOT implement opcodes 0x0E/0x0F for cloak/decloak** — these are dead code in multiplayer. Cloak state propagates exclusively via the StateUpdate CLK flag. If desired, register them as no-ops for forward compatibility.
 11. **Support IsCloaking/IsDecloaking queries** that include the ghost states (1 and 4) for API compatibility
 12. **Run visual transparency** on clients locally (server does not need to compute shimmer)
 
@@ -324,9 +346,9 @@ An OpenBC server implementation SHALL:
 
 | Event | Name | Fired When |
 |-------|------|------------|
-| ET_START_CLOAKING | Request | Player activates cloak (MP: triggers opcode 0x0E) |
+| ET_START_CLOAKING | Request | Player activates cloak (local only — opcode 0x0E NOT used in MP) |
 | ET_START_CLOAKING_NOTIFY | Forwarded | Subsystem receives cloak command |
-| ET_STOP_CLOAKING | Request | Player deactivates cloak (MP: triggers opcode 0x0F) |
+| ET_STOP_CLOAKING | Request | Player deactivates cloak (local only — opcode 0x0F NOT used in MP) |
 | ET_STOP_CLOAKING_NOTIFY | Forwarded | Subsystem receives decloak command |
 | ET_CLOAK_BEGINNING | Notification | CloakComplete: state → CLOAKED(3) |
 | ET_DECLOAK_BEGINNING | Notification | BeginDecloaking: state → DECLOAKING(5) |

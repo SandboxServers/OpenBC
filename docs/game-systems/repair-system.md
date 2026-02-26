@@ -178,47 +178,44 @@ Offset  Size  Type    Field            Notes
 
 Both source and dest contain **subsystem-level object IDs** (globally unique, auto-assigned at construction), NOT ship IDs. These are resolved on the receiving end via the global object hash table.
 
-#### Path 2: AddToRepairList (opcode 0x0B) — Client Manual Repair Request
+#### Path 2: AddToRepairList (opcode 0x0B) — Dead Code in Multiplayer
 
-**Direction**: Client → Host → All (relayed via GenericEventForward)
-**Event type**: preserved (no override)
+**Correction (Feb 2026)**: Opcode 0x0B was **never observed** in any stock dedicated server
+trace (3-player 33.5 min, 2-player 21 min with active combat and damage). The repair queue
+is managed **entirely by the host automatically** — when a subsystem takes damage, the host
+adds it to the queue and broadcasts the ADD_TO_REPAIR_LIST event via PythonEvent (0x06,
+Path 1 above). Players CANNOT manually add items to the repair queue.
 
-Sent when a player manually requests repair of a subsystem. Uses `CharEvent` serialization (factory type `0x0105`).
+Opcode 0x0B is registered in the generic event forward handler table and would theoretically
+be relayed if sent, but no client ever generates it during normal gameplay.
 
-**Wire format** (18 bytes fixed):
-```
-Offset  Size  Type    Field            Notes
-------  ----  ----    -----            -----
-0       1     u8      opcode           0x0B
-1       4     i32     factory_id       0x00000105
-5       4     i32     event_type       ADD_TO_REPAIR_LIST
-9       4     i32     source_obj_id    Source object
-13      4     i32     dest_obj_id      Related object
-17      1     u8      char_value       Extra data
-```
-
-#### Path 3: RepairListPriority (opcode 0x11) — Client Priority Toggle
+#### Path 3: RepairListPriority (opcode 0x11) — Client Priority Bump
 
 **Direction**: Client → Host → All (relayed via GenericEventForward)
 **Event type**: REPAIR_INCREASE_PRIORITY (preserved, no override)
 
-Sent when a player clicks a subsystem in the repair queue to change its priority.
+Sent when a player clicks a subsystem in the repair queue to bump its priority.
+This is the **only** player-initiated repair action in multiplayer.
 
-**Wire format** (18 bytes fixed):
+**Correction (Feb 2026)**: Factory confirmed as **0x010C (ObjPtrEvent)**, NOT 0x0105
+(CharEvent). The extra field is a 4-byte object ID (the subsystem being prioritized),
+not a 1-byte char value.
+
+**Wire format** (21 bytes fixed):
 ```
 Offset  Size  Type    Field            Notes
 ------  ----  ----    -----            -----
 0       1     u8      opcode           0x11
-1       4     i32     factory_id       0x00000105
-5       4     i32     event_type       REPAIR_INCREASE_PRIORITY
+1       4     i32     factory_id       0x0000010C
+5       4     i32     event_type       0x00800076 (REPAIR_INCREASE_PRIORITY)
 9       4     i32     source_obj_id    Source object
-13      4     i32     dest_obj_id      Related object
-17      1     u8      char_value       Subsystem ID
+13      4     i32     dest_obj_id      Repair subsystem object ID
+17      4     i32     obj_ptr_value    Subsystem being prioritized (network object ID)
 ```
 
 ### GenericEventForward Relay Pattern
 
-Opcodes 0x0B and 0x11 use the same relay mechanism as other GenericEventForward opcodes (0x07-0x12, 0x1B):
+Opcode 0x11 uses the same relay mechanism as other GenericEventForward opcodes (0x07-0x12, 0x1B):
 
 1. Client sends to host
 2. Host removes sender from "Forward" group temporarily
@@ -226,11 +223,19 @@ Opcodes 0x0B and 0x11 use the same relay mechanism as other GenericEventForward 
 4. Host re-adds sender
 5. Host deserializes and dispatches locally
 
-Both opcodes have event type override = 0 (preserve original), meaning the event type from the wire is used directly on the receiving end.
+Opcode 0x11 has event type override = 0 (preserve original), meaning the event type
+(0x00800076) from the wire is used directly on the receiving end.
 
-### Singleplayer Gate
+### Multiplayer Repair Model
 
-The local `HandleAddToRepairList` handler has a multiplayer gate — it **only runs in singleplayer**. In multiplayer, the opcode 0x0B network path handles repair list additions instead. This prevents double-processing.
+In multiplayer, the repair queue operates as follows:
+- **Host-authoritative**: The host runs the repair tick and auto-adds damaged subsystems
+- **Players can only bump priority**: Clicking a subsystem in the Engineering panel sends
+  opcode 0x11 (RepairListPriority). This moves the item to the front or back of the queue.
+- **Three concurrent repair teams**: Up to `num_repair_teams` subsystems (typically 3) are
+  actively repaired simultaneously
+- **AddToRepairList (0x0B) is dead code**: Never sent by any client in observed traces. The
+  host manages queue addition automatically via PythonEvent (0x06) notifications.
 
 ---
 

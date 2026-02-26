@@ -125,7 +125,7 @@ static int build_beam_with_target(u8 *buf, int buf_size)
     bc_buf_write_i32(&b, 0x3FFFFFFF);          /* shooter_id (slot 0) */
     bc_buf_write_u8(&b, 0x01);                 /* flags */
     bc_buf_write_cv3(&b, 1.0f, 0.0f, 0.0f);   /* target direction */
-    bc_buf_write_u8(&b, 0x01);                 /* more_flags: has target */
+    bc_buf_write_u8(&b, 0x02);                 /* more_flags: bit 1 = hasSecondaryObject */
     bc_buf_write_i32(&b, 0x3FFFFFFF + 0x40000); /* target_id (slot 1) */
 
     return (int)b.pos;
@@ -151,6 +151,29 @@ TEST(beam_with_target)
     ASSERT(bc_parse_beam_fire(buf, len, &ev));
     ASSERT(ev.has_target);
     ASSERT_EQ_INT(bc_object_id_to_slot(ev.target_id), 1);
+}
+
+TEST(beam_shield_effect_only)
+{
+    /* Stock client sends more_flags=0x01 (hasShieldEffect=true, hasSecondaryObject=false).
+     * This is a 10-byte message with no trailing object ID. */
+    u8 buf[64];
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, sizeof(buf));
+
+    bc_buf_write_u8(&b, BC_OP_BEAM_FIRE);
+    bc_buf_write_i32(&b, 0x3FFFFFFF);          /* target_id (slot 0) */
+    bc_buf_write_u8(&b, 0x02);                 /* weapon_param */
+    bc_buf_write_cv3(&b, 0.67f, 0.72f, 0.24f); /* hit direction */
+    bc_buf_write_u8(&b, 0x01);                 /* flags: hasShieldEffect only */
+    int len = (int)b.pos;
+
+    ASSERT_EQ_INT(len, 10);
+
+    bc_beam_event_t ev;
+    ASSERT(bc_parse_beam_fire(buf, len, &ev));
+    ASSERT(!ev.has_target);
+    ASSERT_EQ(ev.more_flags, 0x01);
 }
 
 TEST(beam_truncated)
@@ -444,6 +467,7 @@ TEST_MAIN_BEGIN()
     /* BeamFire */
     RUN(beam_no_target);
     RUN(beam_with_target);
+    RUN(beam_shield_effect_only);
     RUN(beam_truncated);
 
     /* Explosion */

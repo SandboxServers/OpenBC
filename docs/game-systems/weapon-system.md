@@ -276,6 +276,21 @@ The WeaponSystem supports "firing chains" — named sequences that control which
 - **SetPhaserLevel (0x12)**: Same relay pattern
 - **TorpTypeChange (0x1B)**: Same relay pattern
 
+### Confirmed Wire Details (Feb 2026)
+
+From a stock dedicated server trace with 2 players:
+
+| Opcode | Factory | Event Code | Wire Size | Observed |
+|--------|---------|------------|-----------|----------|
+| 0x07 StartFiring | 0x8128 | 0x008000D8 | 25 bytes | 346 (always duplicate pair) |
+| 0x08 StopFiring | 0x0101 | 0x008000DA | 17 bytes | 339 (single message) |
+| 0x12 SetPhaserLevel | 0x0105 | 0x008000E0 | 18 bytes | 10 (char values: 0x00=LOW, 0x02=HIGH) |
+| 0x1B TorpTypeChange | 0x0105 | 0x008000FE | 18 bytes | 2 (char value = new torpedo type index) |
+| 0x19 TorpedoFire | (own handler) | — | — | 206 |
+
+SetPhaserLevel and TorpedoTypeChange both use TGCharEvent (factory 0x0105) with a single
+extra byte beyond the 17-byte base event. The char value encodes the new setting.
+
 ### Per-Client Damage Computation
 
 Weapon damage is **not server-authoritative**. Each client independently:

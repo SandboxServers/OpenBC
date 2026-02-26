@@ -28,8 +28,21 @@ session — the most frequently sent game opcode)
 
 ### Opcode 0x0D (PythonEvent2)
 
-Opcode 0x0D shares the same receiver logic and has identical wire format. Both opcodes
-are decoded identically; 0x0D provides an alternate event path.
+Opcode 0x0D shares the same wire format and deserialization logic as 0x06. However, the
+two opcodes have **different routing semantics**:
+
+| Property | 0x06 (PythonEvent) | 0x0D (PythonEvent2) |
+|----------|-------------------|---------------------|
+| Primary origin | Host (repair events, explosions) | Clients (targeting, script events) |
+| Direction | Host → All clients | Client → Host only |
+| Relay behavior | Host sends directly to all clients | **NOT relayed** — server absorbs and dispatches locally |
+
+**Verification (Feb 2026)**: A stock dedi server-side trace captured 31 instances of 0x0D
+received from clients (C→S), and 0 instances sent to clients (S→C). The server processes
+0x0D locally but does NOT relay it to other peers. This is distinct from 0x06, which the
+server does broadcast to clients. All 31 instances carried ObjPtrEvent (factory 0x010C)
+with event type TARGET_WAS_CHANGED (0x00800058) — clients informing the server of targeting
+changes as server-side bookkeeping.
 
 ---
 
@@ -166,20 +179,26 @@ it is a full 4-byte int32.
 
 | Event Type | Name | obj_ptr Contains | Opcode |
 |-----------|------|-----------------|--------|
-| `0x0080007C` | WEAPON_FIRED | Target ID or 0 | 0x06/0x0D |
-| `0x00800081` | PHASER_STARTED_FIRING | Target ID | 0x06/0x0D |
-| `0x00800083` | PHASER_STOPPED_FIRING | Target ID | 0x06/0x0D |
-| `0x0080007D` | TRACTOR_BEAM_STARTED_FIRING | Target ID | 0x06/0x0D |
-| `0x0080007F` | TRACTOR_BEAM_STOPPED_FIRING | Target ID | 0x06/0x0D |
+| `0x0080007C` | WEAPON_FIRED | Target ID or 0 | 0x06 |
+| `0x00800081` | PHASER_STARTED_FIRING | Target ID | 0x06 |
+| `0x00800083` | PHASER_STOPPED_FIRING | Target ID | 0x06 |
+| `0x0080007D` | TRACTOR_BEAM_STARTED_FIRING | Target ID | 0x06 |
+| `0x0080007F` | TRACTOR_BEAM_STOPPED_FIRING | Target ID | 0x06 |
+| `0x00800058` | TARGET_WAS_CHANGED | **Previous** target ID (not the new one) | 0x0D |
 | `0x00800076` | REPAIR_INCREASE_PRIORITY | Subsystem ID | 0x11 |
 | `0x008000DC` | STOP_FIRING_AT_TARGET_NOTIFY | Target ID or 0 | 0x09 (host-only) |
+
+**Correction (Feb 2026)**: TARGET_WAS_CHANGED was previously listed as "local-only, never
+sent over the network." A 2-player client-side trace captured 15 instances of 0x0D carrying
+ObjPtrEvent relayed from the other player, confirming this event IS sent over the network
+via opcode 0x0D. Weapon events (WEAPON_FIRED, PHASER_*, TRACTOR_*) are observed exclusively
+on opcode 0x06, not 0x0D.
 
 **Local-only event types** (never sent over the network, documented for completeness):
 
 | Event Type | Name | obj_ptr Contains |
 |-----------|------|-----------------|
 | `0x0080000E` | SET_PLAYER | New player ship ID |
-| `0x00800058` | TARGET_WAS_CHANGED | **Previous** target ID (not the new one) |
 | `0x0080006B` | SUBSYSTEM_HIT | Subsystem's own ID |
 | `0x00800085` | TRACTOR_TARGET_DOCKED | Docked ship ID |
 | `0x00800088` | SENSORS_SHIP_IDENTIFIED | Identified ship ID |
@@ -287,18 +306,19 @@ When a client receives a PythonEvent:
 Local event handlers then process the event — for example, updating the repair queue
 UI, playing explosion sound effects, or triggering visual feedback.
 
-**No relay**: The opcode 0x06 receiver does NOT relay the message. It only deserializes
-and dispatches locally. PythonEvents originate on the host and are sent directly to
-clients — no further forwarding is needed.
+### Relay Behavior
 
-### Client-to-Host Path (rare)
+**Opcode 0x06**: The host generates PythonEvent messages (repair queue updates, explosions,
+script events) and sends them directly to all clients via the "NoMe" routing group. Clients
+receive and dispatch locally. Clients do NOT re-relay received 0x06 messages.
 
-If a client sends an opcode 0x06 message to the host (script-initiated events), the
-host will:
+If a client sends a 0x06 message to the host (script-initiated events), the host will:
 1. Relay the message to all other connected clients (excluding sender)
 2. Also process the event locally
 
-This relay path ensures all peers see script events regardless of origin.
+**Opcode 0x0D**: Clients send targeting updates to the host. The host dispatches locally
+(updates internal state) but does NOT relay to other clients. This is confirmed by stock
+server traces showing 0 outbound 0x0D messages despite receiving 31 from clients.
 
 ### Opcodes 0x07-0x12, 0x1B (Generic Event Forward)
 

@@ -887,7 +887,7 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     switch (opcode) {
 
-    /* --- Chat relay (reliable) --- */
+    /* --- Chat echo to all including sender (reliable) --- */
     case BC_MSG_CHAT:
     case BC_MSG_TEAM_CHAT: {
         u8 *chat_payload = (u8 *)payload;
@@ -909,14 +909,17 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
                      peer_slot, opcode == BC_MSG_CHAT ? "ALL" : "TEAM",
                      payload_len);
         }
-        bc_relay_to_others(peer_slot, chat_payload, payload_len, true);
+        bc_send_to_all(chat_payload, payload_len, true);
         break;
     }
 
-    /* --- Python events: relay to all others (reliable) --- */
+    /* --- Python events (reliable) --- */
     case BC_OP_PYTHON_EVENT:
-    case BC_OP_PYTHON_EVENT2:
         bc_relay_to_others(peer_slot, payload, payload_len, true);
+        break;
+
+    case BC_OP_PYTHON_EVENT2:
+        /* C->S only; server absorbs locally, does NOT relay (0 S->C in stock trace) */
         break;
 
     /* --- Weapon/combat events: relay to all others (reliable) --- */
@@ -929,6 +932,10 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         bc_relay_to_others(peer_slot, payload, payload_len, true);
         break;
 
+    /* StartCloak/StopCloak: DEAD CODE in stock MP (zero instances across 54 min
+     * of traces with active cloaking by BoP + Warbird).  Cloak state propagates
+     * exclusively via StateUpdate CLK flag (0x40).  Handlers kept for potential
+     * mod compatibility. */
     case BC_OP_START_CLOAK:
         if (g_registry_loaded && peer->has_ship) {
             const bc_ship_class_t *cls =
@@ -1900,6 +1907,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
     }
 
+    case BC_OP_ENTER_SET:
+        /* S->C only; clients should never send this (0 C->S in stock trace) */
+        LOG_WARN("game", "slot=%d sent EnterSet (S->C only, dropped)", peer_slot);
+        break;
+
     default:
         g_stats.opcodes_rejected[opcode]++;
         LOG_WARN("game", "slot=%d opcode=0x%02X (%s) len=%d (unhandled)",
@@ -1962,6 +1974,21 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
             bc_addr_to_string(from, dup_addr, sizeof(dup_addr));
             LOG_WARN("net", "Duplicate connect from %s (slot %d), resending Connect response",
                      dup_addr, slot);
+
+            /* ACK the reliable Connect so the client drains its retransmit
+             * queue.  Below-0x32 messages carry reliability in payload[0]
+             * (flags_len high byte) and seq in payload[1]. */
+            for (int i = 0; i < pkt.msg_count; i++) {
+                bc_transport_msg_t *cm = &pkt.msgs[i];
+                if (cm->type == BC_TRANSPORT_CONNECT &&
+                    cm->payload_len >= 2 && (cm->payload[0] & 0x80)) {
+                    u16 conn_seq = (u16)cm->payload[1] << 8;
+                    bc_outbox_add_ack(&g_peers.peers[slot].outbox,
+                                       conn_seq, 0x02);
+                }
+            }
+            bc_flush_peer(slot);
+
             /* Resend Connect response with same wire slot */
             u8 resp[8];
             resp[0] = BC_DIR_SERVER;
@@ -2007,6 +2034,17 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
             continue;
         }
 
+        /* ACK reliable below-0x32 messages.  Types 0x00-0x05 use the format
+         * [type][flags_len:u16 LE][seq:u16 if reliable][...].  In the
+         * generic parser, payload[0] = flags_len high byte (bit 7 = reliable),
+         * payload[1..2] = seq.  Stock dedi sets ACK flags bit 1 (below32) so
+         * the client matches against the correct retransmit queue channel. */
+        if (tmsg->type < 0x32 && tmsg->type != BC_TRANSPORT_ACK &&
+            tmsg->payload_len >= 2 && (tmsg->payload[0] & 0x80)) {
+            u16 below32_seq = (u16)tmsg->payload[1] << 8;
+            bc_outbox_add_ack(&g_peers.peers[slot].outbox, below32_seq, 0x02);
+        }
+
         if (tmsg->type == BC_TRANSPORT_DISCONNECT) {
             char addr_str[32];
             bc_addr_to_string(from, addr_str, sizeof(addr_str));
@@ -2016,23 +2054,18 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
         }
 
         /* ConnectACK from a connected client = graceful disconnect signal.
-         * The client sends type 0x05 when the user presses Escape / quits. */
+         * The client sends type 0x05 when the user presses Escape / quits.
+         * ACK is handled by the generic below-0x32 reliable ACK above. */
         if (tmsg->type == BC_TRANSPORT_CONNECT_ACK) {
             LOG_INFO("net", "slot=%d graceful disconnect (ConnectACK)", slot);
-            /* ACK the disconnect (reliable low-type).  Seq byte is payload[1]
-             * (embedded reliable format: [flags:C0][seq_hi][seq_lo][slot][ip...]).
-             * Stock server ACKs this before tearing down the peer. */
-            if (tmsg->payload_len >= 2) {
-                u16 disc_seq = (u16)tmsg->payload[1] << 8;
-                bc_outbox_add_ack(&g_peers.peers[slot].outbox, disc_seq, 0x00);
-            }
             disconnect_pending = true;
             continue;
         }
 
         /* Stale Connect retransmissions from a peer that's already connected.
          * These leak through when the client hasn't received our Connect
-         * response yet.  Safe to ignore. */
+         * response yet.  Safe to ignore; ACK handled by the generic
+         * below-0x32 reliable ACK above. */
         if (tmsg->type == BC_TRANSPORT_CONNECT ||
             tmsg->type == BC_TRANSPORT_CONNECT_DATA) {
             continue;
