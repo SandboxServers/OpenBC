@@ -12,8 +12,8 @@ The cloaking device is a PoweredSubsystem that makes a ship invisible. It uses a
 
 See also:
 - [shield-system.md](shield-system.md) — shield disable/re-enable during cloak
-- [power-system.md](power-system.md) — power draw and energy failure conditions
-- [stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md) — StateUpdate flag 0x40 (CLK) for cloak state propagation
+- [power-system/](power-system/) — power draw and energy failure conditions
+- [stateupdate-wire-format/](../wire-formats/stateupdate-wire-format/) — StateUpdate flag 0x40 (CLK) for cloak state propagation
 - [event-forward-wire-format.md](../wire-formats/event-forward-wire-format.md) — opcodes 0x0E/0x0F are registered but NOT used in multiplayer
 
 ---

@@ -133,4 +133,4 @@ Time    Server                              Client
 - **[../network-flows/join-flow.md](../network-flows/join-flow.md)** — Connection timing (connect → gameplay)
 - **[../network-flows/disconnect-flow.md](../network-flows/disconnect-flow.md)** — Timeout detection and cleanup
 - **[../game-systems/collision-rate-limiting.md](../game-systems/collision-rate-limiting.md)** — Collision cooldown algorithm
-- **[../wire-formats/stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md)** — StateUpdate field format
+- **[../wire-formats/stateupdate-wire-format/](../wire-formats/stateupdate-wire-format/)** — StateUpdate field format

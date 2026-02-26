@@ -174,5 +174,5 @@ These opcodes are **byte-for-byte identical** between stock and OpenBC:
 
 - [collision-damage-event-chain.md](../collision-damage-event-chain.md) — Collision → PythonEvent chain
 - [ship-death-lifecycle.md](../../game-systems/ship-death-lifecycle.md) — Ship death/respawn sequence
-- [wire-format-audit.md](../../network-flows/wire-format-audit.md) — Per-opcode match/mismatch table
+- [wire-format-audit/](../../network-flows/wire-format-audit/) — Per-opcode match/mismatch table
 - [delete-player-ui-wire-format.md](../../wire-formats/delete-player-ui-wire-format.md) — DeletePlayerUI wire format

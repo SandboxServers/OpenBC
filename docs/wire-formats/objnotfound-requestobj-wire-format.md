@@ -152,6 +152,6 @@ There is no explicit rate-limiting in the reference implementation. However, bec
 ## Related Documents
 
 - **[enter-set-wire-format.md](enter-set-wire-format.md)** — EnterSet (0x1F) which internally triggers 0x1E
-- **[objcreate-wire-format.md](objcreate-wire-format.md)** — ObjCreate/ObjCreateTeam (0x02/0x03) response format
+- **[objcreate-wire-format/](objcreate-wire-format/)** — ObjCreate/ObjCreateTeam (0x02/0x03) response format
 - **[explosion-wire-format.md](explosion-wire-format.md)** — Explosion (0x29) replayed as part of 0x1E response
 - **[../protocol/protocol-reference.md](../protocol/protocol-reference.md)** — Complete opcode table

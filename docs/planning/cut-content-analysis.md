@@ -315,7 +315,7 @@ Every single piece of this existed in the Bridge Commander codebase. It was neve
 ## Related Documents
 
 - **[combat-system.md](../game-systems/combat-system.md)** -- Damage pipeline, shields, weapons, cloaking, tractor, repair
-- **[ship-subsystems.md](../game-systems/ship-subsystems.md)** -- Subsystem types and configurations per ship
-- **[objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md)** -- Species tables (includes BORGCUBE, ENTERPRISE, ESCAPEPOD)
+- **[ship-subsystems/](../game-systems/ship-subsystems/)** -- Subsystem types and configurations per ship
+- **[objcreate-wire-format/](../wire-formats/objcreate-wire-format/)** -- Species tables (includes BORGCUBE, ENTERPRISE, ESCAPEPOD)
 - **[collision-detection-system.md](../game-systems/collision-detection-system.md)** -- Collision detection pipeline
 - **[protocol-reference.md](../protocol/protocol-reference.md)** -- All network opcodes including 0x0E-0x10, 0x1F

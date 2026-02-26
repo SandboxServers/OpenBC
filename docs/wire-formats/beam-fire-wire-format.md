@@ -164,5 +164,5 @@ StartFiring/StopFiring control the beam visual and audio. BeamFire carries the a
 
 - **[torpedo-fire-wire-format.md](torpedo-fire-wire-format.md)** — TorpedoFire (0x19) wire format
 - **[event-forward-wire-format.md](event-forward-wire-format.md)** — StartFiring/StopFiring (0x07/0x08) that bracket beam activity
-- **[stateupdate-wire-format.md](stateupdate-wire-format.md)** — Subsystem health updates affected by beam damage
+- **[stateupdate-wire-format/](stateupdate-wire-format/)** — Subsystem health updates affected by beam damage
 - **[../protocol/protocol-reference.md](../protocol/protocol-reference.md)** — Complete opcode table

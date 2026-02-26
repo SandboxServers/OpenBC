@@ -158,4 +158,4 @@ T+10.766s  C->S  0x03 ObjCreateTeam (client's actual pick)
 
 - **[self-destruct-system.md](../../game-systems/self-destruct-system.md)** — Self-destruct behavioral spec
 - **[ship-death-lifecycle.md](../../game-systems/ship-death-lifecycle.md)** — Ship death sequence spec
-- **[pythonevent-wire-format.md](../../wire-formats/pythonevent-wire-format.md)** — ObjectExplodingEvent wire format
+- **[pythonevent-wire-format/](../../wire-formats/pythonevent-wire-format/)** — ObjectExplodingEvent wire format

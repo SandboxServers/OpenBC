@@ -240,6 +240,6 @@ TARGET_WAS_CHANGED (0x00800058) exclusively. 0x15 triggers server-side damage + 
 ## Related Documents
 
 - **[set-phaser-level-wire-format.md](set-phaser-level-wire-format.md)** — Detailed spec for opcode 0x12 (one member of this group)
-- **[pythonevent-wire-format.md](pythonevent-wire-format.md)** — PythonEvent (0x06) — server-generated events
+- **[pythonevent-wire-format/](pythonevent-wire-format/)** — PythonEvent (0x06) — server-generated events
 - **[protocol-reference.md](../protocol/protocol-reference.md)** — Complete opcode table
 - **[../architecture/server-authority.md](../architecture/server-authority.md)** — Authority model

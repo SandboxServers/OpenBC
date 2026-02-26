@@ -61,13 +61,13 @@ The following documents form the complete specification set consumed by the clea
 | `transport-cipher.md` | Stream cipher algorithm and key schedule |
 | `gamespy-protocol.md` | LAN discovery and master server handshake |
 | `join-flow.md` | Connection lifecycle from connect to gameplay |
-| `checksum-handshake-protocol.md` | File integrity hash exchange |
+| `checksum-handshake-protocol/` | File integrity hash exchange |
 | `disconnect-flow.md` | Player disconnect detection and cleanup |
 | `combat-system.md` | Damage model, shields, cloaking, tractor beams, repair |
-| `ship-subsystems.md` | Subsystem index table and health serialization |
+| `ship-subsystems/` | Subsystem index table and health serialization |
 | `server-authority.md` | Client vs. server authority boundaries |
-| `stateupdate-wire-format.md` | Position and state synchronization format |
-| `objcreate-wire-format.md` | Ship creation message format |
+| `stateupdate-wire-format/` | Position and state synchronization format |
+| `objcreate-wire-format/` | Ship creation message format |
 | `collision-effect-wire-format.md` | Collision damage report format |
 | `protocol/protocol-reference.md` | Complete protocol reference (opcodes, formats, handshake) |
 

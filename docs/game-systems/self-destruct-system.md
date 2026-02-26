@@ -316,8 +316,8 @@ ObjCreateTeam message. The respawn ObjCreateTeam should use the **client's playe
 ## Related Documents
 
 - **[combat-system.md](combat-system.md)** — Damage pipeline that self-destruct feeds into
-- **[power-system.md](power-system.md)** — Power subsystem that receives the lethal damage
-- **[pythonevent-wire-format.md](../wire-formats/pythonevent-wire-format.md)** — OBJECT_EXPLODING event format
+- **[power-system/](power-system/)** — Power subsystem that receives the lethal damage
+- **[pythonevent-wire-format/](../wire-formats/pythonevent-wire-format/)** — OBJECT_EXPLODING event format
 - **[explosion-wire-format.md](../wire-formats/explosion-wire-format.md)** — Explosion opcode 0x29 (not used by self-destruct)
 - **[disconnect-flow.md](../network-flows/disconnect-flow.md)** — Player removal flow (shares cleanup opcodes)
 - **[gamemode-system.md](../planning/gamemode-system.md)** — Scoring rules for self-destruct in different game modes

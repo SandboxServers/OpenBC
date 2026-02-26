@@ -13,7 +13,7 @@ The tractor beam is a weapon system that applies force to a target ship instead 
 See also:
 - [weapon-system.md](weapon-system.md) — weapon charge/recharge mechanics (shared base class)
 - [combat-system.md](combat-system.md) — damage pipeline (tractor does NOT deal damage)
-- [power-system.md](power-system.md) — power budget for tractor subsystem
+- [power-system/](power-system/) — power budget for tractor subsystem
 
 ---
 

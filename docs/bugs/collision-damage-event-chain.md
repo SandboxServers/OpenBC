@@ -369,7 +369,7 @@ Per-ship tracking comments are maintained on issue #63.
 
 - **[collision-effect-wire-format.md](../wire-formats/collision-effect-wire-format.md)** — Opcode 0x15 wire format and host validation checks
 - **[combat-system.md](../game-systems/combat-system.md)** — Full damage pipeline, shield absorption, subsystem damage distribution
-- **[ship-subsystems.md](../game-systems/ship-subsystems.md)** — Subsystem index table and HP values
+- **[ship-subsystems/](../game-systems/ship-subsystems/)** — Subsystem index table and HP values
 - **[server-authority.md](../architecture/server-authority.md)** — Authority model (collision damage is host-authoritative)
-- **[stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md)** — How subsystem health is sent in StateUpdate flag 0x20
+- **[stateupdate-wire-format/](../wire-formats/stateupdate-wire-format/)** — How subsystem health is sent in StateUpdate flag 0x20
 - **[explosion-wire-format.md](../wire-formats/explosion-wire-format.md)** — Opcode 0x29 wire format

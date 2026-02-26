@@ -8,9 +8,9 @@ Navigation index for all design documents, protocol references, and system speci
 |-----------|-------------|------------|
 | [architecture/](architecture/) | High-level server design, engine reference, authority model | [server-architecture.md](architecture/server-architecture.md) |
 | [protocol/](protocol/) | Wire protocol reference, transport layer, cipher, GameSpy | [protocol-reference.md](protocol/protocol-reference.md) |
-| [wire-formats/](wire-formats/) | Per-opcode wire format specifications | [checksum-handshake-protocol.md](wire-formats/checksum-handshake-protocol.md) |
-| [game-systems/](game-systems/) | Game simulation: combat, power, repair, subsystems, collisions, AI, camera | [combat-system.md](game-systems/combat-system.md) |
-| [network-flows/](network-flows/) | Connection lifecycle: join, disconnect, wire format audit | [join-flow.md](network-flows/join-flow.md) |
+| [wire-formats/](wire-formats/) | Per-opcode wire format specifications | [README.md](wire-formats/README.md) |
+| [game-systems/](game-systems/) | Game simulation: combat, power, repair, subsystems, collisions, AI, camera | [README.md](game-systems/README.md) |
+| [network-flows/](network-flows/) | Connection lifecycle: join, disconnect, wire format audit | [README.md](network-flows/README.md) |
 | [modding/](modding/) | Modding guides: getting started, DLL, Lua, TOML, total conversion | [getting-started.md](modding/getting-started.md) |
 | [planning/](planning/) | Future work: game modes, extensibility, cut content analysis | [gamemode-system.md](planning/gamemode-system.md) |
 | [bugs/](bugs/) | Bug analyses, postmortems, and fix documentation | -- |

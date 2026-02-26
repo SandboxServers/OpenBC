@@ -48,11 +48,11 @@ OpenBC is a fully open-source, mod-extensible multiplayer server for Star Trek: 
 
 ## 4. Checksum Validation Layer
 
-> Moved to [../wire-formats/checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md).
+> Moved to [../wire-formats/checksum-handshake-protocol/](../wire-formats/checksum-handshake-protocol/).
 
 ## 5. Game State Engine
 
-> Opcode table and game event formats moved to [../protocol/protocol-reference.md](../protocol/protocol-reference.md). Ship state model and subsystem details moved to [../game-systems/ship-subsystems.md](../game-systems/ship-subsystems.md) and [../wire-formats/stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md).
+> Opcode table and game event formats moved to [../protocol/protocol-reference.md](../protocol/protocol-reference.md). Ship state model and subsystem details moved to [../game-systems/ship-subsystems/](../game-systems/ship-subsystems/) and [../wire-formats/stateupdate-wire-format/](../wire-formats/stateupdate-wire-format/).
 
 ## 6. Physics Simulation
 
@@ -60,7 +60,7 @@ OpenBC is a fully open-source, mod-extensible multiplayer server for Star Trek: 
 
 ## 7. Data Registry
 
-> Moved to [../game-systems/data-registry.md](../game-systems/data-registry.md).
+> Moved to [../game-systems/data-registry/](../game-systems/data-registry/).
 
 ## 8. Mod System
 

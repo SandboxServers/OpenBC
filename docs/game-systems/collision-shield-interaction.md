@@ -151,4 +151,4 @@ The server must correctly apply directional shield absorption when processing op
 
 - [collision-damage-event-chain.md](../bugs/collision-damage-event-chain.md) — How collision damage generates PythonEvent messages (the event chain after damage is applied)
 - [collision-effect-wire-format.md](../wire-formats/collision-effect-wire-format.md) — Opcode 0x15 wire format
-- [pythonevent-wire-format.md](../wire-formats/pythonevent-wire-format.md) — Opcode 0x06 wire format for subsystem damage events
+- [pythonevent-wire-format/](../wire-formats/pythonevent-wire-format/) — Opcode 0x06 wire format for subsystem damage events

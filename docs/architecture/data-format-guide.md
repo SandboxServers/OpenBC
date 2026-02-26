@@ -166,5 +166,5 @@ Lua scripts are **not** a data format -- they are executable code. See [Lua Scri
 ## See Also
 
 - [TOML Reference](../modding/toml-reference.md) -- All TOML config formats
-- [Data Registry](../game-systems/data-registry.md) -- Ship data JSON schema
+- [Data Registry](../game-systems/data-registry/) -- Ship data JSON schema
 - [Lua Scripting Guide](../modding/lua-scripting-guide.md) -- Lua runtime API

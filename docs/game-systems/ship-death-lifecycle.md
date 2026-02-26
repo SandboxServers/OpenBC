@@ -188,8 +188,8 @@ slot). The server relays this to all other clients.
 ## Related Documents
 
 - **[explosion-wire-format.md](../wire-formats/explosion-wire-format.md)** — Opcode 0x29 wire format
-- **[pythonevent-wire-format.md](../wire-formats/pythonevent-wire-format.md)** — ObjectExplodingEvent (factory 0x8129)
-- **[objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md)** — ObjCreateTeam (opcode 0x03) for respawn
+- **[pythonevent-wire-format/](../wire-formats/pythonevent-wire-format/)** — ObjectExplodingEvent (factory 0x8129)
+- **[objcreate-wire-format/](../wire-formats/objcreate-wire-format/)** — ObjCreateTeam (opcode 0x03) for respawn
 - **[gamemode-system.md](../planning/gamemode-system.md)** — Scoring, frag limits, end game conditions
 - **[collision-damage-event-chain.md](../bugs/collision-damage-event-chain.md)** — Collision → PythonEvent chain
 - **[disconnect-flow.md](../network-flows/disconnect-flow.md)** — Player disconnect (separate from ship death)

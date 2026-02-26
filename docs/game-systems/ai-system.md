@@ -337,6 +337,6 @@ For cooperative modes with AI wingmen:
 ## Related Documents
 
 - **[combat-system.md](combat-system.md)** — Damage, weapons, shields that AI behaviors interact with
-- **[ship-subsystems.md](ship-subsystems.md)** — Subsystem types that conditions test against
+- **[ship-subsystems/](ship-subsystems/)** — Subsystem types that conditions test against
 - **[../planning/cut-content-analysis.md](../planning/cut-content-analysis.md)** — Fleet command restoration feasibility
 - **[../planning/gamemode-system.md](../planning/gamemode-system.md)** — Cooperative modes that would use fleet AI

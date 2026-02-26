@@ -34,7 +34,7 @@ Time        startIdx   Payload
 
 **Server cycle**: `0 → 5 → 7 → 9 → 0 → 5 → 7 → 9 → ...`
 
-**Expected Sovereign cycle** (from [ship-subsystems.md](../../game-systems/ship-subsystems.md)): The Sovereign has 11 top-level subsystems. The round-robin should visit indices 0 through 10, cycling based on the 10-byte budget. The stock game cycle for Sovereign is `0 → 2 → 6 → 8 → 10 → 0` (verified from stock dedi packet captures).
+**Expected Sovereign cycle** (from [ship-subsystems/](../../game-systems/ship-subsystems/)): The Sovereign has 11 top-level subsystems. The round-robin should visit indices 0 through 10, cycling based on the 10-byte budget. The stock game cycle for Sovereign is `0 → 2 → 6 → 8 → 10 → 0` (verified from stock dedi packet captures).
 
 **Key mismatch**: The server's round-robin visits indices `{0, 5, 7, 9}`, but the stock game visits `{0, 2, 6, 8, 10}`. This means:
 
@@ -78,7 +78,7 @@ The server writes 6 subsystems in this window (indices 0-4 plus starting #5), hi
 
 The server must construct its subsystem serialization list in the **exact same order** as the client. Both are determined by the hardpoint script's `LoadPropertySet()` call sequence. The server must use identical property loading order when setting up the ship's subsystem list.
 
-Reference: [ship-subsystems.md](../../game-systems/ship-subsystems.md) §2 "Subsystem List Order" and §7 "Per-Ship Serialization Lists" for the correct order per ship class.
+Reference: [ship-subsystems/](../../game-systems/ship-subsystems/) §2 "Subsystem List Order" and §7 "Per-Ship Serialization Lists" for the correct order per ship class.
 
 ---
 
@@ -237,8 +237,8 @@ While this doesn't directly cause the shield flickering or missing collision dam
 
 ## Reference Documents
 
-- [ship-subsystems.md](../../game-systems/ship-subsystems.md) — Correct subsystem order per ship class
-- [stateupdate-wire-format.md](../../wire-formats/stateupdate-wire-format.md) — Flag 0x20 round-robin format
+- [ship-subsystems/](../../game-systems/ship-subsystems/) — Correct subsystem order per ship class
+- [stateupdate-wire-format/](../../wire-formats/stateupdate-wire-format/) — Flag 0x20 round-robin format
 - [collision-effect-wire-format.md](../../wire-formats/collision-effect-wire-format.md) — Opcode 0x15 parsing
 - [collision-damage-event-chain.md](../collision-damage-event-chain.md) — Expected PythonEvent generation chain
 - [collision-detection-system.md](../../game-systems/collision-detection-system.md) — Collision detection pipeline (client-side)
