@@ -1,6 +1,7 @@
 #include "openbc/ship_power.h"
 #include "openbc/buffer.h"
 #include "openbc/game_builders.h"
+#include "openbc/opcodes.h"
 
 /* --- Hierarchical health serializer (flag 0x20) --- */
 
@@ -110,6 +111,144 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
     return bc_build_state_update(buf, buf_size,
                                   ship->object_id, game_time, 0x20,
                                   field, (int)fb.pos);
+}
+
+static bool skip_stateupdate_prefix_to_subsystems(bc_buffer_t *buf, u8 *dirty_out)
+{
+    u8 opcode;
+    i32 object_id;
+    f32 game_time;
+    u8 dirty;
+
+    if (!bc_buf_read_u8(buf, &opcode)) return false;
+    if (opcode != BC_OP_STATE_UPDATE) return false;
+    if (!bc_buf_read_i32(buf, &object_id)) return false;
+    if (!bc_buf_read_f32(buf, &game_time)) return false;
+    if (!bc_buf_read_u8(buf, &dirty)) return false;
+    (void)object_id;
+    (void)game_time;
+    if (dirty_out) *dirty_out = dirty;
+
+    if (dirty & BC_DIRTY_POSITION_ABS) {
+        bool has_hash = false;
+        u16 hash16;
+        f32 x, y, z;
+        if (!bc_buf_read_f32(buf, &x)) return false;
+        if (!bc_buf_read_f32(buf, &y)) return false;
+        if (!bc_buf_read_f32(buf, &z)) return false;
+        if (!bc_buf_read_bit(buf, &has_hash)) return false;
+        if (has_hash) {
+            if (!bc_buf_read_u16(buf, &hash16)) return false;
+        }
+    }
+    if (dirty & BC_DIRTY_POSITION_DELTA) {
+        f32 dx, dy, dz;
+        if (!bc_buf_read_cv4(buf, &dx, &dy, &dz)) return false;
+    }
+    if (dirty & BC_DIRTY_ORIENT_FWD) {
+        f32 fx, fy, fz;
+        if (!bc_buf_read_cv3(buf, &fx, &fy, &fz)) return false;
+    }
+    if (dirty & BC_DIRTY_ORIENT_UP) {
+        f32 ux, uy, uz;
+        if (!bc_buf_read_cv3(buf, &ux, &uy, &uz)) return false;
+    }
+    if (dirty & BC_DIRTY_SPEED) {
+        f32 speed;
+        if (!bc_buf_read_cf16(buf, &speed)) return false;
+    }
+
+    return true;
+}
+
+int bc_ship_apply_remote_power_state(const u8 *state_update,
+                                     int state_update_len,
+                                     const bc_ship_class_t *cls,
+                                     bc_ship_state_t *ship)
+{
+    if (!state_update || state_update_len <= 0 || !cls || !ship)
+        return 0;
+
+    const bc_ss_list_t *sl = &cls->ser_list;
+    if (sl->count <= 0) return 0;
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)state_update, (size_t)state_update_len);
+
+    u8 dirty = 0;
+    if (!skip_stateupdate_prefix_to_subsystems(&buf, &dirty))
+        return 0;
+
+    if (!(dirty & BC_DIRTY_SUBSYSTEM_STATES))
+        return 0;
+
+    /* The 0x20 block has no explicit length field. Keep parsing constrained
+     * to cases where no unknown variable-length tail (0x80 weapon block) can
+     * follow it in the same packet. */
+    if (dirty & BC_DIRTY_WEAPON_STATES)
+        return 0;
+
+    if (dirty & BC_DIRTY_CLOAK_STATE)
+        return 0;
+
+    u8 start_idx;
+    if (!bc_buf_read_u8(&buf, &start_idx))
+        return 0;
+
+    int cursor = (int)start_idx;
+    if (cursor < 0 || cursor >= sl->count)
+        cursor = 0;
+
+    int updated = 0;
+
+    while (bc_buf_remaining(&buf) > 0) {
+        const bc_ss_entry_t *e = &sl->entries[cursor];
+        u8 condition_byte;
+
+        if (!bc_buf_read_u8(&buf, &condition_byte))
+            break;
+
+        for (int c = 0; c < e->child_count; c++) {
+            if (!bc_buf_read_u8(&buf, &condition_byte))
+                return updated;
+        }
+
+        if (e->format == BC_SS_FORMAT_POWERED) {
+            bool has_power_data = false;
+            if (!bc_buf_read_bit(&buf, &has_power_data))
+                return updated;
+
+            if (has_power_data) {
+                u8 raw_pct;
+                if (!bc_buf_read_u8(&buf, &raw_pct))
+                    return updated;
+
+                i8 signed_pct = (i8)raw_pct;
+                bool enabled = signed_pct > 0;
+                u8 pct = enabled ? raw_pct : (u8)(-signed_pct);
+
+                if (signed_pct == 0) {
+                    enabled = false;
+                    pct = 0;
+                }
+
+                ship->power_pct[cursor] = pct;
+                ship->subsys_enabled[cursor] = enabled;
+                updated++;
+            }
+        } else if (e->format == BC_SS_FORMAT_POWER) {
+            /* Battery percentages follow the power entry; consume for
+             * stream alignment but keep server battery authority local. */
+            u8 skip;
+            if (!bc_buf_read_u8(&buf, &skip)) return updated;
+            if (!bc_buf_read_u8(&buf, &skip)) return updated;
+        }
+
+        cursor++;
+        if (cursor >= sl->count) cursor = 0;
+    }
+
+    return updated;
 }
 
 /* --- Reactor / power simulation --- */

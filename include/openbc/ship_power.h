@@ -27,4 +27,17 @@ void bc_ship_power_tick(bc_ship_state_t *ship,
                         const bc_ship_class_t *cls,
                         f32 dt);
 
+/* Apply remote power allocation values from an incoming StateUpdate (0x1C)
+ * subsystem block (dirty flag 0x20) to server ship state.
+ *
+ * This reads only the power allocation/on-off intent for Powered entries.
+ * Health bytes are consumed for stream alignment but not applied.
+ *
+ * Returns number of powered entries updated, or 0 if no applicable 0x20 block
+ * is present/usable in the payload. */
+int bc_ship_apply_remote_power_state(const u8 *state_update,
+                                     int state_update_len,
+                                     const bc_ship_class_t *cls,
+                                     bc_ship_state_t *ship);
+
 #endif /* OPENBC_SHIP_POWER_H */
