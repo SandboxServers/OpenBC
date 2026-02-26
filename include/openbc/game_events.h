@@ -86,6 +86,7 @@ typedef struct {
     f32 game_time;
     u8  dirty;
     f32 pos_x, pos_y, pos_z;   /* valid when dirty & 0x01 */
+    f32 delta_x, delta_y, delta_z; /* valid when dirty & 0x02 */
     f32 fwd_x, fwd_y, fwd_z;   /* valid when dirty & 0x04 */
     f32 up_x,  up_y,  up_z;    /* valid when dirty & 0x08 */
     f32 speed;                  /* valid when dirty & 0x10 */

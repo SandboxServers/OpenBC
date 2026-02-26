@@ -820,6 +820,65 @@ bool bc_torpedo_target_pos(i32 target_id, bc_vec3_t *out_pos,
     return true;
 }
 
+/* Handle inbound owner StateUpdate (0x1C) as server input only.
+ * Downstream 0x1C stream is generated server-side in main.c. */
+static void handle_state_update_input(int peer_slot, bc_peer_t *peer,
+                                      const u8 *payload, int payload_len)
+{
+    if (g_registry_loaded && peer->has_ship) {
+        const bc_ship_class_t *cls =
+            bc_registry_get_ship(&g_registry, peer->class_index);
+        bc_state_update_t su;
+        if (bc_parse_state_update(payload, payload_len, &su)) {
+            /* Track position */
+            if (su.dirty & 0x01) {
+                peer->ship.pos.x = su.pos_x;
+                peer->ship.pos.y = su.pos_y;
+                peer->ship.pos.z = su.pos_z;
+            } else if (su.dirty & 0x02) {
+                peer->ship.pos.x += su.delta_x;
+                peer->ship.pos.y += su.delta_y;
+                peer->ship.pos.z += su.delta_z;
+            }
+            if (su.dirty & 0x04) {
+                peer->ship.fwd.x = su.fwd_x;
+                peer->ship.fwd.y = su.fwd_y;
+                peer->ship.fwd.z = su.fwd_z;
+            }
+            if (su.dirty & 0x08) {
+                peer->ship.up.x = su.up_x;
+                peer->ship.up.y = su.up_y;
+                peer->ship.up.z = su.up_z;
+            }
+            if (su.dirty & 0x10) {
+                peer->ship.speed = su.speed;
+            }
+
+            /* Power percentages/on-off intent are carried inside inbound
+             * 0x20 subsystem blocks for remote ships. Apply to server ship
+             * state so downstream 0x20/0x3x broadcasts stay converged. */
+            if (cls) {
+                int updates = bc_ship_apply_remote_power_state(
+                    payload, payload_len, cls, &peer->ship);
+                if (updates > 0) {
+                    LOG_TRACE("power", "slot=%d applied %d remote power entries",
+                              peer_slot, updates);
+                }
+            }
+        } else {
+            LOG_DEBUG("state", "slot=%d malformed StateUpdate dropped",
+                      peer_slot);
+        }
+    } else {
+        /* Server is authoritative for downstream 0x1C shape/cadence.
+         * Never forward owner payload bytes verbatim. */
+        if (payload_len > 0 && payload[0] == BC_OP_STATE_UPDATE) {
+            LOG_TRACE("state", "slot=%d StateUpdate absorbed (no registry/ship)",
+                      peer_slot);
+        }
+    }
+}
+
 /* --- Game message dispatch --- */
 
 static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
@@ -1178,50 +1237,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
     }
 
-    /* --- StateUpdate: track position + relay (strip server-authoritative flags) --- */
-    case BC_OP_STATE_UPDATE: {
-        if (g_registry_loaded && peer->has_ship) {
-            bc_state_update_t su;
-            if (bc_parse_state_update(payload, payload_len, &su)) {
-                /* Track position */
-                if (su.dirty & 0x01) {
-                    peer->ship.pos.x = su.pos_x;
-                    peer->ship.pos.y = su.pos_y;
-                    peer->ship.pos.z = su.pos_z;
-                }
-                if (su.dirty & 0x04) {
-                    peer->ship.fwd.x = su.fwd_x;
-                    peer->ship.fwd.y = su.fwd_y;
-                    peer->ship.fwd.z = su.fwd_z;
-                }
-                if (su.dirty & 0x08) {
-                    peer->ship.up.x = su.up_x;
-                    peer->ship.up.y = su.up_y;
-                    peer->ship.up.z = su.up_z;
-                }
-                if (su.dirty & 0x10) {
-                    peer->ship.speed = su.speed;
-                }
-
-                /* Strip server-authoritative flag 0x20 (subsystem health).
-                 * 0x80 (weapon state) is CLIENT-authoritative and must be relayed.
-                 * The SUBSYSTEMS/WEAPONS flag split is ~96% direction-correlated
-                 * (not 100%): in stock BC, the host's own ship can send 0x80 in
-                 * the server→client direction. On our dedicated server there is no
-                 * host-player ship, so dropping pure 0x20 packets from clients
-                 * is still correct. */
-                if (su.dirty == 0x20) {
-                    /* Pure subsystem health update from client -- drop it.
-                     * The server is authoritative for subsystem health. */
-                    LOG_DEBUG("cheat", "slot=%d StateUpdate 0x20 suppressed",
-                              peer_slot);
-                    break;
-                }
-            }
-        }
-        bc_relay_to_others(peer_slot, payload, payload_len, false);
+    /* --- StateUpdate: owner input only (server builds downstream stream) --- */
+    case BC_OP_STATE_UPDATE:
+        handle_state_update_input(peer_slot, peer, payload, payload_len);
+        /* Always absorb incoming 0x1C; downstream is generated server-side. */
         break;
-    }
 
     /* --- Object creation: relay + cache + init server ship state --- */
     case BC_OP_OBJ_CREATE_TEAM:
