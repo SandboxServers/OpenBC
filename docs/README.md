@@ -33,6 +33,9 @@ Navigation index for all design documents, protocol references, and system speci
 ### Protocol (`protocol/`)
 - [stream-primitives.md](protocol/stream-primitives.md) — CF16 encoding, bit packing, CompressedVector3/4
 
+### Bugs (`bugs/bug-reports/`)
+- [20260226-stateupdate-authority-and-cadence-gap.md](bugs/bug-reports/20260226-stateupdate-authority-and-cadence-gap.md) — Clean-room wire-behavior report on shield flicker/subsystem drift/hull disagreement and replication fix targets
+
 ## Quick Reference
 
 **Building a new opcode handler?** Start with [protocol-reference.md](protocol/protocol-reference.md) for the opcode table, then check [wire-formats/](wire-formats/) for the specific opcode's wire format.
