@@ -207,5 +207,5 @@ The priority-tiered update scheduler is an optimization for maintaining responsi
 
 - **[engine-reference.md](engine-reference.md)** — Engine class hierarchy and application lifecycle
 - **[transport-layer.md](../protocol/transport-layer.md)** — Network update scheduling and packet processing
-- **[power-system.md](../game-systems/power-system.md)** — Power system 1-second timer (game-time domain)
+- **[power-system/](../game-systems/power-system/)** — Power system 1-second timer (game-time domain)
 - **[combat-system.md](../game-systems/combat-system.md)** — All combat rate constants that depend on deltaTime

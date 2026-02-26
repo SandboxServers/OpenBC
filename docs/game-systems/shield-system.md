@@ -12,8 +12,8 @@ Each ship has a shield subsystem with **6 independent facings** arranged as a vi
 
 See also:
 - [collision-shield-interaction.md](collision-shield-interaction.md) — how the three damage paths (collision, weapon, explosion) interact with shields
-- [power-system.md](power-system.md) — power budget system that feeds shield recharge
-- [ship-subsystems.md](ship-subsystems.md) — subsystem hierarchy and StateUpdate serialization
+- [power-system/](power-system/) — power budget system that feeds shield recharge
+- [ship-subsystems/](ship-subsystems/) — subsystem hierarchy and StateUpdate serialization
 
 ---
 
@@ -156,7 +156,7 @@ Both floor (0.0) and ceiling (maxShields) are enforced.
 
 ### Power-Driven Recharge Formula
 
-Shield recharge is powered by the ship's power grid (see [power-system.md](power-system.md)). The shield subsystem receives a power budget each tick, which is converted to shield HP.
+Shield recharge is powered by the ship's power grid (see [power-system/](power-system/)). The shield subsystem receives a power budget each tick, which is converted to shield HP.
 
 **Per-facing recharge formula**:
 
@@ -270,7 +270,7 @@ The client reads this bit and triggers its own local StartCloaking/StopCloaking 
 
 ### StateUpdate Flag 0x20 (Subsystem Health)
 
-Shield subsystem health is serialized as part of the subsystem list in flag 0x20 using the Base WriteState format (see [ship-subsystems.md](ship-subsystems.md)). This transmits the overall shield subsystem condition, not per-facing HP.
+Shield subsystem health is serialized as part of the subsystem list in flag 0x20 using the Base WriteState format (see [ship-subsystems/](ship-subsystems/)). This transmits the overall shield subsystem condition, not per-facing HP.
 
 ### Per-Facing HP
 

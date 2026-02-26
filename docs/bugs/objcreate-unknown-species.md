@@ -164,7 +164,7 @@ A robust server should either:
 | 16-45 | Non-playable objects | NPCs, stations, asteroids |
 | 46+ | Out of range | Mod ships, always fails stock lookup |
 
-The full species table is documented in [objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md).
+The full species table is documented in [objcreate-wire-format/](../wire-formats/objcreate-wire-format/).
 
 ## Observed from Packet Captures
 

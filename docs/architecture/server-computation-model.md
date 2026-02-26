@@ -199,7 +199,7 @@ This means a reimplemented server cannot be "just a relay" — it must run the f
 
 - **[server-authority.md](server-authority.md)** — Authority model analysis with anti-cheat tiers
 - **[../game-systems/collision-detection-system.md](../game-systems/collision-detection-system.md)** — How collision detection feeds into damage
-- **[../game-systems/power-system.md](../game-systems/power-system.md)** — Power system details
+- **[../game-systems/power-system/](../game-systems/power-system/)** — Power system details
 - **[../game-systems/repair-system.md](../game-systems/repair-system.md)** — Repair system details
-- **[../wire-formats/stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md)** — StateUpdate field format
+- **[../wire-formats/stateupdate-wire-format/](../wire-formats/stateupdate-wire-format/)** — StateUpdate field format
 - **[../protocol/tgmessage-routing.md](../protocol/tgmessage-routing.md)** — Message routing and relay behavior

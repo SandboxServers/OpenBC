@@ -36,9 +36,9 @@ All design documents live in `docs/` organized by topic. See [docs/README.md](do
 |-----------|----------|------------|
 | `docs/architecture/` | Server design, engine reference, authority model | `server-architecture.md` |
 | `docs/protocol/` | Wire protocol, transport, cipher, GameSpy | `protocol-reference.md` |
-| `docs/wire-formats/` | Per-opcode wire format specs | `checksum-handshake-protocol.md` |
-| `docs/game-systems/` | Combat, power, repair, subsystems, collisions | `combat-system.md` |
-| `docs/network-flows/` | Join flow, disconnect, wire format audit | `join-flow.md` |
+| `docs/wire-formats/` | Per-opcode wire format specs | `README.md` |
+| `docs/game-systems/` | Combat, power, repair, subsystems, collisions | `README.md` |
+| `docs/network-flows/` | Join flow, disconnect, wire format audit | `README.md` |
 | `docs/planning/` | Game modes, extensibility, cut content | `gamemode-system.md` |
 | `docs/bugs/` | Bug analyses and postmortems | -- |
 | `docs/archive/` | Historical planning docs | `phase1-requirements.md` |

@@ -60,7 +60,7 @@ The server assigns a slot, creates a peer entry, and immediately begins the chec
 
 ## 3. Checksum Exchange
 
-The server validates that the client has matching game files by exchanging file hashes across 5 rounds. See [checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md) for full hash algorithm details.
+The server validates that the client has matching game files by exchanging file hashes across 5 rounds. See [checksum-handshake-protocol/](../wire-formats/checksum-handshake-protocol/) for full hash algorithm details.
 
 ### Round Definitions
 
@@ -230,7 +230,7 @@ For each existing game object:
 
 Observed in a 3-player trace: 3 instances of 0x02 (all server-owned, low object IDs) sent to the 3rd joining player during late-join replication. These represent non-player objects that exist in the game world but are not associated with a specific team.
 
-See [objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md) for detailed wire formats of both opcodes.
+See [objcreate-wire-format/](../wire-formats/objcreate-wire-format/) for detailed wire formats of both opcodes.
 
 ---
 
@@ -352,6 +352,6 @@ Observed timing from packet captures of a stock dedicated server:
 ## Related Documents
 
 - **[protocol-reference.md](../protocol/protocol-reference.md)** -- Wire format details and hex dumps
-- **[checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md)** -- Hash algorithms and round details
+- **[checksum-handshake-protocol/](../wire-formats/checksum-handshake-protocol/)** -- Hash algorithms and round details
 - **[gamespy-protocol.md](../protocol/gamespy-protocol.md)** -- Server discovery (runs before connect)
 - **[disconnect-flow.md](disconnect-flow.md)** -- Detailed disconnect cleanup

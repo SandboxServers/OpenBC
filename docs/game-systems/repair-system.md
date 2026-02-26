@@ -330,6 +330,6 @@ Higher RepairComplexity = proportionally slower repair for that subsystem. The c
 - [combat-system.md](combat-system.md) — Consolidated combat system spec (shields, weapons, cloak, tractor, repair summary)
 - [collision-damage-event-chain.md](../bugs/collision-damage-event-chain.md) — Collision → damage → repair event chain
 - [collision-shield-interaction.md](collision-shield-interaction.md) — Shield absorption during collisions
-- [pythonevent-wire-format.md](../wire-formats/pythonevent-wire-format.md) — PythonEvent (opcode 0x06) polymorphic transport
+- [pythonevent-wire-format/](../wire-formats/pythonevent-wire-format/) — PythonEvent (opcode 0x06) polymorphic transport
 - [set-phaser-level-wire-format.md](../wire-formats/set-phaser-level-wire-format.md) — GenericEventForward pattern reference
-- [ship-subsystems.md](ship-subsystems.md) — Full subsystem catalog with HP and properties
+- [ship-subsystems/](ship-subsystems/) — Full subsystem catalog with HP and properties

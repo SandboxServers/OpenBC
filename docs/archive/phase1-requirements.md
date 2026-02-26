@@ -509,7 +509,7 @@ max_angular_velocity = 0.500
 max_angular_accel = 0.350
 ```
 
-The server MUST load ship definitions at startup and use them for object creation, collision detection, and damage calculation. See [Data Registry Specification](../game-systems/data-registry.md) for the complete ship physics table and schema.
+The server MUST load ship definitions at startup and use them for object creation, collision detection, and damage calculation. See [Data Registry Specification](../game-systems/data-registry/) for the complete ship physics table and schema.
 
 #### REQ-DATA-02: Map Registry
 Map definitions loaded from TOML:

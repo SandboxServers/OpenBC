@@ -113,5 +113,5 @@ The message is sent to the "NoMe" network group (all peers except self).
 ## Related Documents
 
 - **[objnotfound-requestobj-wire-format.md](objnotfound-requestobj-wire-format.md)** — Opcodes 0x1D and 0x1E: object recovery protocol
-- **[objcreate-wire-format.md](objcreate-wire-format.md)** — Object creation wire format (response to 0x1E)
+- **[objcreate-wire-format/](objcreate-wire-format/)** — Object creation wire format (response to 0x1E)
 - **[../protocol/protocol-reference.md](../protocol/protocol-reference.md)** — Complete opcode table

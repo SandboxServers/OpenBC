@@ -223,7 +223,7 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 - [Data Format Guide](docs/architecture/data-format-guide.md) -- JSON (machine data) vs TOML (human config) design split
 - [Shared Code Architecture](docs/architecture/shared-code.md) -- src/shared/ structure, server/client code split
 - [Engine Architecture](docs/architecture/engine-reference.md) -- Original BC engine architecture (behavioral reference)
-- [Data Registry](docs/game-systems/data-registry.md) -- Ship, map, rules, and manifest data schemas
+- [Data Registry](docs/game-systems/data-registry/) -- Ship, map, rules, and manifest data schemas
 - [Server Authority](docs/architecture/server-authority.md) -- Authority model: what the server computes vs. relays
 
 **Protocol & Wire Format:**
@@ -232,23 +232,23 @@ The base game data -- 16 ships and 15 projectile types -- ships in `data/vanilla
 - [Transport Cipher](docs/protocol/transport-cipher.md) -- AlbyRules PRNG cipher: key schedule, cross-multiplication, plaintext feedback
 - [GameSpy Protocol](docs/protocol/gamespy-protocol.md) -- LAN discovery, master server heartbeat, challenge-response
 - [Join Flow](docs/network-flows/join-flow.md) -- Connection lifecycle: connect, checksums, lobby, gameplay
-- [Checksum Handshake](docs/wire-formats/checksum-handshake-protocol.md) -- Hash algorithms, 5-round checksum exchange
+- [Checksum Handshake](docs/wire-formats/checksum-handshake-protocol/) -- Hash algorithms, 5-round checksum exchange
 - [Disconnect Flow](docs/network-flows/disconnect-flow.md) -- Player disconnect detection and cleanup
-- [Wire Format Audit](docs/network-flows/wire-format-audit.md) -- Audit of wire format implementation vs spec
-- Wire format specs: [ObjCreate](docs/wire-formats/objcreate-wire-format.md), [StateUpdate](docs/wire-formats/stateupdate-wire-format.md), [CollisionEffect](docs/wire-formats/collision-effect-wire-format.md), [Explosion](docs/wire-formats/explosion-wire-format.md), [DeletePlayerAnim](docs/wire-formats/delete-player-anim-wire-format.md), [DeletePlayerUI](docs/wire-formats/delete-player-ui-wire-format.md), [EventForward](docs/wire-formats/event-forward-wire-format.md), [SetPhaserLevel](docs/wire-formats/set-phaser-level-wire-format.md), [ScriptMessage](docs/wire-formats/script-message-wire-format.md)
-- [Per-Ship Subsystem Wire Format](docs/wire-formats/per-ship-subsystem-wire-format.md) -- All 16 stock ships' subsystem serialization order
+- [Wire Format Audit](docs/network-flows/wire-format-audit/) -- Audit of wire format implementation vs spec
+- Wire format specs: [ObjCreate](docs/wire-formats/objcreate-wire-format/), [StateUpdate](docs/wire-formats/stateupdate-wire-format/), [CollisionEffect](docs/wire-formats/collision-effect-wire-format.md), [Explosion](docs/wire-formats/explosion-wire-format.md), [DeletePlayerAnim](docs/wire-formats/delete-player-anim-wire-format.md), [DeletePlayerUI](docs/wire-formats/delete-player-ui-wire-format.md), [EventForward](docs/wire-formats/event-forward-wire-format.md), [SetPhaserLevel](docs/wire-formats/set-phaser-level-wire-format.md), [ScriptMessage](docs/wire-formats/script-message-wire-format/)
+- [Per-Ship Subsystem Wire Format](docs/wire-formats/per-ship-subsystem-wire-format/) -- All 16 stock ships' subsystem serialization order
 - [ObjCreate Unknown Species](docs/bugs/objcreate-unknown-species.md) -- Behavior when species index exceeds client ship table
 
 **Game Systems:**
 - [Combat System](docs/game-systems/combat-system.md) -- Damage pipeline, shields, cloaking, tractor beams, repair
-- [Power & Reactor System](docs/game-systems/power-system.md) -- Reactor, batteries, conduits, consumer draw, power wire format
+- [Power & Reactor System](docs/game-systems/power-system/) -- Reactor, batteries, conduits, consumer draw, power wire format
 - [Repair System](docs/game-systems/repair-system.md) -- Repair queue, priority toggle, PythonEvent wire format
-- [Ship Subsystems](docs/game-systems/ship-subsystems.md) -- Fixed subsystem index table, HP values, StateUpdate serialization
+- [Ship Subsystems](docs/game-systems/ship-subsystems/) -- Fixed subsystem index table, HP values, StateUpdate serialization
 - [Collision Detection](docs/game-systems/collision-detection-system.md) -- Collision damage scaling, dual damage paths
 - [Collision Shield Interaction](docs/game-systems/collision-shield-interaction.md) -- Shield absorption during collisions
 - [Self-Destruct System](docs/game-systems/self-destruct-system.md) -- Countdown, abort, explosion damage, wire events
 - [Ship Death Lifecycle](docs/game-systems/ship-death-lifecycle.md) -- Destruction sequence, delete-player animation, respawn
-- [PythonEvent Wire Format](docs/wire-formats/pythonevent-wire-format.md) -- Factory IDs, event types, subsystem and explosion events
+- [PythonEvent Wire Format](docs/wire-formats/pythonevent-wire-format/) -- Factory IDs, event types, subsystem and explosion events
 
 **Modding:**
 - [Getting Started](docs/modding/getting-started.md) -- Overview: TOML config, Lua scripting, C DLL development

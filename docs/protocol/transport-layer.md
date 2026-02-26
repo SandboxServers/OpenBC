@@ -339,6 +339,6 @@ Maximum UDP payload for BC: 512 bytes (buffer size). After peer_id (1) + msg_cou
 
 - [transport-cipher.md](transport-cipher.md) — AlbyRules stream cipher (encryption/decryption)
 - [protocol-reference.md](protocol-reference.md) — Game-layer opcodes (carried inside type 0x32)
-- [checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md) — Checksum exchange that demonstrates fragmentation
+- [checksum-handshake-protocol/](../wire-formats/checksum-handshake-protocol/) — Checksum exchange that demonstrates fragmentation
 - [join-flow.md](../network-flows/join-flow.md) — Complete join sequence showing transport message flow
-- [wire-format-audit.md](../network-flows/wire-format-audit.md) — Previous audit (transport section now superseded by this doc)
+- [wire-format-audit/](../network-flows/wire-format-audit/) — Previous audit (transport section now superseded by this doc)

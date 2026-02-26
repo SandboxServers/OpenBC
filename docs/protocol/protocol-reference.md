@@ -23,7 +23,7 @@ Observed behavior of the Bridge Commander 1.1 multiplayer network protocol, docu
 
 ## 3. Connection and Join Flow
 
-> Moved to [../network-flows/join-flow.md](../network-flows/join-flow.md). See also [../wire-formats/checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md) for the checksum exchange.
+> Moved to [../network-flows/join-flow.md](../network-flows/join-flow.md). See also [../wire-formats/checksum-handshake-protocol/](../wire-formats/checksum-handshake-protocol/) for the checksum exchange.
 
 ---
 
@@ -73,7 +73,7 @@ Complete table of observed game-level opcodes. Frequency data from the "Battle o
 
 **Notes:**
 - Opcodes 0x04 and 0x05 are dead -- never observed on wire in any trace
-- Opcodes 0x20-0x27 are handled by a separate checksum/file dispatcher (see [../wire-formats/checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md))
+- Opcodes 0x20-0x27 are handled by a separate checksum/file dispatcher (see [../wire-formats/checksum-handshake-protocol/](../wire-formats/checksum-handshake-protocol/))
 - Opcode 0x28 is the checksum-complete signal sent after all 5 checksum rounds pass
 - StateUpdate (0x1C) accounts for ~97% of all game messages by volume
 
@@ -96,13 +96,13 @@ These messages bypass the C++ opcode dispatcher. They are sent via Python `SendT
 | 0x40 | TEAM_SCORE_MESSAGE | S->C | -- | Team modes only |
 | 0x41 | TEAM_MESSAGE | S->C | -- | Team modes only |
 
-For detailed wire formats of script messages, see [../wire-formats/script-message-wire-format.md](../wire-formats/script-message-wire-format.md).
+For detailed wire formats of script messages, see [../wire-formats/script-message-wire-format/](../wire-formats/script-message-wire-format/).
 
 ---
 
 ## 5. Chat Message Format (Opcode 0x2C)
 
-> Moved to [../wire-formats/script-message-wire-format.md](../wire-formats/script-message-wire-format.md).
+> Moved to [../wire-formats/script-message-wire-format/](../wire-formats/script-message-wire-format/).
 
 ---
 
@@ -133,7 +133,7 @@ mapName           string     N      Mission script path (not null-terminated)
 
 ### 6.2 ObjCreateTeam (Opcode 0x03)
 
-> Detailed wire format moved to [../wire-formats/objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md).
+> Detailed wire format moved to [../wire-formats/objcreate-wire-format/](../wire-formats/objcreate-wire-format/).
 
 ### 6.3 MISSION_INIT (Opcode 0x35)
 
@@ -377,7 +377,7 @@ Magnitude: CompressedFloat16 encoding
 
 ## 8. StateUpdate Deep Dive (Opcode 0x1C)
 
-> Moved to [../wire-formats/stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md). See also [../game-systems/ship-subsystems.md](../game-systems/ship-subsystems.md) for the subsystem index table.
+> Moved to [../wire-formats/stateupdate-wire-format/](../wire-formats/stateupdate-wire-format/). See also [../game-systems/ship-subsystems/](../game-systems/ship-subsystems/) for the subsystem index table.
 
 ---
 
@@ -466,9 +466,9 @@ Network:      UDP (single shared socket for game + GameSpy)
 - **[gamespy-protocol.md](gamespy-protocol.md)** -- GameSpy LAN discovery, master server registration, challenge-response crypto
 - **[../network-flows/join-flow.md](../network-flows/join-flow.md)** -- Connection lifecycle state machine (connect through gameplay)
 - **[../game-systems/combat-system.md](../game-systems/combat-system.md)** -- Damage pipeline, shields, cloaking, tractor beams, repair system
-- **[../game-systems/ship-subsystems.md](../game-systems/ship-subsystems.md)** -- Fixed subsystem index table, HP values, StateUpdate serialization
-- **[../wire-formats/checksum-handshake-protocol.md](../wire-formats/checksum-handshake-protocol.md)** -- Checksum exchange details and hash algorithms
+- **[../game-systems/ship-subsystems/](../game-systems/ship-subsystems/)** -- Fixed subsystem index table, HP values, StateUpdate serialization
+- **[../wire-formats/checksum-handshake-protocol/](../wire-formats/checksum-handshake-protocol/)** -- Checksum exchange details and hash algorithms
 - **[../network-flows/disconnect-flow.md](../network-flows/disconnect-flow.md)** -- Player disconnect detection and cleanup
-- **[../wire-formats/stateupdate-wire-format.md](../wire-formats/stateupdate-wire-format.md)** -- StateUpdate wire format and dirty flags
-- **[../wire-formats/objcreate-wire-format.md](../wire-formats/objcreate-wire-format.md)** -- ObjCreateTeam wire format
-- **[../wire-formats/script-message-wire-format.md](../wire-formats/script-message-wire-format.md)** -- Script message wire formats (chat, scoring, game lifecycle)
+- **[../wire-formats/stateupdate-wire-format/](../wire-formats/stateupdate-wire-format/)** -- StateUpdate wire format and dirty flags
+- **[../wire-formats/objcreate-wire-format/](../wire-formats/objcreate-wire-format/)** -- ObjCreateTeam wire format
+- **[../wire-formats/script-message-wire-format/](../wire-formats/script-message-wire-format/)** -- Script message wire formats (chat, scoring, game lifecycle)

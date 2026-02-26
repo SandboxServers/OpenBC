@@ -21,7 +21,7 @@ TGEvent (factory 0x02, 17 bytes on wire)
 ```
 
 See also:
-- [pythonevent-wire-format.md](pythonevent-wire-format.md) — PythonEvent (0x06) overall wire format and factory dispatch
+- [pythonevent-wire-format/](pythonevent-wire-format/) — PythonEvent (0x06) overall wire format and factory dispatch
 - [set-phaser-level-wire-format.md](set-phaser-level-wire-format.md) — TGCharEvent (0x0105) wire format
 
 ---

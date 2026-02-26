@@ -167,7 +167,7 @@ From a 33.5-minute, 3-player FFA combat session:
 
 ## Related Documents
 
-- **[stateupdate-wire-format.md](stateupdate-wire-format.md)** — Position data for tracking torpedo tube subsystems
+- **[stateupdate-wire-format/](stateupdate-wire-format/)** — Position data for tracking torpedo tube subsystems
 - **[explosion-wire-format.md](explosion-wire-format.md)** — Explosion messages generated on torpedo impact
-- **[objcreate-wire-format.md](objcreate-wire-format.md)** — SpeciesToTorp table reference
+- **[objcreate-wire-format/](objcreate-wire-format/)** — SpeciesToTorp table reference
 - **[../protocol/protocol-reference.md](../protocol/protocol-reference.md)** — Complete opcode table
