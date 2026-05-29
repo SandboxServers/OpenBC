@@ -20,7 +20,14 @@ system = 1                  # Star system index (1-9)
 time_limit = -1             # Time limit in minutes (-1 = none)
 frag_limit = -1             # Kill limit (-1 = none)
 collision_damage = true     # Enable collision damage
-friendly_fire = false       # Enable team damage
+friendly_fire = false       # Enable team damage (whether FF damage applies)
+# Friendly-fire tracking (independent of friendly_fire above):
+#   "permissive" = no tracking, no warnings (default)
+#   "warning"    = track + warn at threshold, never end game (stock default)
+#   "strict"     = track + warn + end game once tolerance is exceeded
+friendly_fire_mode = "permissive"
+friendly_fire_tolerance = 1000.0       # FF damage that ends game (strict mode)
+friendly_fire_warning_points = 100.0   # FF damage that fires a one-shot warning
 difficulty = 1              # 0=Easy, 1=Normal, 2=Hard
 respawn_time = 10           # Seconds before respawn
 mode_file = ""              # Optional game mode TOML file

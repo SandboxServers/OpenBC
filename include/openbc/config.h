@@ -56,6 +56,12 @@ typedef struct {
     int  frag_limit;          /* Kill count; -1 = no limit */
     bool collision_damage;
     bool friendly_fire;
+    /* Friendly-fire tracking (Issue #203). Independent of friendly_fire, which
+     * gates whether FF damage applies at all; these control accumulation /
+     * warnings / game-over. mode: "permissive" (default), "warning", "strict". */
+    char friendly_fire_mode[16];
+    double friendly_fire_tolerance;       /* FF damage that ends game (strict) */
+    double friendly_fire_warning_points;  /* FF damage that fires a warning */
     int  difficulty;          /* 0=Easy, 1=Normal, 2=Hard */
     int  respawn_time;        /* Seconds */
     char mode_file[256];      /* Optional game-mode TOML path */

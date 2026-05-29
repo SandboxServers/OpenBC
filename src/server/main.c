@@ -345,6 +345,19 @@ int main(int argc, char **argv)
         }
     }
 
+    /* Issue #203: configure friendly-fire tracking from config (CLI flags
+     * --friendly-fire/--no-friendly-fire only gate whether FF damage applies;
+     * the tracking mode comes from [game].friendly_fire_mode). */
+    {
+        bc_ff_mode_t ff_mode = BC_FF_MODE_PERMISSIVE;
+        const char *m = g_server_cfg.friendly_fire_mode;
+        if (strcmp(m, "warning") == 0)      ff_mode = BC_FF_MODE_WARNING;
+        else if (strcmp(m, "strict") == 0)  ff_mode = BC_FF_MODE_STRICT;
+        bc_ff_configure(ff_mode,
+                        (f32)g_server_cfg.friendly_fire_tolerance,
+                        (f32)g_server_cfg.friendly_fire_warning_points);
+    }
+
     /* Apply parsed settings to globals */
     g_map_name = map;
     g_max_players = max_players;
