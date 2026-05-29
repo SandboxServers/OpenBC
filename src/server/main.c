@@ -883,8 +883,42 @@ int main(int argc, char **argv)
                     bc_cloak_tick(&p->ship, /* cloak_efficiency */ clk_eff,
                                  /* dt */ dt);
 
-                    /* Repair */
-                    bc_repair_tick(&p->ship, cls, dt);
+                    /* Repair.
+                     * Queue transitions (subsystem fully repaired, or destroyed
+                     * while queued) must be announced to clients so their
+                     * Engineering panel state stays in sync. Stock emits these
+                     * as PythonEvent (0x06) to all peers, reliably:
+                     *   - REPAIR_COMPLETED (0x00800074): factory 0x0101 TGEvent
+                     *   - REPAIR_CANNOT_BE_COMPLETED (0x00800075): factory 0x010C
+                     *     TGObjPtrEvent (carries the subsystem obj_ptr).
+                     * Host-only: only the simulating server emits these. */
+                    {
+                        bc_repair_event_t rq_evts[BC_MAX_SUBSYSTEMS];
+                        int rq_count = 0;
+                        bc_repair_tick(&p->ship, cls, dt,
+                                       rq_evts, BC_MAX_SUBSYSTEMS, &rq_count);
+                        for (int e = 0; e < rq_count; e++) {
+                            int ss_idx = rq_evts[e].subsys_index;
+                            if (ss_idx < 0 || ss_idx >= BC_MAX_SUBSYSTEMS) continue;
+                            i32 ss_obj = p->ship.subsys_obj_id[ss_idx];
+                            i32 repair_obj = p->ship.repair_subsys_obj_id;
+                            if (rq_evts[e].kind == BC_REPAIR_EVT_COMPLETED) {
+                                u8 evt[17];
+                                int len = bc_build_python_subsystem_event(
+                                    evt, sizeof(evt),
+                                    BC_EVENT_REPAIR_COMPLETED,
+                                    repair_obj, ss_obj);
+                                if (len > 0) bc_send_to_all(evt, len, true);
+                            } else { /* BC_REPAIR_EVT_CANNOT */
+                                u8 evt[21];
+                                int len = bc_build_python_obj_ptr_event(
+                                    evt, sizeof(evt),
+                                    BC_EVENT_REPAIR_CANNOT,
+                                    repair_obj, ss_obj, ss_obj);
+                                if (len > 0) bc_send_to_all(evt, len, true);
+                            }
+                        }
+                    }
                     bc_repair_auto_queue(&p->ship, cls);
 
                     /* Tractor beam physics: drag target if engaged */

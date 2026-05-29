@@ -805,10 +805,25 @@ void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx)
  * per_sub = raw_repair / active
  * condition_gain = per_sub / repair_complexity
  * Multiple subsystems repaired simultaneously; destroyed (0 HP) skipped. */
+/* Append a repair-queue transition to the caller's output array (if any). */
+static void push_repair_event(bc_repair_event_t *out_events, int out_cap,
+                              int *out_count, u8 ss_idx, u8 kind)
+{
+    if (!out_events || !out_count) return;
+    if (*out_count >= out_cap) return;
+    out_events[*out_count].subsys_index = ss_idx;
+    out_events[*out_count].kind = kind;
+    (*out_count)++;
+}
+
 void bc_repair_tick(bc_ship_state_t *ship,
                     const bc_ship_class_t *cls,
-                    f32 dt)
+                    f32 dt,
+                    bc_repair_event_t *out_events, int out_cap,
+                    int *out_count)
 {
+    if (out_count) *out_count = 0;
+
     if (!ship->alive || dt <= 0.0f) return;
     if (ship->repair_count == 0) return;
     if (cls->max_repair_points <= 0.0f || cls->num_repair_teams <= 0) return;
@@ -835,13 +850,22 @@ void bc_repair_tick(bc_ship_state_t *ship,
     f32 per_sub = raw_repair / (f32)active;
 
     /* Process the first 'active' queue entries */
-    int repaired = 0;
+    int dequeued = 0;
     for (int q = 0; q < active && q < ship->repair_count; q++) {
         u8 ss_idx = ship->repair_queue[q];
         if (ss_idx >= (u8)cls->subsystem_count) continue;
 
-        /* Skip destroyed subsystems (0 HP) but keep in queue */
-        if (ship->subsystem_hp[ss_idx] <= 0.0f) continue;
+        /* Destroyed-while-queued: a subsystem can drop to 0 HP after it was
+         * queued (taking further damage while awaiting repair). Stock emits
+         * REPAIR_CANNOT_BE_COMPLETED and drops the entry -- it cannot be
+         * repaired from destroyed. Previously this was a silent skip. */
+        if (ship->subsystem_hp[ss_idx] <= 0.0f) {
+            push_repair_event(out_events, out_cap, out_count,
+                              ss_idx, BC_REPAIR_EVT_CANNOT);
+            ship->repair_queue[q] = 0xFF; /* mark for removal */
+            dequeued++;
+            continue;
+        }
 
         f32 complexity = cls->subsystems[ss_idx].repair_complexity;
         if (complexity <= 0.0f) complexity = 1.0f;
@@ -851,14 +875,16 @@ void bc_repair_tick(bc_ship_state_t *ship,
         ship->subsystem_hp[ss_idx] += gain;
         if (ship->subsystem_hp[ss_idx] >= max_hp) {
             ship->subsystem_hp[ss_idx] = max_hp;
+            push_repair_event(out_events, out_cap, out_count,
+                              ss_idx, BC_REPAIR_EVT_COMPLETED);
             /* Mark for removal (defer to avoid modifying while iterating) */
             ship->repair_queue[q] = 0xFF; /* sentinel */
-            repaired++;
+            dequeued++;
         }
     }
 
-    /* Remove fully repaired entries (marked 0xFF) */
-    if (repaired > 0) {
+    /* Remove completed / abandoned entries (marked 0xFF) */
+    if (dequeued > 0) {
         int w = 0;
         for (int r = 0; r < ship->repair_count; r++) {
             if (ship->repair_queue[r] != 0xFF) {

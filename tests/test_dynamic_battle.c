@@ -285,7 +285,7 @@ static void ai_update(int idx, f32 dt)
 
         /* Try to repair while evading */
         bc_repair_auto_queue(&p->ship, p->cls);
-        bc_repair_tick(&p->ship, p->cls, dt);
+        bc_repair_tick(&p->ship, p->cls, dt, NULL, 0, NULL);
         if (p->ship.repair_count > 0) g_total_repairs++;
 
         /* Return to combat when shields recover */
@@ -297,7 +297,7 @@ static void ai_update(int idx, f32 dt)
 
     case AI_REPAIR:
         bc_repair_auto_queue(&p->ship, p->cls);
-        bc_repair_tick(&p->ship, p->cls, dt);
+        bc_repair_tick(&p->ship, p->cls, dt, NULL, 0, NULL);
         if (p->ship.repair_count > 0) g_total_repairs++;
 
         if (p->engage_timer > 5.0f || p->ship.repair_count == 0) {

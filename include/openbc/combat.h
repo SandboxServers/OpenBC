@@ -185,14 +185,34 @@ bool bc_repair_add(bc_ship_state_t *ship, u8 subsys_idx);
 /* Remove a subsystem from the repair queue. */
 void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx);
 
+/* Repair-tick outcome kinds reported via bc_repair_tick()'s out-parameter.
+ * The simulation layer is network-agnostic; the server translates these into
+ * the matching PythonEvent (0x06) wire emissions (REPAIR_COMPLETED /
+ * REPAIR_CANNOT_BE_COMPLETED). */
+#define BC_REPAIR_EVT_COMPLETED  0  /* subsystem reached max condition */
+#define BC_REPAIR_EVT_CANNOT     1  /* subsystem destroyed (0 HP) while queued */
+
+typedef struct {
+    u8  subsys_index;  /* flat subsystem index (into ship->subsystem_hp[]) */
+    u8  kind;          /* BC_REPAIR_EVT_COMPLETED or BC_REPAIR_EVT_CANNOT */
+} bc_repair_event_t;
+
 /* Tick repair: heal up to num_repair_teams subsystems simultaneously.
  * raw_repair = max_repair_points * repair_system_health_pct * dt
  * per_sub = raw_repair / min(queue_count, num_repair_teams)
  * condition_gain = per_sub / repair_complexity
- * Destroyed subsystems (0 HP) are skipped but remain in queue. */
+ *
+ * Queue transitions are reported through the optional out_events array (caller
+ * supplies storage, capacity = out_cap). *out_count is set to the number of
+ * events written (0..out_cap). When a queued subsystem reaches max condition a
+ * BC_REPAIR_EVT_COMPLETED entry is emitted and the entry is removed; when a
+ * queued subsystem is found at 0 HP a BC_REPAIR_EVT_CANNOT entry is emitted and
+ * the entry is removed. Pass out_events=NULL / out_count=NULL to ignore. */
 void bc_repair_tick(bc_ship_state_t *ship,
                     const bc_ship_class_t *cls,
-                    f32 dt);
+                    f32 dt,
+                    bc_repair_event_t *out_events, int out_cap,
+                    int *out_count);
 
 /* Auto-queue any subsystem below its disabled threshold. */
 void bc_repair_auto_queue(bc_ship_state_t *ship,
