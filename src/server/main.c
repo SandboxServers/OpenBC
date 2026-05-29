@@ -967,10 +967,14 @@ int main(int argc, char **argv)
                             mixed_rmt, sizeof(mixed_rmt));
                     }
 
-                    /* Advance cursor using the owner version (smaller budget,
-                     * may cover fewer entries -- that's fine, the remote
-                     * version just sends more data this tick). */
-                    if (hlen_own > 0)
+                    /* Advance the shared cursor by the lane covering the FEWER entries.
+                     * The remote (power-bearing) packet adds a pct byte per Powered entry,
+                     * so it exhausts the 10-byte budget sooner and covers <= the owner lane.
+                     * Advancing by the owner cursor would skip the [rmt_next, next_idx) band
+                     * on remote lanes every tick, permanently starving remote observers. */
+                    if (hlen_rmt > 0)
+                        p->subsys_rr_idx = rmt_next;
+                    else if (hlen_own > 0)
                         p->subsys_rr_idx = next_idx;
 
                     /* Send appropriate version to each client */

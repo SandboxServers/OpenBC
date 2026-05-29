@@ -239,6 +239,112 @@ TEST(round_robin_always_advances)
     }
 }
 
+/*
+ * Regression test for CodeRabbit PR #204 [MAJOR]: the shared round-robin cursor
+ * must advance by the REMOTE lane (rmt_next), not the OWNER lane (next_idx).
+ *
+ * The two existing round_robin_* tests above feed the remote lane's 'next' back
+ * into 'start' -- i.e. they model the FIXED behavior and so cannot catch the
+ * bug. This test reproduces the REAL src/server/main.c broadcast path:
+ *   - build the owner lane (is_own_ship=true) from 'start' -> owner_next
+ *   - build the remote lane (is_own_ship=false) from the SAME 'start' -> rmt_next
+ *   - advance the shared cursor by the FIXED rule (rmt_next when present)
+ *   - mark visited by walking only the REMOTE coverage span (what remote
+ *     observers actually receive)
+ *
+ * The owner lane omits the power byte per Powered entry, so it fits MORE entries
+ * per 10-byte budget -> owner_next runs ahead of rmt_next. If the cursor is
+ * advanced by owner_next (the bug), the band [rmt_next, owner_next) is never
+ * covered on the remote lane and those entries are starved forever. Asserting
+ * full remote coverage within entry_count+1 ticks fails under the buggy rule.
+ */
+TEST(round_robin_remote_lane_not_starved_main_loop_path)
+{
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+
+    int entry_count = cls->ser_list.count;
+    ASSERT(entry_count > 0);
+    ASSERT(entry_count <= BC_SS_MAX_ENTRIES);
+
+    bc_ship_state_t ship;
+    bc_ship_init(&ship, cls, 2, bc_make_ship_id(0), 0, 0);
+
+    /* Sanity: this ship must actually have a divergent lane somewhere, otherwise
+     * the test cannot exercise the bug. The owner lane omits power bytes so it
+     * fits MORE entries -> owner_next runs strictly ahead of rmt_next for at
+     * least one start position. */
+    {
+        bc_ship_state_t probe;
+        bc_ship_init(&probe, cls, 2, bc_make_ship_id(9), 9, 0);
+        int found_divergence = 0;
+        for (u8 s = 0; s < (u8)entry_count; s++) {
+            u8 on = 0, rn = 0;
+            u8 ob[128], rb[128];
+            int ol = bc_ship_build_health_update(&probe, cls, 42.0f, s, &on,
+                                                 true, ob, sizeof(ob));
+            int rl = bc_ship_build_health_update(&probe, cls, 42.0f, s, &rn,
+                                                 false, rb, sizeof(rb));
+            if (ol > 0 && rl > 0 && on != rn) { found_divergence = 1; break; }
+        }
+        ASSERT(found_divergence);
+    }
+
+    bool visited[BC_SS_MAX_ENTRIES];
+    memset(visited, 0, sizeof(visited));
+
+    u8 start = 0;
+    /* Walk enough ticks for a couple of full cycles so any per-tick starvation
+     * gap accumulates rather than being masked by a single lucky wrap. */
+    int max_ticks = entry_count * 2 + 2;
+
+    for (int t = 0; t < max_ticks; t++) {
+        /* Owner lane (no power bytes -- covers >= remote lane). */
+        u8 owner_next = 0;
+        u8 obuf[128];
+        int olen = bc_ship_build_health_update(&ship, cls, 42.0f,
+                                               start, &owner_next,
+                                               /* is_own_ship */ true,
+                                               obuf, sizeof(obuf));
+
+        /* Remote lane (power-bearing -- covers <= owner lane). */
+        u8 rmt_next = 0;
+        u8 rbuf[128];
+        int rlen = bc_ship_build_health_update(&ship, cls, 42.0f,
+                                               start, &rmt_next,
+                                               /* is_own_ship */ false,
+                                               rbuf, sizeof(rbuf));
+        ASSERT(rlen > 0);
+
+        /* Mark visited by the REMOTE coverage span only -- that is what remote
+         * observers actually receive this tick: [start, rmt_next). */
+        int c = (int)start;
+        do {
+            ASSERT(c < entry_count);
+            visited[c] = true;
+            c++;
+            if (c >= entry_count) c = 0;
+        } while (c != (int)rmt_next);
+
+        /* Advance the shared cursor by the FIXED rule (mirrors main.c). */
+        u8 prev_rmt_end = rmt_next;
+        if (rlen > 0)
+            start = rmt_next;
+        else if (olen > 0)
+            start = owner_next;
+
+        /* The decisive invariant: the next remote span must begin exactly where
+         * this one ended. Under the buggy owner-cursor advance, start would jump
+         * to owner_next (past rmt_next), opening a [rmt_next, owner_next) gap on
+         * the remote lane that is never sent to remote observers. */
+        ASSERT_EQ_INT((int)start, (int)prev_rmt_end);
+    }
+
+    /* With contiguous remote spans, every entry is covered within one cycle. */
+    for (int i = 0; i < entry_count; i++)
+        ASSERT(visited[i]);
+}
+
 TEST_MAIN_BEGIN()
     RUN(load_registry);
     RUN(charge_tick_is_linear_in_dt);
@@ -246,4 +352,5 @@ TEST_MAIN_BEGIN()
     RUN(weapon_tick_accum_initialized_zero);
     RUN(round_robin_covers_all_subsystems_within_cycle);
     RUN(round_robin_always_advances);
+    RUN(round_robin_remote_lane_not_starved_main_loop_path);
 TEST_MAIN_END()

@@ -202,6 +202,7 @@ int bc_ship_apply_remote_power_state(const u8 *state_update,
         cursor = 0;
 
     int updated = 0;
+    int start_cursor = cursor;
 
     /* Stream-exhaustion bounded (matches stock receiver Ship__ReadStateUpdate
      * 0x005B21C0): there is NO count field on the wire.  Walk start_idx hops
@@ -254,6 +255,10 @@ int bc_ship_apply_remote_power_state(const u8 *state_update,
 
         cursor++;
         if (cursor >= sl->count) cursor = 0;
+        /* One full round-robin pass only: ignore any trailing bytes after we
+         * wrap back to the starting cursor so malformed input can't re-overwrite
+         * subsystems on a second cycle. */
+        if (cursor == start_cursor) break;
     }
 
     return updated;

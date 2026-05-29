@@ -13,7 +13,7 @@
  * torpedo reload ~10x faster than stock (~30 Hz main loop). The simulation
  * loop accumulates dt and steps the charge/cooldown ticks at this interval,
  * mirroring the power-system 1 Hz gate (bc_ship_power_tick). */
-#define BC_WEAPON_TICK_INTERVAL  0.33f
+#define BC_WEAPON_TICK_INTERVAL  (1.0f / 3.0f)  /* exactly 3 Hz (stock WeaponSystem cadence) */
 
 /* Tick phaser/pulse weapon charge (recharge toward max_charge).
  * power_level: 0.0-1.0, affects recharge rate. */
