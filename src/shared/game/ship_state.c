@@ -20,6 +20,12 @@ void bc_ship_init(bc_ship_state_t *ship,
     ship->tractor_target_id = -1;
     ship->tractor_drag = 1.0f;
 
+    /* Spawn decloaked with shields active. shield_delay_timer = 0 (no pending
+     * change), so bc_cloak_shields_active() returns shield_active_now. */
+    ship->shield_active_now = 1;
+    ship->shield_delay_pending = 1;
+    ship->shield_delay_timer = 0.0f;
+
     /* Full HP */
     ship->hull_hp = cls->hull_hp;
     for (int i = 0; i < BC_MAX_SHIELD_FACINGS; i++) {

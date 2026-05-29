@@ -120,6 +120,58 @@ bool bc_master_add(bc_master_list_t *ml, const char *host_port, u16 game_port)
     return true;
 }
 
+int bc_master_parse_txt(const char *path,
+                        char out[][128], int max_out)
+{
+    if (!path || !out || max_out <= 0) return -1;
+
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+
+    int count = 0;
+    char line[256];
+    while (count < max_out && fgets(line, sizeof(line), f)) {
+        size_t len = strlen(line);
+
+        /* If the line was longer than the buffer, fgets stopped mid-line with
+         * no newline. Drain the remainder of the over-long line and skip it
+         * entirely, rather than parse a truncated head plus a bogus tail entry. */
+        if (len > 0 && line[len - 1] != '\n' && !feof(f)) {
+            int ch;
+            while ((ch = fgetc(f)) != '\n' && ch != EOF) { }
+            continue;
+        }
+
+        /* Strip trailing newline / carriage return. */
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+
+        /* Skip leading whitespace. */
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+
+        /* Skip comments and blank lines. */
+        if (*p == '#' || *p == '\0') continue;
+
+        /* Strip an inline trailing comment ("host:port  # note"). */
+        char *hash = strchr(p, '#');
+        if (hash) *hash = '\0';
+
+        /* Trim trailing whitespace from the entry. */
+        size_t plen = strlen(p);
+        while (plen > 0 && (p[plen - 1] == ' ' || p[plen - 1] == '\t'))
+            p[--plen] = '\0';
+
+        if (plen == 0) continue;  /* whitespace-only after comment strip */
+
+        snprintf(out[count], 128, "%s", p);
+        count++;
+    }
+
+    fclose(f);
+    return count;
+}
+
 int bc_master_init_defaults(bc_master_list_t *ml, u16 game_port)
 {
     memset(ml, 0, sizeof(*ml));

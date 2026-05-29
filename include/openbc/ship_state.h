@@ -45,6 +45,16 @@ typedef struct {
     u8         cloak_state;
     f32        cloak_timer;
 
+    /* Shield-delay window during cloak transitions (Issue #192).
+     * Stock defers the shield-active state change by ShieldDelay (1.0s) on both
+     * cloak-begin and decloak-complete, producing a 1s vulnerability window on
+     * cloak-up and a 1s grace window on decloak. Implemented as a countdown:
+     * while shield_delay_timer > 0 the shield-active state is FROZEN at
+     * shield_active_now; when it reaches 0 the pending state takes effect. */
+    f32        shield_delay_timer;     /* seconds remaining; 0 = no pending change */
+    u8         shield_delay_pending;   /* shield-active state to apply when timer expires */
+    u8         shield_active_now;      /* current (effective) shield-active state */
+
     /* Weapons */
     f32        phaser_charge[BC_MAX_PHASER_BANKS];
     f32        torpedo_cooldown[BC_MAX_TORPEDO_TUBES];

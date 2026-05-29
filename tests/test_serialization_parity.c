@@ -14,10 +14,13 @@
  */
 #include "test_util.h"
 #include "openbc/ship_data.h"
+#include "openbc/json_parse.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define REGISTRY_DIR  "data/vanilla-1.1"
+#define SHIPS_DIR     REGISTRY_DIR "/ships"
 
 static bc_game_registry_t g_reg;
 
@@ -271,6 +274,165 @@ TEST(oversized_tree_never_emits_oob_hp_index)
     }
 }
 
+/* === Registry-wide regression guards (cover ALL loaded ships) ===
+ *
+ * The EXPECTED[] table above keys off species_id and only enumerates the 15
+ * combat ships.  The two tests below instead iterate the FULL loaded registry
+ * (every ship folder in the manifest, including non-combat hulls such as the
+ * Cardassian freighter) so a newly added or re-authored ship cannot slip past
+ * the parity checks.  They are the per-ship guards required by #205's
+ * verification item: confirm the flattened order is sane for every ship, not
+ * just galaxy. */
+
+/* Independently recompute the expected FLATTENED top-level entry count straight
+ * from a ship's serialization.json authoring tree: one entry per parent plus
+ * one per child mount.  This is the count the loader MUST produce after
+ * promoting every weapon mount / nacelle to its own top-level entry.  If a
+ * future change regressed to nesting (children left under a parent), the loader
+ * count would drop below this value and the test would fail. */
+static int authored_flat_count(const char *ship_folder)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s/serialization.json", SHIPS_DIR, ship_folder);
+
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { fclose(f); return -1; }
+    char *buf = (char *)malloc((size_t)sz + 1);
+    if (!buf) { fclose(f); return -1; }
+    size_t rd = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[rd] = '\0';
+
+    json_value_t *arr = json_parse(buf);
+    free(buf);
+    if (!arr || arr->type != JSON_ARRAY) { json_free(arr); return -1; }
+
+    int total = 0;
+    size_t n = json_array_len(arr);
+    for (size_t i = 0; i < n; i++) {
+        const json_value_t *e = json_array_get(arr, i);
+        total += 1; /* the parent entry itself */
+        const json_value_t *children = json_get(e, "children");
+        if (children && children->type == JSON_ARRAY)
+            total += (int)json_array_len(children); /* each mount -> own entry */
+    }
+    json_free(arr);
+    return total;
+}
+
+/* The manifest folder list, matched 1:1 to load order so authored_flat_count()
+ * can be cross-checked against the corresponding loaded ship class. */
+static const char *const SHIP_FOLDERS[] = {
+    "akira", "ambassador", "galaxy", "nebula", "sovereign", "birdofprey",
+    "vorcha", "warbird", "marauder", "galor", "keldon", "cardhybrid",
+    "kessokheavy", "kessoklight", "shuttle", "cardfreighter",
+};
+#define SHIP_FOLDER_COUNT (int)(sizeof(SHIP_FOLDERS) / sizeof(SHIP_FOLDERS[0]))
+
+TEST(all_ships_hp_index_in_range)
+{
+    /* Core OOB guard: for EVERY loaded ship, no flattened entry may carry an
+     * hp_index outside the addressable HP-slot range.  subsystem_hp[] has
+     * exactly BC_MAX_SUBSYSTEMS slots; synthetic containers legitimately use
+     * slots in [subsystem_count, total_hp_slots).  An out-of-range hp_index
+     * would corrupt unrelated memory at StateUpdate time. */
+    ASSERT(g_reg.ship_count > 0);
+    for (int i = 0; i < g_reg.ship_count; i++) {
+        const bc_ship_class_t *cls = bc_registry_get_ship(&g_reg, i);
+        ASSERT(cls != NULL);
+        const bc_ss_list_t *sl = &cls->ser_list;
+
+        ASSERT(sl->count <= BC_SS_MAX_ENTRIES);
+        ASSERT(sl->total_hp_slots <= BC_MAX_SUBSYSTEMS);
+
+        for (int j = 0; j < sl->count; j++) {
+            int hp = sl->entries[j].hp_index;
+            if (hp < 0 || hp >= sl->total_hp_slots || hp >= BC_MAX_SUBSYSTEMS) {
+                printf("FAIL\n    ship '%s' entry %d: hp_index=%d "
+                       "(total_hp_slots=%d, max=%d)\n",
+                       cls->name, j, hp, sl->total_hp_slots, BC_MAX_SUBSYSTEMS);
+                test_fail++; test_pass--;
+                return;
+            }
+            /* The runtime list is flat: children must already be promoted. */
+            ASSERT_EQ_INT(sl->entries[j].child_count, 0);
+        }
+    }
+}
+
+TEST(flat_count_matches_authored_tree)
+{
+    /* For every ship folder, the loader's flattened entry count must equal the
+     * authored (parents + mounts) count.  A regression to nesting would make
+     * the loaded count smaller than the authored count -- caught here without
+     * relying on the hand-maintained EXPECTED[] table. */
+    ASSERT_EQ_INT(g_reg.ship_count, SHIP_FOLDER_COUNT);
+    for (int i = 0; i < SHIP_FOLDER_COUNT; i++) {
+        const bc_ship_class_t *cls = bc_registry_get_ship(&g_reg, i);
+        ASSERT(cls != NULL);
+
+        int authored = authored_flat_count(SHIP_FOLDERS[i]);
+        ASSERT(authored > 0);
+
+        if (cls->ser_list.count != authored) {
+            printf("FAIL\n    ship '%s' (folder '%s'): loaded flat count=%d, "
+                   "authored flat count=%d\n",
+                   cls->name, SHIP_FOLDERS[i], cls->ser_list.count, authored);
+            test_fail++; test_pass--;
+            return;
+        }
+    }
+}
+
+/* flat_count_matches_authored_tree pairs registry index i with SHIP_FOLDERS[i],
+ * which only holds if the registry loads ships in SHIP_FOLDERS order. That order
+ * comes from the manifest, so verify SHIP_FOLDERS matches the manifest's ship
+ * enumeration exactly -- if the manifest is reordered, fail loudly here instead
+ * of silently comparing mismatched ship/folder pairs downstream. */
+TEST(ship_folders_match_manifest_order)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/manifest.json", REGISTRY_DIR);
+
+    FILE *f = fopen(path, "rb");
+    ASSERT(f != NULL);
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    ASSERT(sz > 0);
+    char *buf = (char *)malloc((size_t)sz + 1);
+    ASSERT(buf != NULL);
+    size_t rd = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[rd] = '\0';
+
+    json_value_t *root = json_parse(buf);
+    free(buf);
+    ASSERT(root != NULL);
+
+    const json_value_t *ships = json_get(root, "ships");
+    ASSERT(ships != NULL && ships->type == JSON_ARRAY);
+    ASSERT((int)json_array_len(ships) == SHIP_FOLDER_COUNT);
+
+    for (int i = 0; i < SHIP_FOLDER_COUNT; i++) {
+        const json_value_t *e = json_array_get(ships, (size_t)i);
+        ASSERT(e != NULL && e->type == JSON_STRING);
+        const char *folder = json_string(e);
+        if (!folder || strcmp(folder, SHIP_FOLDERS[i]) != 0) {
+            printf("FAIL\n    manifest ship[%d]='%s' != SHIP_FOLDERS[%d]='%s'\n",
+                   i, folder ? folder : "(null)", i, SHIP_FOLDERS[i]);
+            test_fail++; test_pass--;
+            json_free(root);
+            return;
+        }
+    }
+    json_free(root);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -283,4 +445,7 @@ TEST_MAIN_BEGIN()
     RUN(start_idx_reaches_weapon_indices);
     RUN(reactor_entry_format_is_power);
     RUN(oversized_tree_never_emits_oob_hp_index);
+    RUN(all_ships_hp_index_in_range);
+    RUN(flat_count_matches_authored_tree);
+    RUN(ship_folders_match_manifest_order);
 TEST_MAIN_END()

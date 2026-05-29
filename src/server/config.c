@@ -162,6 +162,21 @@ static void process_game_section(toml_table_t *root, obc_server_cfg_t *cfg)
     value = toml_table_bool(game, "friendly_fire");
     if (value.ok) cfg->friendly_fire = value.u.b;
 
+    value = toml_table_string(game, "friendly_fire_mode");
+    if (value.ok) {
+        str_copy(cfg->friendly_fire_mode, sizeof(cfg->friendly_fire_mode),
+                 value.u.s);
+        free(value.u.s);
+    }
+
+    value = toml_table_double(game, "friendly_fire_tolerance");
+    if (value.ok && !isnan(value.u.d) && !isinf(value.u.d))
+        cfg->friendly_fire_tolerance = value.u.d;
+
+    value = toml_table_double(game, "friendly_fire_warning_points");
+    if (value.ok && !isnan(value.u.d) && !isinf(value.u.d))
+        cfg->friendly_fire_warning_points = value.u.d;
+
     value = toml_table_int(game, "difficulty");
     if (value.ok) {
         int parsed_difficulty = 0;
@@ -397,6 +412,10 @@ void obc_config_defaults(obc_server_cfg_t *cfg)
     cfg->frag_limit       = -1;
     cfg->collision_damage = true;
     cfg->friendly_fire    = false;
+    str_copy(cfg->friendly_fire_mode, sizeof(cfg->friendly_fire_mode),
+             "permissive");
+    cfg->friendly_fire_tolerance      = 1000.0;
+    cfg->friendly_fire_warning_points = 100.0;  /* stock default */
     cfg->difficulty       = 1;
     cfg->respawn_time     = 10;
 

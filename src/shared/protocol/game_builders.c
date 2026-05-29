@@ -379,3 +379,27 @@ int bc_build_event_forward(u8 *buf, int buf_size,
 
     return total;
 }
+
+int bc_build_new_peer_connected(u8 *buf, int buf_size, u8 wire_peer_id)
+{
+    /* Connect-event broadcast (mechanism #3): rides the DeletePlayerUI (0x17)
+     * event transport carrying ET_NEW_PEER_CONNECTED (0x00060007).
+     * Wire format (18 bytes):
+     *   [0x17]                 opcode
+     *   [factory=0x866:i32]    base event factory class ID (LE)
+     *   [event=0x00060007:i32] ET_NEW_PEER_CONNECTED (LE)
+     *   [src=0:i32]            no source object at transport connect time
+     *   [tgt=0:i32]            no target object at transport connect time
+     *   [wire_peer_id:u8]      new peer's 1-based wire/network ID */
+    bc_buffer_t b;
+    bc_buf_init(&b, buf, (size_t)buf_size);
+
+    if (!bc_buf_write_u8(&b, BC_OP_DELETE_PLAYER_UI)) return -1;
+    if (!bc_buf_write_i32(&b, (i32)BC_FACTORY_DELETE_PLAYER_UI)) return -1;
+    if (!bc_buf_write_i32(&b, (i32)BC_EVENT_NEW_PEER_CONNECTED)) return -1;
+    if (!bc_buf_write_i32(&b, 0)) return -1;
+    if (!bc_buf_write_i32(&b, 0)) return -1;
+    if (!bc_buf_write_u8(&b, wire_peer_id)) return -1;
+
+    return (int)b.pos;
+}

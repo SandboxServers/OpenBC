@@ -1,6 +1,7 @@
 #include "openbc/game_events.h"
 #include "openbc/buffer.h"
 #include "openbc/opcodes.h"
+#include "openbc/game_builders.h"
 #include <string.h>
 
 /*
@@ -480,6 +481,47 @@ bool bc_parse_delete_player_anim(const u8 *payload, int len,
     }
     out->player_name[copy_len] = '\0';
     out->name_len = copy_len;
+
+    return true;
+}
+
+/*
+ * ObjectExplodingEvent (PythonEvent 0x06, factory 0x8129)
+ *
+ * Wire format:
+ *   [0x06][factory:i32=0x8129][event_type:i32=0x4E]
+ *   [source_obj:i32][dest_obj:i32][killer_id:i32][lifetime:f32]
+ * 25 bytes total.
+ *
+ * Returns false (without error) for any PythonEvent whose factory ID is not
+ * the exploding-event factory, so a caller can pass every inbound 0x06 payload
+ * here as a cheap discriminator.
+ */
+bool bc_parse_python_exploding_event(const u8 *payload, int len,
+                                     bc_exploding_event_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    bc_buffer_t buf;
+    bc_buf_init(&buf, (u8 *)payload, (size_t)len);
+
+    u8 opcode;
+    if (!bc_buf_read_u8(&buf, &opcode)) return false;
+    if (opcode != BC_OP_PYTHON_EVENT) return false;
+
+    i32 factory;
+    if (!bc_buf_read_i32(&buf, &factory)) return false;
+    if (factory != BC_FACTORY_OBJECT_EXPLODING) return false;
+
+    i32 event_type;
+    if (!bc_buf_read_i32(&buf, &event_type)) return false;
+    /* event_type is expected to be BC_EVENT_OBJECT_EXPLODING, but we do not
+     * reject other values: the factory ID alone identifies the kill signal. */
+
+    if (!bc_buf_read_i32(&buf, &out->source_object_id)) return false;
+    if (!bc_buf_read_i32(&buf, &out->dest_object_id)) return false;
+    if (!bc_buf_read_i32(&buf, &out->killer_id)) return false;
+    if (!bc_buf_read_f32(&buf, &out->lifetime)) return false;
 
     return true;
 }

@@ -1,5 +1,6 @@
 #include "test_util.h"
 #include "openbc/game_events.h"
+#include "openbc/game_builders.h"
 #include "openbc/handshake.h"
 #include "openbc/buffer.h"
 #include "openbc/opcodes.h"
@@ -451,6 +452,110 @@ TEST(delete_player_anim_roundtrip)
     ASSERT(strcmp(ev.player_name, "TestPlayer") == 0);
 }
 
+/* === ObjectExplodingEvent parser (kill signal, PythonEvent factory 0x8129) === */
+
+TEST(exploding_event_weapon_kill)
+{
+    /* Killer (slot 0 ship) destroys victim (slot 1 ship). */
+    i32 killer_id = bc_make_ship_id(0);
+    i32 victim_id = bc_make_ship_id(1);
+
+    u8 wire[64];
+    int wire_len = bc_build_python_exploding_event(wire, sizeof(wire),
+                                                   killer_id, victim_id,
+                                                   killer_id, 9.5f);
+    ASSERT(wire_len == 25);
+
+    bc_exploding_event_t ev;
+    ASSERT(bc_parse_python_exploding_event(wire, wire_len, &ev));
+    ASSERT_EQ((u32)ev.source_object_id, (u32)killer_id);
+    ASSERT_EQ((u32)ev.dest_object_id, (u32)victim_id);
+    ASSERT_EQ((u32)ev.killer_id, (u32)killer_id);
+    ASSERT(ev.lifetime > 9.49f && ev.lifetime < 9.51f);
+}
+
+TEST(exploding_event_self_destruct)
+{
+    /* Self-destruct: no killer (source/killer = 0). */
+    i32 victim_id = bc_make_ship_id(2);
+
+    u8 wire[64];
+    int wire_len = bc_build_python_exploding_event(wire, sizeof(wire),
+                                                   0, victim_id, 0, 9.5f);
+    ASSERT(wire_len == 25);
+
+    bc_exploding_event_t ev;
+    ASSERT(bc_parse_python_exploding_event(wire, wire_len, &ev));
+    ASSERT_EQ_INT(ev.source_object_id, 0);
+    ASSERT_EQ((u32)ev.dest_object_id, (u32)victim_id);
+    ASSERT_EQ_INT(ev.killer_id, 0);
+}
+
+TEST(exploding_event_rejects_other_factory)
+{
+    /* A non-exploding PythonEvent (e.g. a subsystem event, factory 0x101)
+     * must be rejected so callers can use the parser as a discriminator. */
+    u8 wire[64];
+    int wire_len = bc_build_python_subsystem_event(wire, sizeof(wire),
+                                                   BC_EVENT_ADD_TO_REPAIR,
+                                                   bc_make_ship_id(0),
+                                                   bc_make_ship_id(1));
+    ASSERT(wire_len > 0);
+
+    bc_exploding_event_t ev;
+    ASSERT(!bc_parse_python_exploding_event(wire, wire_len, &ev));
+}
+
+TEST(exploding_event_rejects_wrong_opcode)
+{
+    /* Not a PythonEvent at all. */
+    u8 wire[8];
+    int wire_len = bc_build_destroy_obj(wire, sizeof(wire), bc_make_ship_id(0));
+    ASSERT(wire_len > 0);
+
+    bc_exploding_event_t ev;
+    ASSERT(!bc_parse_python_exploding_event(wire, wire_len, &ev));
+}
+
+TEST(exploding_event_truncated)
+{
+    i32 victim_id = bc_make_ship_id(1);
+    u8 wire[64];
+    int wire_len = bc_build_python_exploding_event(wire, sizeof(wire),
+                                                   bc_make_ship_id(0),
+                                                   victim_id,
+                                                   bc_make_ship_id(0), 9.5f);
+    ASSERT(wire_len == 25);
+
+    /* Drop the trailing lifetime float -> truncated. */
+    bc_exploding_event_t ev;
+    ASSERT(!bc_parse_python_exploding_event(wire, wire_len - 1, &ev));
+}
+
+TEST(exploding_event_permissive_type)
+{
+    /* The parser identifies the kill signal by factory ID alone and must NOT
+     * reject a non-0x4E event_type field. Build a valid event, overwrite the
+     * event_type (offset 5..8, after the opcode byte + factory i32) with a
+     * bogus value, and confirm it still parses with fields intact. */
+    i32 killer_id = bc_make_ship_id(0);
+    i32 victim_id = bc_make_ship_id(1);
+
+    u8 wire[64];
+    int wire_len = bc_build_python_exploding_event(wire, sizeof(wire),
+                                                   killer_id, victim_id,
+                                                   killer_id, 9.5f);
+    ASSERT(wire_len == 25);
+
+    wire[5] = 0x99; wire[6] = 0x99; wire[7] = 0x99; wire[8] = 0x99;
+
+    bc_exploding_event_t ev;
+    ASSERT(bc_parse_python_exploding_event(wire, wire_len, &ev));
+    ASSERT_EQ((u32)ev.source_object_id, (u32)killer_id);
+    ASSERT_EQ((u32)ev.dest_object_id, (u32)victim_id);
+    ASSERT_EQ((u32)ev.killer_id, (u32)killer_id);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -505,4 +610,12 @@ TEST_MAIN_BEGIN()
     RUN(delete_player_anim_wrong_opcode);
     RUN(delete_player_anim_too_short);
     RUN(delete_player_anim_roundtrip);
+
+    /* ObjectExplodingEvent (kill signal, PythonEvent factory 0x8129) */
+    RUN(exploding_event_weapon_kill);
+    RUN(exploding_event_self_destruct);
+    RUN(exploding_event_rejects_other_factory);
+    RUN(exploding_event_rejects_wrong_opcode);
+    RUN(exploding_event_truncated);
+    RUN(exploding_event_permissive_type);
 TEST_MAIN_END()

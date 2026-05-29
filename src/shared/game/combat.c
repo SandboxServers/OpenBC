@@ -419,7 +419,14 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
                            f32 power_level, f32 dt)
 {
     if (!ship->alive || dt <= 0.0f) return;
+    /* Issue #192: no shield recharge while cloaking/cloaked/decloaking. The
+     * cloak-up vulnerability window keeps shields UP for absorption (via
+     * bc_cloak_shields_active() in apply_damage) but they must NOT recharge
+     * once cloak is engaged. Recharge resumes only when the ship is fully
+     * decloaked AND the post-decloak grace timer has expired (shield_active_now
+     * back to true). */
     if (ship->cloak_state != BC_CLOAK_DECLOAKED) return;
+    if (!bc_cloak_shields_active(ship)) return;
 
     /* Special recovery path: if shield subsystem is destroyed/disabled,
      * recharge surviving facings using backup battery directly. */
@@ -577,9 +584,14 @@ bool bc_cloak_start(bc_ship_state_t *ship, const bc_ship_class_t *cls)
     ship->cloak_state = BC_CLOAK_CLOAKING;
     ship->cloak_timer = BC_CLOAK_TRANSITION_TIME;
 
-    /* Shield HP preserved — shields are functionally disabled via
-     * bc_cloak_shields_active() returning false, which causes
-     * apply_damage to skip absorption and shield_tick to skip recharge. */
+    /* Issue #192: defer the shield-disable by ShieldDelay (1.0s). Shields stay
+     * active for the first ~1.0s of cloak-up (vulnerability window). The
+     * effective shield-active state stays frozen at shield_active_now until the
+     * timer expires; the pending state (off) then takes effect.
+     * Shield HP is preserved — shields are only functionally disabled, never
+     * zeroed (bc_cloak_shields_active() drives apply_damage/shield_tick). */
+    ship->shield_delay_timer = BC_CLOAK_SHIELD_DELAY;
+    ship->shield_delay_pending = 0;  /* shields go OFF after the delay */
 
     return true;
 }
@@ -606,6 +618,12 @@ void bc_cloak_tick(bc_ship_state_t *ship, f32 cloak_efficiency, f32 dt)
         cloak_efficiency = 1.0f;
     }
 
+    /* Issue #192: snapshot whether the deferred shield-state timer was already
+     * running BEFORE this tick. A timer (re)armed by a transition below must NOT
+     * be counted down by the same dt that produced the transition — otherwise a
+     * single oversized dt could skip the entire ShieldDelay window. */
+    bool shield_timer_was_running = (ship->shield_delay_timer > 0.0f);
+
     switch (ship->cloak_state) {
     case BC_CLOAK_CLOAKING:
         ship->cloak_timer -= dt;
@@ -631,10 +649,27 @@ void bc_cloak_tick(bc_ship_state_t *ship, f32 cloak_efficiency, f32 dt)
                 if (ship->shield_hp[i] <= 0.0f)
                     ship->shield_hp[i] = 1.0f;
             }
+            /* Issue #192: defer the shield re-enable by ShieldDelay (1.0s).
+             * The ship is now fully visible but shields stay down for the first
+             * ~1.0s of visibility (grace window). */
+            ship->shield_delay_timer = BC_CLOAK_SHIELD_DELAY;
+            ship->shield_delay_pending = 1;  /* shields go ON after the delay */
         }
         break;
     default:
         break;
+    }
+
+    /* Issue #192: advance the deferred shield-state timer. While it is running
+     * the effective shield-active state stays frozen at shield_active_now;
+     * when it expires the pending state takes effect. Only advance a timer that
+     * was already running before this tick (see shield_timer_was_running). */
+    if (shield_timer_was_running && ship->shield_delay_timer > 0.0f) {
+        ship->shield_delay_timer -= dt;
+        if (ship->shield_delay_timer <= 0.0f) {
+            ship->shield_delay_timer = 0.0f;
+            ship->shield_active_now = ship->shield_delay_pending;
+        }
     }
 }
 
@@ -645,7 +680,14 @@ bool bc_cloak_can_fire(const bc_ship_state_t *ship)
 
 bool bc_cloak_shields_active(const bc_ship_state_t *ship)
 {
-    return ship->cloak_state == BC_CLOAK_DECLOAKED;
+    /* Issue #192: the shield-active state is driven by the deferred
+     * ShieldDelay timer, NOT directly by cloak_state. During the 1.0s window
+     * after a cloak transition the effective state is frozen at
+     * shield_active_now (the OLD state): shields stay up for the first ~1.0s of
+     * cloak-up (vulnerability window) and stay down for the first ~1.0s after
+     * decloak completes (grace window). bc_cloak_tick() flips shield_active_now
+     * to shield_delay_pending once the timer expires. */
+    return ship->shield_active_now != 0;
 }
 
 /* --- Tractor beams --- */
@@ -805,10 +847,25 @@ void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx)
  * per_sub = raw_repair / active
  * condition_gain = per_sub / repair_complexity
  * Multiple subsystems repaired simultaneously; destroyed (0 HP) skipped. */
+/* Append a repair-queue transition to the caller's output array (if any). */
+static void push_repair_event(bc_repair_event_t *out_events, int out_cap,
+                              int *out_count, u8 ss_idx, u8 kind)
+{
+    if (!out_events || !out_count) return;
+    if (*out_count >= out_cap) return;
+    out_events[*out_count].subsys_index = ss_idx;
+    out_events[*out_count].kind = kind;
+    (*out_count)++;
+}
+
 void bc_repair_tick(bc_ship_state_t *ship,
                     const bc_ship_class_t *cls,
-                    f32 dt)
+                    f32 dt,
+                    bc_repair_event_t *out_events, int out_cap,
+                    int *out_count)
 {
+    if (out_count) *out_count = 0;
+
     if (!ship->alive || dt <= 0.0f) return;
     if (ship->repair_count == 0) return;
     if (cls->max_repair_points <= 0.0f || cls->num_repair_teams <= 0) return;
@@ -835,13 +892,22 @@ void bc_repair_tick(bc_ship_state_t *ship,
     f32 per_sub = raw_repair / (f32)active;
 
     /* Process the first 'active' queue entries */
-    int repaired = 0;
+    int dequeued = 0;
     for (int q = 0; q < active && q < ship->repair_count; q++) {
         u8 ss_idx = ship->repair_queue[q];
         if (ss_idx >= (u8)cls->subsystem_count) continue;
 
-        /* Skip destroyed subsystems (0 HP) but keep in queue */
-        if (ship->subsystem_hp[ss_idx] <= 0.0f) continue;
+        /* Destroyed-while-queued: a subsystem can drop to 0 HP after it was
+         * queued (taking further damage while awaiting repair). Stock emits
+         * REPAIR_CANNOT_BE_COMPLETED and drops the entry -- it cannot be
+         * repaired from destroyed. Previously this was a silent skip. */
+        if (ship->subsystem_hp[ss_idx] <= 0.0f) {
+            push_repair_event(out_events, out_cap, out_count,
+                              ss_idx, BC_REPAIR_EVT_CANNOT);
+            ship->repair_queue[q] = 0xFF; /* mark for removal */
+            dequeued++;
+            continue;
+        }
 
         f32 complexity = cls->subsystems[ss_idx].repair_complexity;
         if (complexity <= 0.0f) complexity = 1.0f;
@@ -851,14 +917,16 @@ void bc_repair_tick(bc_ship_state_t *ship,
         ship->subsystem_hp[ss_idx] += gain;
         if (ship->subsystem_hp[ss_idx] >= max_hp) {
             ship->subsystem_hp[ss_idx] = max_hp;
+            push_repair_event(out_events, out_cap, out_count,
+                              ss_idx, BC_REPAIR_EVT_COMPLETED);
             /* Mark for removal (defer to avoid modifying while iterating) */
             ship->repair_queue[q] = 0xFF; /* sentinel */
-            repaired++;
+            dequeued++;
         }
     }
 
-    /* Remove fully repaired entries (marked 0xFF) */
-    if (repaired > 0) {
+    /* Remove completed / abandoned entries (marked 0xFF) */
+    if (dequeued > 0) {
         int w = 0;
         for (int r = 0; r < ship->repair_count; r++) {
             if (ship->repair_queue[r] != 0xFF) {
@@ -881,4 +949,35 @@ void bc_repair_auto_queue(bc_ship_state_t *ship,
             bc_repair_add(ship, (u8)i);
         }
     }
+}
+
+/* --- Friendly-fire tracking (Issue #203) ---
+ * Pure accumulation/decision step. Wire-protocol trace analysis of a stock
+ * dedicated server session shows the server maintains a cumulative friendly-
+ * fire damage accumulator with a warning threshold (typically 100 points) and
+ * an optional tolerance ceiling that ends the game (strict variants). This
+ * mirrors that three-value model with no I/O so it can be tested in isolation. */
+bc_ff_outcome_t bc_ff_step(bc_friendly_fire_t *ff, f32 damage_amount)
+{
+    bc_ff_outcome_t out = { false, false };
+    if (!ff) return out;
+    if (ff->mode == BC_FF_MODE_PERMISSIVE) return out;
+    if (!(damage_amount > 0.0f)) return out;  /* also rejects NaN */
+
+    ff->current += damage_amount;
+
+    /* One-shot warning when the accumulator first crosses warning_points. */
+    if (!ff->warned && ff->warning_points > 0.0f &&
+        ff->current >= ff->warning_points) {
+        ff->warned = true;
+        out.warned = true;
+    }
+
+    /* Tolerance ceiling ends the game only when the policy opts in. */
+    if (ff->game_over_on_threshold && ff->tolerance > 0.0f &&
+        ff->current >= ff->tolerance) {
+        out.game_over = true;
+    }
+
+    return out;
 }

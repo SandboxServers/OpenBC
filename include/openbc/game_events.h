@@ -154,4 +154,30 @@ typedef struct {
 bool bc_parse_delete_player_anim(const u8 *payload, int len,
                                   bc_delete_player_anim_event_t *out);
 
+/* ObjectExplodingEvent -- the canonical ship-death wire signal, carried as a
+ * PythonEvent (opcode 0x06).  A dying ship's client emits this on death; the
+ * host observes it to attribute the kill and broadcast SCORE_CHANGE (0x36).
+ *
+ * Wire: [0x06][factory:i32=0x8129][event_type:i32=0x4E]
+ *       [source_obj:i32][dest_obj:i32][killer_id:i32][lifetime:f32]
+ * 25 bytes total.
+ *
+ *   dest_obj   = the dying ship's object ID
+ *   source_obj = the killer's ship object ID, or 0 for self-destruct / env
+ *   killer_id  = duplicate of source for the firing player (0 = no killer)
+ *   lifetime   = wreckage visual lifetime in seconds */
+typedef struct {
+    i32  source_object_id;   /* killer ship object ID (0 = none) */
+    i32  dest_object_id;     /* dying ship object ID */
+    i32  killer_id;          /* firing-player object ID (0 = none) */
+    f32  lifetime;           /* wreckage lifetime seconds */
+} bc_exploding_event_t;
+
+/* Parse a PythonEvent payload as an ObjectExplodingEvent.
+ * Returns true only if the opcode is 0x06 AND the factory ID identifies the
+ * exploding-event factory; returns false for any other PythonEvent so callers
+ * can cheaply test inbound 0x06 traffic for the kill signal. */
+bool bc_parse_python_exploding_event(const u8 *payload, int len,
+                                     bc_exploding_event_t *out);
+
 #endif /* OPENBC_GAME_EVENTS_H */

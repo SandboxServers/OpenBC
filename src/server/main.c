@@ -345,6 +345,19 @@ int main(int argc, char **argv)
         }
     }
 
+    /* Issue #203: configure friendly-fire tracking from config (CLI flags
+     * --friendly-fire/--no-friendly-fire only gate whether FF damage applies;
+     * the tracking mode comes from [game].friendly_fire_mode). */
+    {
+        bc_ff_mode_t ff_mode = BC_FF_MODE_PERMISSIVE;
+        const char *m = g_server_cfg.friendly_fire_mode;
+        if (strcmp(m, "warning") == 0)      ff_mode = BC_FF_MODE_WARNING;
+        else if (strcmp(m, "strict") == 0)  ff_mode = BC_FF_MODE_STRICT;
+        bc_ff_configure(ff_mode,
+                        (f32)g_server_cfg.friendly_fire_tolerance,
+                        (f32)g_server_cfg.friendly_fire_warning_points);
+    }
+
     /* Apply parsed settings to globals */
     g_map_name = map;
     g_max_players = max_players;
@@ -649,14 +662,33 @@ int main(int argc, char **argv)
              "Dedicated Server");
     g_info.player_count = 1;
 
-    /* Master server registration */
+    /* Master server registration.
+     * Precedence (highest first):
+     *   1. --master CLI flag / server.toml masters (collected in user_masters)
+     *   2. masterserver.txt in the working directory (runtime override)
+     *   3. Baked-in default master list
+     */
     memset(&g_masters, 0, sizeof(g_masters));
     if (!no_master) {
         if (user_master_count > 0) {
             for (int i = 0; i < user_master_count; i++)
                 bc_master_add(&g_masters, user_masters[i], port);
         } else {
-            bc_master_init_defaults(&g_masters, port);
+            /* No CLI/TOML masters -- check for a masterserver.txt override. */
+            static char txt_masters[BC_MASTERSERVER_TXT_MAX][128];
+            int txt_count = bc_master_parse_txt("masterserver.txt",
+                                                txt_masters,
+                                                BC_MASTERSERVER_TXT_MAX);
+            if (txt_count > 0) {
+                LOG_INFO("master", "masterserver.txt found: %d entr%s",
+                         txt_count, txt_count == 1 ? "y" : "ies");
+                memset(&g_masters, 0, sizeof(g_masters));
+                g_masters.game_port = port;
+                for (int i = 0; i < txt_count; i++)
+                    bc_master_add(&g_masters, txt_masters[i], port);
+            } else {
+                bc_master_init_defaults(&g_masters, port);
+            }
         }
         if (g_masters.count > 0)
             bc_master_probe(&g_masters, &g_socket, &g_info);
@@ -883,8 +915,42 @@ int main(int argc, char **argv)
                     bc_cloak_tick(&p->ship, /* cloak_efficiency */ clk_eff,
                                  /* dt */ dt);
 
-                    /* Repair */
-                    bc_repair_tick(&p->ship, cls, dt);
+                    /* Repair.
+                     * Queue transitions (subsystem fully repaired, or destroyed
+                     * while queued) must be announced to clients so their
+                     * Engineering panel state stays in sync. Stock emits these
+                     * as PythonEvent (0x06) to all peers, reliably:
+                     *   - REPAIR_COMPLETED (0x00800074): factory 0x0101 TGEvent
+                     *   - REPAIR_CANNOT_BE_COMPLETED (0x00800075): factory 0x010C
+                     *     TGObjPtrEvent (carries the subsystem obj_ptr).
+                     * Host-only: only the simulating server emits these. */
+                    {
+                        bc_repair_event_t rq_evts[BC_MAX_SUBSYSTEMS];
+                        int rq_count = 0;
+                        bc_repair_tick(&p->ship, cls, dt,
+                                       rq_evts, BC_MAX_SUBSYSTEMS, &rq_count);
+                        for (int e = 0; e < rq_count; e++) {
+                            int ss_idx = rq_evts[e].subsys_index;
+                            if (ss_idx < 0 || ss_idx >= BC_MAX_SUBSYSTEMS) continue;
+                            i32 ss_obj = p->ship.subsys_obj_id[ss_idx];
+                            i32 repair_obj = p->ship.repair_subsys_obj_id;
+                            if (rq_evts[e].kind == BC_REPAIR_EVT_COMPLETED) {
+                                u8 evt[17];
+                                int len = bc_build_python_subsystem_event(
+                                    evt, sizeof(evt),
+                                    BC_EVENT_REPAIR_COMPLETED,
+                                    repair_obj, ss_obj);
+                                if (len > 0) bc_send_to_all(evt, len, true);
+                            } else { /* BC_REPAIR_EVT_CANNOT */
+                                u8 evt[21];
+                                int len = bc_build_python_obj_ptr_event(
+                                    evt, sizeof(evt),
+                                    BC_EVENT_REPAIR_CANNOT,
+                                    repair_obj, ss_obj, ss_obj);
+                                if (len > 0) bc_send_to_all(evt, len, true);
+                            }
+                        }
+                    }
                     bc_repair_auto_queue(&p->ship, cls);
 
                     /* Tractor beam physics: drag target if engaged */
@@ -951,7 +1017,7 @@ int main(int argc, char **argv)
                     /* Build remote version (with power data) using same
                      * start_idx so both cover the same entries. */
                     u8 hbuf_rmt[128];
-                    u8 rmt_next;
+                    u8 rmt_next = p->subsys_rr_idx;
                     int hlen_rmt = bc_ship_build_health_update(
                         &p->ship, cls, g_game_time,
                         p->subsys_rr_idx, &rmt_next, false,

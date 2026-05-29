@@ -128,6 +128,14 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
  * drops below this, the cloak fails and decloaking begins. */
 #define BC_CLOAK_ENERGY_THRESHOLD 0.5f
 
+/* Shield-delay window (seconds) for cloak transitions (Issue #192).
+ * Wire-protocol trace analysis of a stock dedicated server session shows the
+ * shield-active state change is deferred by this delay relative to the cloak
+ * transition: shields stay up ~1.0s after cloak-up begins (vulnerability
+ * window) and re-enable ~1.0s after decloak completes (grace window).
+ * This is a class-level global shared by all cloaking devices. */
+#define BC_CLOAK_SHIELD_DELAY 1.0f
+
 /* Begin cloaking. Shields functionally disabled (stop absorbing/recharging)
  * but HP preserved. Weapons disabled.
  * Returns false if ship cannot cloak (no device, dead, already cloaking/cloaked). */
@@ -185,17 +193,73 @@ bool bc_repair_add(bc_ship_state_t *ship, u8 subsys_idx);
 /* Remove a subsystem from the repair queue. */
 void bc_repair_remove(bc_ship_state_t *ship, u8 subsys_idx);
 
+/* Repair-tick outcome kinds reported via bc_repair_tick()'s out-parameter.
+ * The simulation layer is network-agnostic; the server translates these into
+ * the matching PythonEvent (0x06) wire emissions (REPAIR_COMPLETED /
+ * REPAIR_CANNOT_BE_COMPLETED). */
+#define BC_REPAIR_EVT_COMPLETED  0  /* subsystem reached max condition */
+#define BC_REPAIR_EVT_CANNOT     1  /* subsystem destroyed (0 HP) while queued */
+
+typedef struct {
+    u8  subsys_index;  /* flat subsystem index (into ship->subsystem_hp[]) */
+    u8  kind;          /* BC_REPAIR_EVT_COMPLETED or BC_REPAIR_EVT_CANNOT */
+} bc_repair_event_t;
+
 /* Tick repair: heal up to num_repair_teams subsystems simultaneously.
  * raw_repair = max_repair_points * repair_system_health_pct * dt
  * per_sub = raw_repair / min(queue_count, num_repair_teams)
  * condition_gain = per_sub / repair_complexity
- * Destroyed subsystems (0 HP) are skipped but remain in queue. */
+ *
+ * Queue transitions are reported through the optional out_events array (caller
+ * supplies storage, capacity = out_cap). *out_count is set to the number of
+ * events written (0..out_cap). When a queued subsystem reaches max condition a
+ * BC_REPAIR_EVT_COMPLETED entry is emitted and the entry is removed; when a
+ * queued subsystem is found at 0 HP a BC_REPAIR_EVT_CANNOT entry is emitted and
+ * the entry is removed. Pass out_events=NULL / out_count=NULL to ignore. */
 void bc_repair_tick(bc_ship_state_t *ship,
                     const bc_ship_class_t *cls,
-                    f32 dt);
+                    f32 dt,
+                    bc_repair_event_t *out_events, int out_cap,
+                    int *out_count);
 
 /* Auto-queue any subsystem below its disabled threshold. */
 void bc_repair_auto_queue(bc_ship_state_t *ship,
                            const bc_ship_class_t *cls);
+
+/* --- Friendly-fire tracking (Issue #203) --- */
+
+/* Friendly-fire tracking mode.
+ *  PERMISSIVE: no tracking, no warnings (legacy OpenBC behavior).
+ *  WARNING:    track + warn at warning_points threshold; never end game (stock
+ *              default — mission startup typically warns at 100 points).
+ *  STRICT:     track + warn + end game once tolerance is exceeded. */
+typedef enum {
+    BC_FF_MODE_PERMISSIVE = 0,
+    BC_FF_MODE_WARNING    = 1,
+    BC_FF_MODE_STRICT     = 2
+} bc_ff_mode_t;
+
+/* Per-server friendly-fire accumulator state. Mirrors the stock three-float
+ * model (tolerance / current / warning_points) plus the game-over toggle. */
+typedef struct {
+    bc_ff_mode_t mode;
+    f32  tolerance;              /* cumulative FF damage that crosses threshold */
+    f32  current;               /* running FF damage accumulator */
+    f32  warning_points;        /* threshold at which a warning fires */
+    bool game_over_on_threshold;/* end game when current >= tolerance */
+    bool warned;                /* one-shot latch: warning already emitted */
+} bc_friendly_fire_t;
+
+/* Outcome flags from a single FF accumulation step (bc_ff_step). */
+typedef struct {
+    bool warned;     /* warning threshold crossed on THIS step (one-shot) */
+    bool game_over;  /* tolerance exceeded AND game_over_on_threshold set */
+} bc_ff_outcome_t;
+
+/* Pure FF accumulation/decision step (no I/O, no globals).
+ * Mutates ff->current and ff->warned; returns what reactions are due so the
+ * caller can perform the wire-side emits. No-op (zero outcome) in PERMISSIVE
+ * mode or for non-positive damage. Unit-testable in isolation. */
+bc_ff_outcome_t bc_ff_step(bc_friendly_fire_t *ff, f32 damage_amount);
 
 #endif /* OPENBC_COMBAT_H */
