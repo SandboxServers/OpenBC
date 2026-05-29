@@ -692,12 +692,15 @@ TEST(cloak_full_cycle)
 
     /* Can't fire while cloaking */
     ASSERT(!bc_cloak_can_fire(&ship));
-    ASSERT(!bc_cloak_shields_active(&ship));
+    /* Issue #192: cloak-up vulnerability window — shields stay ACTIVE for the
+     * first ShieldDelay (1.0s) of the transition. */
+    ASSERT(bc_cloak_shields_active(&ship));
 
-    /* Tick through transition */
+    /* Tick through transition (exceeds ShieldDelay) → shields now inactive. */
     bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
                   /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_CLOAKED);
+    ASSERT(!bc_cloak_shields_active(&ship));
 
     /* Still can't fire while cloaked */
     ASSERT(!bc_cloak_can_fire(&ship));
@@ -710,13 +713,20 @@ TEST(cloak_full_cycle)
     ASSERT(!bc_cloak_can_fire(&ship));
     ASSERT(!bc_cloak_shields_active(&ship));
 
-    /* Tick through decloak transition */
+    /* Tick through decloak transition (does NOT consume the post-decloak
+     * ShieldDelay — that timer is armed on the completing tick). */
     bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
                   /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
 
-    /* Now can fire and shields active again */
+    /* Can fire again immediately, but Issue #192 decloak grace window keeps
+     * shields down for the first ShieldDelay (1.0s) of full visibility. */
     ASSERT(bc_cloak_can_fire(&ship));
+    ASSERT(!bc_cloak_shields_active(&ship));
+
+    /* Advance past the ShieldDelay grace window → shields re-enable. */
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 1.0f,
+                  /* dt */ BC_CLOAK_SHIELD_DELAY + 0.1f);
     ASSERT(bc_cloak_shields_active(&ship));
 }
 
@@ -743,8 +753,14 @@ TEST(cloak_auto_decloak_on_low_power)
                   /* dt */ BC_CLOAK_TRANSITION_TIME + 0.1f);
     ASSERT_EQ((int)ship.cloak_state, BC_CLOAK_DECLOAKED);
 
-    /* Fully decloaked: can fire and shields active */
+    /* Fully decloaked: can fire immediately. Issue #192 grace window keeps
+     * shields down for the first ShieldDelay (1.0s) of full visibility. */
     ASSERT(bc_cloak_can_fire(&ship));
+    ASSERT(!bc_cloak_shields_active(&ship));
+
+    /* Advance past the ShieldDelay grace window → shields re-enable. */
+    bc_cloak_tick(&ship, /* cloak_efficiency */ 0.0f,
+                  /* dt */ BC_CLOAK_SHIELD_DELAY + 0.1f);
     ASSERT(bc_cloak_shields_active(&ship));
 }
 
