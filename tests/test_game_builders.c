@@ -488,6 +488,38 @@ TEST(event_forward_buffer_overflow)
     ASSERT(len == -1);
 }
 
+/* === Connect-event broadcast (#202) === */
+
+TEST(new_peer_connected_layout)
+{
+    u8 buf[32];
+    int len = bc_build_new_peer_connected(buf, sizeof(buf), 3);
+
+    ASSERT(len == 18);
+    ASSERT_EQ(buf[0], BC_OP_DELETE_PLAYER_UI);          /* 0x17 */
+    /* factory = 0x00000866 (LE) */
+    ASSERT_EQ(buf[1], 0x66);
+    ASSERT_EQ(buf[2], 0x08);
+    ASSERT_EQ(buf[3], 0x00);
+    ASSERT_EQ(buf[4], 0x00);
+    /* event = 0x00060007 (LE) -> ET_NEW_PEER_CONNECTED */
+    ASSERT_EQ(buf[5], 0x07);
+    ASSERT_EQ(buf[6], 0x00);
+    ASSERT_EQ(buf[7], 0x06);
+    ASSERT_EQ(buf[8], 0x00);
+    /* src = 0, tgt = 0 (8 zero bytes) */
+    for (int i = 9; i < 17; i++) ASSERT_EQ(buf[i], 0x00);
+    /* wire_peer_id */
+    ASSERT_EQ(buf[17], 3);
+}
+
+TEST(new_peer_connected_buffer_too_small)
+{
+    u8 buf[10]; /* needs 18 */
+    int len = bc_build_new_peer_connected(buf, sizeof(buf), 3);
+    ASSERT(len == -1);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -548,4 +580,8 @@ TEST_MAIN_BEGIN()
     RUN(event_forward_add_repair_list);
     RUN(event_forward_repair_priority);
     RUN(event_forward_buffer_overflow);
+
+    /* Connect-event broadcast (#202) */
+    RUN(new_peer_connected_layout);
+    RUN(new_peer_connected_buffer_too_small);
 TEST_MAIN_END()

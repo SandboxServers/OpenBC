@@ -649,14 +649,33 @@ int main(int argc, char **argv)
              "Dedicated Server");
     g_info.player_count = 1;
 
-    /* Master server registration */
+    /* Master server registration.
+     * Precedence (highest first):
+     *   1. --master CLI flag / server.toml masters (collected in user_masters)
+     *   2. masterserver.txt in the working directory (runtime override)
+     *   3. Baked-in default master list
+     */
     memset(&g_masters, 0, sizeof(g_masters));
     if (!no_master) {
         if (user_master_count > 0) {
             for (int i = 0; i < user_master_count; i++)
                 bc_master_add(&g_masters, user_masters[i], port);
         } else {
-            bc_master_init_defaults(&g_masters, port);
+            /* No CLI/TOML masters -- check for a masterserver.txt override. */
+            static char txt_masters[BC_MASTERSERVER_TXT_MAX][128];
+            int txt_count = bc_master_parse_txt("masterserver.txt",
+                                                txt_masters,
+                                                BC_MASTERSERVER_TXT_MAX);
+            if (txt_count > 0) {
+                LOG_INFO("master", "masterserver.txt found: %d entr%s",
+                         txt_count, txt_count == 1 ? "y" : "ies");
+                memset(&g_masters, 0, sizeof(g_masters));
+                g_masters.game_port = port;
+                for (int i = 0; i < txt_count; i++)
+                    bc_master_add(&g_masters, txt_masters[i], port);
+            } else {
+                bc_master_init_defaults(&g_masters, port);
+            }
         }
         if (g_masters.count > 0)
             bc_master_probe(&g_masters, &g_socket, &g_info);

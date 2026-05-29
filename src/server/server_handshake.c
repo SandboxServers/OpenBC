@@ -11,6 +11,7 @@
 #include "openbc/game_builders.h"
 #include "openbc/player_ids.h"
 #include "openbc/ship_state.h"
+#include "openbc/event_bus.h"
 #include "openbc/log.h"
 
 #include <stdio.h>
@@ -504,6 +505,38 @@ void bc_handle_connect(const bc_addr_t *from, int len)
         memset(rec, 0, sizeof(*rec));
         snprintf(rec->name, sizeof(rec->name), "slot %d", slot);
         rec->connect_time = bc_ms_now();
+    }
+
+    /* Connect-event broadcast (#202 / routing mechanism #3).
+     *
+     * The transport-layer connect handshake is now complete and the peer slot
+     * is fully populated.  Stock fires ET_NEW_PEER_CONNECTED on the host's
+     * event manager at this moment -- BEFORE the checksum exchange begins --
+     * and forwards the connect event to already-connected peers so their
+     * peer-tracking / chat / scoreboard pre-init state updates immediately.
+     *
+     * Timing is load-bearing: this MUST happen before the checksum request
+     * below transitions the peer into PEER_CHECKSUMMING.
+     *
+     * Step 1: notify server-side subscribers (gamemode / scoring modules). */
+    {
+        obc_peer_info_t pi;
+        pi.slot      = slot;
+        pi.wire_id   = slot + 1;
+        pi.addr_ip   = from->ip;
+        pi.addr_port = from->port;
+        obc_event_fire(NULL, OBC_EVENT_PLAYER_CONNECTED, slot, &pi);
+    }
+
+    /* Step 2: broadcast the connect event to existing already-connected peers.
+     * The joining peer has no game object yet, so the event carries only its
+     * wire ID.  Sent reliably so no existing peer misses the join. */
+    {
+        u8 cpkt[20];
+        int clen = bc_build_new_peer_connected(cpkt, sizeof(cpkt),
+                                               (u8)(slot + 1));
+        if (clen > 0)
+            bc_relay_to_others(slot, cpkt, clen, true);
     }
 
     /* Send Connect response + first ChecksumReq batched in one packet.
