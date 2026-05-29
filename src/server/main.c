@@ -859,12 +859,24 @@ int main(int argc, char **argv)
                     /* Shield recharge (shield gen is Base format, eff = 1.0) */
                     bc_combat_shield_tick(&p->ship, cls, 1.0f, dt);
 
-                    /* Phaser charge + torpedo cooldown (use weapon efficiency) */
-                    f32 wep_eff = bc_powered_efficiency(&p->ship, cls, "phaser");
-                    f32 pulse_eff = bc_powered_efficiency(&p->ship, cls, "pulse_weapon");
-                    f32 min_wep = (pulse_eff < wep_eff) ? pulse_eff : wep_eff;
-                    bc_combat_charge_tick(&p->ship, cls, min_wep, dt);
-                    bc_combat_torpedo_tick(&p->ship, cls, dt);
+                    /* Phaser charge + torpedo cooldown (use weapon efficiency).
+                     * Gate at 3 Hz (BC_WEAPON_TICK_INTERVAL) to match stock
+                     * WeaponSystem cadence -- ticking per-frame (~30 Hz) made
+                     * phaser charge / torpedo reload advance ~10x too fast.
+                     * Fixed-step accumulator, mirroring the power 1 Hz gate;
+                     * power_level is sampled per fixed step so charge rate
+                     * stays correct while value updates happen at 3 Hz. */
+                    p->ship.weapon_tick_accum += dt;
+                    while (p->ship.weapon_tick_accum >= BC_WEAPON_TICK_INTERVAL) {
+                        p->ship.weapon_tick_accum -= BC_WEAPON_TICK_INTERVAL;
+                        f32 wep_eff = bc_powered_efficiency(&p->ship, cls, "phaser");
+                        f32 pulse_eff = bc_powered_efficiency(&p->ship, cls, "pulse_weapon");
+                        f32 min_wep = (pulse_eff < wep_eff) ? pulse_eff : wep_eff;
+                        bc_combat_charge_tick(&p->ship, cls, min_wep,
+                                              BC_WEAPON_TICK_INTERVAL);
+                        bc_combat_torpedo_tick(&p->ship, cls,
+                                               BC_WEAPON_TICK_INTERVAL);
+                    }
 
                     /* Cloak state machine (energy-failure auto-decloak) */
                     f32 clk_eff = bc_powered_efficiency(&p->ship, cls, "cloak");
@@ -902,7 +914,23 @@ int main(int argc, char **argv)
              * Owner lane: send subsystem-only 0x20 (no power bytes for own ship).
              * Remote lanes: send mixed 0x3D (position/orientation/speed + 0x20)
              * so downstream stays server-shaped instead of relaying raw owner
-             * payloads. */
+             * payloads.
+             *
+             * Anti-drift / force-resend (#194): NO separate periodic resend
+             * timer is needed. The two state classes self-heal as follows:
+             *   - Position / orientation (fwd, up) / speed: re-sent ABSOLUTELY
+             *     (BC_DIRTY_POSITION_ABS, not delta) in build_mixed_stateupdate_remote
+             *     on EVERY remote broadcast -> fully refreshed every 100ms.
+             *   - Subsystem HP / power: round-robin in bc_ship_build_health_update,
+             *     ~10 bytes/tick. The cursor (p->subsys_rr_idx) advances over the
+             *     <=16 top-level ser_list entries; each entry serializes itself +
+             *     all its children in one shot, so a FULL cycle re-sends every
+             *     subsystem's HP. Worst case is 1 entry/tick (count<=16) =>
+             *     <=16 broadcasts = <=1.6s for a full refresh; typical ships
+             *     (~7-11 entries) complete in ~0.5-1.1s. This round-robin cycle
+             *     IS the "~0.5s force-resend" measured in stock trace mining --
+             *     it is the cycle period, not a separate timer. Adding a blanket
+             *     full-StateUpdate resend would duplicate this and waste bandwidth. */
             if (g_registry_loaded && (tick_counter % 3 == 0)) {
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *p = &g_peers.peers[i];

@@ -67,6 +67,7 @@ typedef struct {
     f32        main_conduit_remaining;
     f32        backup_conduit_remaining;
     f32        power_tick_accum;        /* 1-second interval accumulator */
+    f32        weapon_tick_accum;       /* 0.33s (3 Hz) interval accumulator for weapon charge/cooldown */
 
     /* Power efficiency (computed per-frame by reactor tick) */
     f32        efficiency[BC_SS_MAX_ENTRIES];  /* 0.0-1.0 per powered entry */
