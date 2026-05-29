@@ -241,6 +241,12 @@ int bc_ship_apply_remote_power_state(const u8 *state_update,
                     pct = 0;
                 }
 
+                /* Clamp wire-supplied percentage to the valid 0..100 range:
+                 * the magnitude of a signed byte can reach 128, which would
+                 * over-drive the power demand math downstream. */
+                if (pct > 100)
+                    pct = 100;
+
                 ship->power_pct[cursor] = pct;
                 ship->subsys_enabled[cursor] = enabled;
                 updated++;
