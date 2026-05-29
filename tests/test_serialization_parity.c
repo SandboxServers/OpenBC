@@ -1,9 +1,16 @@
 /*
- * test_serialization_parity.c -- Verify each stock ship's serialization list
- * matches the per-ship wire format spec (docs/wire-formats/per-ship-subsystem-wire-format.md).
+ * test_serialization_parity.c -- Verify each stock ship's FLATTENED runtime
+ * serialization list matches stock's flag-0x20 round-robin.
  *
- * Checks entry count, format types per entry, and total cycle bytes.
- * Catches regressions like the Sovereign Bridge-at-index-7 bug.
+ * Stock flattens the hardpoint tree before StateUpdate runs (#186): every
+ * weapon mount / engine nacelle is its OWN top-level round-robin entry, so
+ * start_idx legitimately lands on individual weapon indices (6,7,8,...).  This
+ * test verifies the flattened entry counts and total cycle bytes.
+ *
+ * Cycle bytes are INVARIANT under flattening (a nested Powered parent with N
+ * children = parent[3B] + N children[1B] = 3+N, identical to N flat BASE
+ * entries after a Powered parent), so the byte budget the receiver windows on
+ * is unchanged -- only the top-level entry COUNT grows.
  */
 #include "test_util.h"
 #include "openbc/ship_data.h"
@@ -13,18 +20,19 @@
 
 static bc_game_registry_t g_reg;
 
-/* Expected wire format data per stock ship, from the verified spec. */
+/* Expected wire format data per stock ship. */
 typedef struct {
     u16 species_id;
-    int entry_count;
-    int cycle_bytes;
-    u8  formats[BC_SS_MAX_ENTRIES];  /* BC_SS_FORMAT_BASE/POWERED/POWER per entry */
+    int entry_count;   /* FLATTENED top-level entry count */
+    int cycle_bytes;   /* total bytes for one full round-robin cycle */
 } expected_ship_t;
 
 /* Compute cycle bytes from a serialization list.
- * Base:    1 + child_count
- * Powered: 3 + child_count  (condition + children + hasData-bit + powerPct)
- * Reactor: 3                (condition + mainBattery + backupBattery)
+ * The runtime list is FLAT, so every entry contributes its own bytes:
+ *   Base:    1            (condition)
+ *   Powered: 3            (condition + standalone has_power bit-byte + powerPct)
+ *   Reactor: 3            (condition + mainBattery + backupBattery)
+ * (child_count is always 0 in the flattened runtime list.)
  */
 static int compute_cycle_bytes(const bc_ss_list_t *sl)
 {
@@ -47,60 +55,27 @@ static int compute_cycle_bytes(const bc_ss_list_t *sl)
 }
 
 /*
- * All 16 stock ships (Enterprise species 37 not in registry).
- * Format arrays derived from per-ship-subsystem-wire-format.md.
+ * All 15 stock ships (Enterprise species 37 not in registry).
+ * Flattened entry counts measured from the flattened runtime ser_list; cycle
+ * bytes are invariant under flattening (cross-checked against the prior
+ * nested values: galaxy 50, sovereign 49, etc.).
  */
 static const expected_ship_t EXPECTED[] = {
-    /* Species 1: Akira -- 11 entries, 47 bytes
-     * Hull(B) ShieldGen(B) Sensors(P) WarpCore(R) Impulse(P,2) Phasers(P,8)
-     * WarpEng(P,2) Torps(P,6) Engineering(P) Tractors(P,2) Bridge(B) */
-    { 1, 11, 47, {0,0,1,2,1,1,1,1,1,1,0} },
-
-    /* Species 2: Ambassador -- 11 entries, 45 bytes */
-    { 2, 11, 45, {0,0,1,2,1,1,1,1,1,0,1} },
-
-    /* Species 3: Galaxy -- 11 entries, 50 bytes
-     * Hull(B) WarpCore(R) ShieldGen(B) Sensors(P) Torps(P,6) Phasers(P,8)
-     * Impulse(P,3) WarpEng(P,2) Tractors(P,4) Bridge(B) Engineering(P) */
-    { 3, 11, 50, {0,2,0,1,1,1,1,1,1,0,1} },
-
-    /* Species 4: Nebula -- 11 entries, 47 bytes */
-    { 4, 11, 47, {0,0,1,2,1,1,1,1,1,1,0} },
-
-    /* Species 5: Sovereign -- 11 entries, 49 bytes
-     * Hull(B) ShieldGen(B) Sensors(P) WarpCore(R) Impulse(P,2) Torps(P,6)
-     * Repair(P) Phasers(P,8) Tractors(P,4) WarpEng(P,2) Bridge(B) */
-    { 5, 11, 49, {0,0,1,2,1,1,1,1,1,1,0} },
-
-    /* Species 6: Bird of Prey -- 10 entries, 32 bytes */
-    { 6, 10, 32, {0,0,2,1,1,1,1,1,1,1} },
-
-    /* Species 7: Vor'cha -- 12 entries, 44 bytes */
-    { 7, 12, 44, {0,0,2,1,1,1,1,1,1,1,1,1} },
-
-    /* Species 8: Warbird -- 13 entries, 46 bytes */
-    { 8, 13, 46, {0,0,2,1,1,1,1,1,1,1,1,0,1} },
-
-    /* Species 9: Marauder -- 10 entries, 35 bytes */
-    { 9, 10, 35, {0,0,2,1,1,1,1,1,1,1} },
-
-    /* Species 10: Galor -- 9 entries, 31 bytes */
-    {10,  9, 31, {0,0,2,1,1,1,1,1,1} },
-
-    /* Species 11: Keldon -- 10 entries, 39 bytes */
-    {11, 10, 39, {0,0,2,1,1,1,1,1,1,1} },
-
-    /* Species 12: CardHybrid -- 11 entries, 47 bytes */
-    {12, 11, 47, {0,2,1,1,0,1,1,1,1,1,1} },
-
-    /* Species 13: KessokHeavy -- 10 entries, 40 bytes */
-    {13, 10, 40, {0,2,1,1,1,1,1,0,1,1} },
-
-    /* Species 14: KessokLight -- 10 entries, 39 bytes */
-    {14, 10, 39, {0,2,1,1,0,1,1,1,1,1} },
-
-    /* Species 15: Shuttle -- 9 entries, 29 bytes */
-    {15,  9, 29, {0,1,2,1,0,1,1,1,1} },
+    { 1, 31, 47 },  /* Akira */
+    { 2, 29, 45 },  /* Ambassador */
+    { 3, 34, 50 },  /* Galaxy */
+    { 4, 31, 47 },  /* Nebula */
+    { 5, 33, 49 },  /* Sovereign */
+    { 6, 16, 32 },  /* Bird of Prey */
+    { 7, 24, 44 },  /* Vor'cha */
+    { 8, 26, 46 },  /* Warbird */
+    { 9, 19, 35 },  /* Marauder */
+    {10, 17, 31 },  /* Galor */
+    {11, 23, 39 },  /* Keldon */
+    {12, 29, 47 },  /* CardHybrid */
+    {13, 24, 40 },  /* KessokHeavy */
+    {14, 23, 39 },  /* KessokLight */
+    {15, 15, 29 },  /* Shuttle */
 };
 
 #define EXPECTED_COUNT  (int)(sizeof(EXPECTED) / sizeof(EXPECTED[0]))
@@ -153,37 +128,92 @@ TEST(cycle_bytes_match)
     }
 }
 
-TEST(format_types_match)
+TEST(runtime_list_is_flat)
 {
+    /* After flattening, NO runtime entry retains inline children -- every
+     * weapon mount / nacelle is its own top-level entry (#186). */
     for (int i = 0; i < EXPECTED_COUNT; i++) {
         const expected_ship_t *exp = &EXPECTED[i];
         const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, exp->species_id);
         ASSERT(cls != NULL);
-        for (int j = 0; j < exp->entry_count; j++) {
-            if (cls->ser_list.entries[j].format != exp->formats[j]) {
-                printf("FAIL\n    species %d (%s) entry %d: format=%d, expected=%d\n",
-                       exp->species_id, cls->name, j,
-                       cls->ser_list.entries[j].format, exp->formats[j]);
-                test_fail++; test_pass--;
-                return;
-            }
+        for (int j = 0; j < cls->ser_list.count; j++) {
+            ASSERT_EQ_INT(cls->ser_list.entries[j].child_count, 0);
         }
     }
 }
 
-TEST(sovereign_bridge_not_at_index_7)
+TEST(every_weapon_mount_is_top_level)
 {
-    /* Regression: Bridge (Base, 1 byte) was at index 7 where client expects
-     * Phasers (Powered, 8 children, 11 bytes). This caused cascading desync. */
-    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 5);
+    /* Galaxy has 6 torpedo tubes + 8 phasers + 4 tractors = 18 weapon mounts,
+     * each of which must appear as its OWN top-level ser_list entry (BASE).
+     * Under the old nested model these collapsed into 3 powered parents. */
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
     ASSERT(cls != NULL);
-    ASSERT(cls->ser_list.count >= 11);
 
-    /* Index 7 must be Powered (Phasers), not Base (Bridge) */
-    ASSERT_EQ(cls->ser_list.entries[7].format, BC_SS_FORMAT_POWERED);
+    int torps = 0, phasers = 0, tractors = 0;
+    for (int i = 0; i < cls->ser_list.count; i++) {
+        int hp = cls->ser_list.entries[i].hp_index;
+        if (hp < 0 || hp >= cls->subsystem_count) continue;
+        const char *ty = cls->subsystems[hp].type;
+        if (strcmp(ty, "torpedo_tube") == 0) torps++;
+        else if (strcmp(ty, "phaser") == 0) phasers++;
+        else if (strcmp(ty, "tractor_beam") == 0) tractors++;
+    }
+    ASSERT_EQ_INT(torps, 6);
+    ASSERT_EQ_INT(phasers, 8);
+    ASSERT_EQ_INT(tractors, 4);
 
-    /* Index 10 must be Base (Bridge) */
-    ASSERT_EQ(cls->ser_list.entries[10].format, BC_SS_FORMAT_BASE);
+    /* The flattened galaxy has many more top-level entries than the 11 of the
+     * old nested model -- proving weapons are no longer collapsed. */
+    ASSERT(cls->ser_list.count > 11);
+}
+
+TEST(start_idx_reaches_weapon_indices)
+{
+    /* Wire proof for #186: stock start_idx legitimately lands on 6-11 (the
+     * weapon-mount range).  This is only possible if those mounts are distinct
+     * top-level entries.  Verify galaxy has valid (in-range) entries at
+     * indices 6..11 and that they are weapon mounts, not a collapsed parent. */
+    const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, 3);
+    ASSERT(cls != NULL);
+    ASSERT(cls->ser_list.count > 11);
+
+    /* Galaxy flat layout (AddToSet order):
+     *   0 Hull, 1 WarpCore, 2 ShieldGen, 3 Sensor,
+     *   4 Torpedoes(parent), 5-10 six torpedo tubes,
+     *   11 Phasers(parent), 12-19 eight phasers, ...
+     * Indices 6-10 are individual torpedo tubes -- impossible to reach as a
+     * start_idx if they were collapsed under one parent.  This is the #186
+     * wire proof: start_idx legitimately lands in this range. */
+    for (int idx = 6; idx <= 10; idx++) {
+        int hp = cls->ser_list.entries[idx].hp_index;
+        ASSERT(hp >= 0 && hp < cls->subsystem_count);
+        ASSERT_EQ_INT(strcmp(cls->subsystems[hp].type, "torpedo_tube"), 0);
+    }
+    /* And the phaser mounts sit at the higher indices (12+), each its own
+     * top-level entry. */
+    int phasers_at_high_idx = 0;
+    for (int idx = 12; idx < cls->ser_list.count; idx++) {
+        int hp = cls->ser_list.entries[idx].hp_index;
+        if (hp >= 0 && hp < cls->subsystem_count &&
+            strcmp(cls->subsystems[hp].type, "phaser") == 0)
+            phasers_at_high_idx++;
+    }
+    ASSERT_EQ_INT(phasers_at_high_idx, 8);
+}
+
+TEST(reactor_entry_format_is_power)
+{
+    /* The recorded reactor entry index must still point at the Power entry
+     * after flattening (the reactor index is recomputed to the flat position). */
+    for (int i = 0; i < EXPECTED_COUNT; i++) {
+        const expected_ship_t *exp = &EXPECTED[i];
+        const bc_ship_class_t *cls = bc_registry_find_ship(&g_reg, exp->species_id);
+        ASSERT(cls != NULL);
+        int ri = cls->ser_list.reactor_entry_idx;
+        ASSERT(ri >= 0 && ri < cls->ser_list.count);
+        ASSERT_EQ(cls->ser_list.entries[ri].format, BC_SS_FORMAT_POWER);
+    }
 }
 
 /* === Run all tests === */
@@ -193,6 +223,8 @@ TEST_MAIN_BEGIN()
     RUN(all_stock_ships_present);
     RUN(entry_counts_match);
     RUN(cycle_bytes_match);
-    RUN(format_types_match);
-    RUN(sovereign_bridge_not_at_index_7);
+    RUN(runtime_list_is_flat);
+    RUN(every_weapon_mount_is_top_level);
+    RUN(start_idx_reaches_weapon_indices);
+    RUN(reactor_entry_format_is_power);
 TEST_MAIN_END()

@@ -46,41 +46,46 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
     while (1) {
         const bc_ss_entry_t *e = &sl->entries[cursor];
 
+        /* The runtime ser_list is FLAT: each entry (including former weapon
+         * children) is its own top-level node serializing a single condition
+         * byte.  No inline child recursion. */
+
+        /* Each entry begins with a fresh byte boundary -- any prior Powered
+         * has_power bit-group is closed.  This forces each powered entry's
+         * has_power bit into its OWN single-bit group byte (0x20/0x21),
+         * matching stock where the surrounding WriteByte calls break the bit
+         * group every time.  See OpenBC #186 (Bug 2). */
+        fb.bit_count = 0;
+
         /* Write condition byte */
         bc_buf_write_u8(&fb, encode_condition(
             ship->subsystem_hp[e->hp_index], e->max_condition));
 
-        /* Write children condition bytes */
-        for (int c = 0; c < e->child_count; c++) {
-            bc_buf_write_u8(&fb, encode_condition(
-                ship->subsystem_hp[e->child_hp_index[c]],
-                e->child_max_condition[c]));
-        }
-
-        /* Format-specific extras.
-         * Consecutive Powered entries share their has_power_data bits
-         * in a single [count:3][values:5] byte.  Only reset bit_count
-         * when transitioning OUT of the Powered format (Base or Power). */
+        /* Format-specific extras. */
         if (e->format == BC_SS_FORMAT_POWERED) {
             if (is_own_ship) {
                 /* Owner's client has local power state; send false
-                 * (no power_pct byte follows). */
+                 * (no power_pct byte follows).  Standalone single-bit
+                 * group -> 0x20 on the wire. */
                 bc_buf_write_bit(&fb, false);
+                fb.bit_count = 0; /* close the single-bit group immediately */
             } else {
                 /* Remote observers need the power allocation data.
                  * Sign-bit encoding: positive = ON, negative = OFF.
                  * Disabled subsystem at pct%: write -(i8)pct so the
                  * client recovers both the slider position and the
-                 * off state.  See power-system.md §Sign Bit. */
+                 * off state.  See power-system.md §Sign Bit.
+                 * The has_power bit is a standalone single-bit group
+                 * (0x21), broken by the condition byte before and the
+                 * power_pct byte after -- matching stock. */
                 bc_buf_write_bit(&fb, true);
+                fb.bit_count = 0; /* close the single-bit group before the u8 */
                 u8 pct = ship->power_pct[cursor];
                 if (!ship->subsys_enabled[cursor])
                     pct = (u8)(-(i8)pct);
                 bc_buf_write_u8(&fb, pct);
             }
         } else if (e->format == BC_SS_FORMAT_POWER) {
-            /* Non-Powered entry: flush any accumulated Powered bits */
-            fb.bit_count = 0;
             /* Battery percentages: truncate(current / limit * 255) */
             u8 main_pct = (cls->main_battery_limit > 0.0f)
                 ? (u8)(ship->main_battery / cls->main_battery_limit * 255.0f)
@@ -90,9 +95,6 @@ int bc_ship_build_health_update(const bc_ship_state_t *ship,
                 : 0;
             bc_buf_write_u8(&fb, main_pct);
             bc_buf_write_u8(&fb, backup_pct);
-        } else {
-            /* BC_SS_FORMAT_BASE: flush any accumulated Powered bits */
-            fb.bit_count = 0;
         }
 
         /* Advance cursor */
@@ -201,22 +203,28 @@ int bc_ship_apply_remote_power_state(const u8 *state_update,
 
     int updated = 0;
 
+    /* Stream-exhaustion bounded (matches stock receiver Ship__ReadStateUpdate
+     * 0x005B21C0): there is NO count field on the wire.  Walk start_idx hops
+     * (done above), then apply each FLAT entry's ReadState until the payload
+     * is exhausted, advancing one top-level node per entry and wrapping at the
+     * tail.  Each entry is self-delimiting from the local ser_list format. */
     while (bc_buf_remaining(&buf) > 0) {
         const bc_ss_entry_t *e = &sl->entries[cursor];
         u8 condition_byte;
 
+        /* Each entry starts on a fresh byte boundary -- any prior single-bit
+         * group is closed (mirrors the sender's per-entry bit_count reset). */
+        buf.bit_count = 0;
+
         if (!bc_buf_read_u8(&buf, &condition_byte))
             break;
 
-        for (int c = 0; c < e->child_count; c++) {
-            if (!bc_buf_read_u8(&buf, &condition_byte))
-                return updated;
-        }
-
         if (e->format == BC_SS_FORMAT_POWERED) {
+            /* has_power is a standalone single-bit group (0x20/0x21). */
             bool has_power_data = false;
             if (!bc_buf_read_bit(&buf, &has_power_data))
                 return updated;
+            buf.bit_count = 0; /* close the single-bit group */
 
             if (has_power_data) {
                 u8 raw_pct;

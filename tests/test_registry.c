@@ -12,20 +12,29 @@
 
 static bc_game_registry_t g_reg;
 
-/* Find first serialization entry (top-level or child) containing subsystem type. */
+/* Find the POWERED serialization entry that powers a given subsystem type.
+ *
+ * The runtime ser_list is FLAT (see #186): former weapon/engine children are
+ * their own BASE entries linked to their POWERED parent via parent_idx (==
+ * parent entry's hp_index).  power_mode lives on the POWERED parent.  So we
+ * look for the powered entry whose own subsystem is that type, or that has a
+ * flat child subsystem of that type pointing back to it. */
 static int find_ser_entry_for_type(const bc_ship_class_t *cls, const char *type)
 {
     const bc_ss_list_t *sl = &cls->ser_list;
     for (int i = 0; i < sl->count; i++) {
         const bc_ss_entry_t *e = &sl->entries[i];
+        if (e->format != BC_SS_FORMAT_POWERED) continue;
+
+        /* (a) The powered entry itself is the typed subsystem. */
         if (e->hp_index >= 0 && e->hp_index < cls->subsystem_count &&
             strcmp(cls->subsystems[e->hp_index].type, type) == 0) {
             return i;
         }
-        for (int c = 0; c < e->child_count; c++) {
-            int ci = e->child_hp_index[c];
-            if (ci >= 0 && ci < cls->subsystem_count &&
-                strcmp(cls->subsystems[ci].type, type) == 0) {
+        /* (b) A flat child subsystem of this powered parent matches the type. */
+        for (int j = 0; j < cls->subsystem_count; j++) {
+            if (cls->subsystems[j].parent_idx == e->hp_index &&
+                strcmp(cls->subsystems[j].type, type) == 0) {
                 return i;
             }
         }

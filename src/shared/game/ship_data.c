@@ -115,9 +115,38 @@ static u8 parse_power_mode(const json_value_t *val)
     return (u8)mode;
 }
 
-/* Load the hierarchical serialization list from JSON.
- * Matches entries/children to the flat subsystem array by name.
- * New container entries get HP slots beyond subsystem_count. */
+/* Append one flat top-level entry to the runtime serialization list.
+ * Returns the index of the appended entry, or -1 if the list is full. */
+static int append_flat_entry(bc_ss_list_t *sl, u8 format, int hp_index,
+                             f32 max_condition, f32 normal_power, u8 power_mode)
+{
+    if (sl->count >= BC_SS_MAX_ENTRIES) return -1;
+    bc_ss_entry_t *e = &sl->entries[sl->count];
+    memset(e, 0, sizeof(*e));
+    e->format = format;
+    e->hp_index = hp_index;
+    e->max_condition = max_condition;
+    e->normal_power = normal_power;
+    e->power_mode = power_mode;
+    e->child_count = 0; /* runtime list is FLAT: children are their own entries */
+    return sl->count++;
+}
+
+/* Load the serialization list from JSON and FLATTEN it into the runtime list.
+ *
+ * The JSON authoring format nests weapon mounts (torpedo tubes, phaser emitters)
+ * and engine nacelles under synthetic parent entries via "children".  Stock BC
+ * builds the hardpoint tree the same way at object-create, then
+ * Ship_LinkAllSubsystemsToParents FLATTENS it into the ship+0x284 linked list
+ * BEFORE StateUpdate (flag 0x20) runs.  By the time the round-robin serializer
+ * executes, every weapon mount is its OWN top-level node with its own condition
+ * byte -- the wire start_idx legitimately lands on individual weapon indices
+ * (6,7,8,...).  See OpenBC #186 / authority-ordering-validation-20260529.
+ *
+ * Flatten rule: for each JSON entry in array order, emit the parent entry
+ * first (with child_count cleared), then one BASE entry per child in child
+ * order.  Children emit a single condition byte (1 BASE entry each), matching
+ * stock's per-mount serialization.  Parent retains its format/power. */
 static void load_serialization_list(bc_ship_class_t *ship, const json_value_t *arr)
 {
     bc_ss_list_t *sl = &ship->ser_list;
@@ -130,72 +159,66 @@ static void load_serialization_list(bc_ship_class_t *ship, const json_value_t *a
     }
 
     size_t n = json_array_len(arr);
-    if ((int)n > BC_SS_MAX_ENTRIES) n = BC_SS_MAX_ENTRIES;
-    sl->count = (int)n;
 
-    /* Next available HP slot for containers not in the flat array */
+    /* Next available HP slot for containers not in the flat subsystem array */
     int next_hp_slot = ship->subsystem_count;
 
     for (size_t i = 0; i < n; i++) {
         const json_value_t *entry_obj = json_array_get(arr, i);
-        bc_ss_entry_t *e = &sl->entries[i];
-        memset(e, 0, sizeof(*e));
 
-        e->format = parse_ss_format(json_get(entry_obj, "format"));
-        e->max_condition = (f32)json_number(json_get(entry_obj, "max_condition"));
-        e->normal_power = (f32)json_number(json_get(entry_obj, "normal_power"));
-        e->power_mode = BC_POWER_MODE_MAIN_FIRST;
-        if (e->format == BC_SS_FORMAT_POWERED) {
-            e->power_mode = parse_power_mode(json_get(entry_obj, "power_mode"));
-        }
+        u8  format = parse_ss_format(json_get(entry_obj, "format"));
+        f32 normal_power = (f32)json_number(json_get(entry_obj, "normal_power"));
+        u8  power_mode = BC_POWER_MODE_MAIN_FIRST;
+        if (format == BC_SS_FORMAT_POWERED)
+            power_mode = parse_power_mode(json_get(entry_obj, "power_mode"));
 
-        /* Match entry name to flat subsystem array */
+        /* Resolve the parent's hp_index + canonical max_condition. */
         const char *ename = json_string(json_get(entry_obj, "name"));
-        int flat_idx = ename ? find_subsys_by_name(ship, ename) : -1;
-        if (flat_idx >= 0) {
-            e->hp_index = flat_idx;
-            /* Use the flat subsystem's max_condition as the canonical value.
-             * HP is initialized from the flat array (bc_ship_init), so the
-             * serialization entry must use the same denominator for
-             * encode_condition() and power_tick condition_pct to be correct.
-             * Without this, ships where subsystems.json and serialization.json
-             * disagree on max_condition (e.g. Galor warp core: 3200 vs 5000)
-             * spawn with condition_pct < 1.0 and reduced/zero power. */
-            e->max_condition = ship->subsystems[flat_idx].max_condition;
+        int parent_hp = ename ? find_subsys_by_name(ship, ename) : -1;
+        f32 parent_max;
+        if (parent_hp >= 0) {
+            /* Use the flat subsystem's max_condition as the canonical value
+             * (HP is initialized from the flat array in bc_ship_init, so the
+             * serializer must use the same denominator). */
+            parent_max = ship->subsystems[parent_hp].max_condition;
         } else {
-            /* Container not in flat array — allocate a new HP slot */
-            e->hp_index = next_hp_slot;
+            /* Synthetic container (e.g. weapon-system parent) not in the flat
+             * subsystem array -- allocate a new HP slot for it. */
+            parent_hp = next_hp_slot;
+            parent_max = (f32)json_number(json_get(entry_obj, "max_condition"));
             if (next_hp_slot < BC_MAX_SUBSYSTEMS) next_hp_slot++;
         }
 
-        /* Track reactor entry */
-        if (e->format == BC_SS_FORMAT_POWER) {
-            sl->reactor_entry_idx = (int)i;
-        }
+        /* Emit the parent as a flat top-level entry. */
+        int parent_entry = append_flat_entry(sl, format, parent_hp,
+                                              parent_max, normal_power, power_mode);
+        if (parent_entry < 0) break; /* list full */
 
-        /* Children */
+        if (format == BC_SS_FORMAT_POWER)
+            sl->reactor_entry_idx = parent_entry;
+
+        /* Emit each child as its OWN flat top-level BASE entry (one condition
+         * byte per weapon mount / nacelle), in child-array order. */
         const json_value_t *children = json_get(entry_obj, "children");
         if (children && children->type == JSON_ARRAY) {
             size_t cn = json_array_len(children);
-            if ((int)cn > BC_SS_MAX_CHILDREN) cn = BC_SS_MAX_CHILDREN;
-            e->child_count = (int)cn;
-
             for (size_t c = 0; c < cn; c++) {
                 const json_value_t *child_obj = json_array_get(children, c);
                 const char *cname = json_string(json_get(child_obj, "name"));
                 int cidx = cname ? find_subsys_by_name(ship, cname) : -1;
+                f32 cmax;
                 if (cidx >= 0) {
-                    e->child_hp_index[c] = cidx;
-                    e->child_max_condition[c] = ship->subsystems[cidx].max_condition;
-                    /* Set parent_idx on the child subsystem */
-                    ship->subsystems[cidx].parent_idx = e->hp_index;
+                    cmax = ship->subsystems[cidx].max_condition;
+                    /* Record the (real) parent's hp_index on the child subsystem. */
+                    ship->subsystems[cidx].parent_idx = parent_hp;
                 } else {
-                    /* Child not found — allocate slot (shouldn't happen with correct data) */
-                    e->child_hp_index[c] = next_hp_slot;
-                    e->child_max_condition[c] = (f32)json_number(
-                        json_get(child_obj, "max_condition"));
+                    cidx = next_hp_slot;
+                    cmax = (f32)json_number(json_get(child_obj, "max_condition"));
                     if (next_hp_slot < BC_MAX_SUBSYSTEMS) next_hp_slot++;
                 }
+                if (append_flat_entry(sl, BC_SS_FORMAT_BASE, cidx,
+                                      cmax, 0.0f, BC_POWER_MODE_MAIN_FIRST) < 0)
+                    break;
             }
         }
     }

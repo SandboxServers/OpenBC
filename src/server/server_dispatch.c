@@ -147,28 +147,43 @@ f32 bc_powered_efficiency(const bc_ship_state_t *ship,
                           const bc_ship_class_t *cls,
                           const char *child_type)
 {
+    /* The runtime ser_list is FLAT (see #186): former weapon/engine children
+     * are their own BASE entries, linked back to their POWERED parent via the
+     * subsystem's parent_idx (== the parent entry's hp_index).  To find the
+     * efficiency that powers a given subsystem type, locate each POWERED entry
+     * that powers a matching subsystem -- either the powered entry IS that
+     * typed subsystem, or a flat BASE entry of that type points to it via
+     * parent_idx -- and return the minimum efficiency across all matches. */
     const bc_ss_list_t *sl = &cls->ser_list;
     f32 min_eff = 1.0f;
     bool found = false;
     for (int i = 0; i < sl->count; i++) {
         const bc_ss_entry_t *e = &sl->entries[i];
         if (e->format != BC_SS_FORMAT_POWERED) continue;
-        /* Check children for matching type */
-        for (int c = 0; c < e->child_count; c++) {
-            int ci = e->child_hp_index[c];
-            if (ci >= 0 && ci < cls->subsystem_count &&
-                strcmp(cls->subsystems[ci].type, child_type) == 0) {
-                if (!found || ship->efficiency[i] < min_eff)
-                    min_eff = ship->efficiency[i];
-                found = true;
-                break;
+
+        bool powers_type = false;
+
+        /* (a) The powered entry itself is the typed subsystem. */
+        if (e->hp_index >= 0 && e->hp_index < cls->subsystem_count &&
+            strcmp(cls->subsystems[e->hp_index].type, child_type) == 0) {
+            powers_type = true;
+        }
+
+        /* (b) A flat child subsystem of this powered parent matches the type.
+         * Children record parent_idx == parent entry's hp_index. */
+        if (!powers_type) {
+            for (int j = 0; j < cls->subsystem_count; j++) {
+                if (cls->subsystems[j].parent_idx == e->hp_index &&
+                    strcmp(cls->subsystems[j].type, child_type) == 0) {
+                    powers_type = true;
+                    break;
+                }
             }
         }
-        /* Also check the entry itself (for childless powered entries) */
-        if (!found && e->child_count == 0 &&
-            e->hp_index >= 0 && e->hp_index < cls->subsystem_count &&
-            strcmp(cls->subsystems[e->hp_index].type, child_type) == 0) {
-            min_eff = ship->efficiency[i];
+
+        if (powers_type) {
+            if (!found || ship->efficiency[i] < min_eff)
+                min_eff = ship->efficiency[i];
             found = true;
         }
     }

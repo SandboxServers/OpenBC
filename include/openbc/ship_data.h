@@ -13,8 +13,13 @@
 #define BC_SS_FORMAT_BASE     0   /* Hull, Shield Gen, Bridge: [cond:u8][children...] */
 #define BC_SS_FORMAT_POWERED  1   /* Sensors, Engines, etc.: Base + [bit][power_pct:u8] */
 #define BC_SS_FORMAT_POWER    2   /* Reactor only: Base + [main_batt:u8][backup_batt:u8] */
-#define BC_SS_MAX_CHILDREN   12   /* Max children per serialization list entry */
-#define BC_SS_MAX_ENTRIES    16   /* Max top-level entries in serialization list */
+#define BC_SS_MAX_CHILDREN   12   /* Max children per serialization list entry (authoring only) */
+/* Max top-level entries in the runtime (FLATTENED) serialization list.
+ * Stock flattens the hardpoint tree before StateUpdate runs, so every weapon
+ * mount / engine nacelle is its own top-level round-robin entry.  This must be
+ * large enough to hold a ship's parent entries + all flattened children
+ * (galaxy = ~34).  Sized to BC_MAX_SUBSYSTEMS so any stock ship fits. */
+#define BC_SS_MAX_ENTRIES    64   /* Max top-level entries in serialization list */
 
 typedef struct { f32 x, y, z; } bc_vec3_t;
 
