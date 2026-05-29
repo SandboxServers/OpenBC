@@ -1017,9 +1017,70 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     }
 
     /* --- Python events (reliable) --- */
-    case BC_OP_PYTHON_EVENT:
+    case BC_OP_PYTHON_EVENT: {
+        /* ObjectExplodingEvent (factory 0x8129) is the canonical ship-death
+         * signal.  The dying ship's client emits it on death; the host must
+         * observe it to attribute the kill and broadcast SCORE_CHANGE (0x36).
+         *
+         * Wire-protocol trace analysis of a stock dedicated server session
+         * shows weapon kills are frequently delivered to the victim via
+         * per-tick health replication (StateUpdate) rather than a discrete
+         * server-applied damage hit -- so the server-side combat paths
+         * (beam/torpedo/collision/self-destruct) do not always observe the
+         * killing blow.  Treat the inbound exploding-event as a fallback kill
+         * detector: score it only when the server has not already retired the
+         * victim's ship (ship still alive).  When the server already processed
+         * the death, the victim's ship is no longer alive and we skip, so the
+         * two paths never double-count. */
+        bc_exploding_event_t expl_ev;
+        if (!g_game_ended &&
+            bc_parse_python_exploding_event(payload, payload_len, &expl_ev)) {
+            int victim_slot = -1;
+            int vgs = bc_object_id_to_slot(expl_ev.dest_object_id);
+            if (vgs >= 0 && vgs + 1 < BC_MAX_PLAYERS) victim_slot = vgs + 1;
+
+            if (victim_slot > 0 &&
+                g_peers.peers[victim_slot].has_ship &&
+                g_peers.peers[victim_slot].ship.alive) {
+                /* Resolve the killer.  source_object_id is the killer ship's
+                 * object ID; killer_id duplicates it.  0 => self-destruct /
+                 * environmental / AI (no kill credit). */
+                i32 killer_obj = expl_ev.source_object_id != 0
+                               ? expl_ev.source_object_id
+                               : expl_ev.killer_id;
+                bool self_destruct = (killer_obj == 0);
+                int killer_slot = -1;
+                if (!self_destruct) {
+                    int kgs = bc_object_id_to_slot(killer_obj);
+                    if (kgs >= 0 && kgs + 1 < BC_MAX_PLAYERS)
+                        killer_slot = kgs + 1;
+                    /* A killer slot that is not an active player ship yields
+                     * no kill credit (e.g. AI / departed peer). */
+                    if (killer_slot > 0 &&
+                        g_peers.peers[killer_slot].state < PEER_LOBBY)
+                        killer_slot = -1;
+                }
+
+                /* Retire the victim ship before scoring so the server-side
+                 * combat path cannot re-score the same death. */
+                g_peers.peers[victim_slot].ship.alive = false;
+                g_peers.peers[victim_slot].has_ship = false;
+                g_peers.peers[victim_slot].respawn_timer = 0.0f;
+                g_peers.peers[victim_slot].respawn_class = -1;
+
+                LOG_INFO("combat",
+                         "client-reported kill: victim=%s killer=%s%s",
+                         peer_name(victim_slot),
+                         self_destruct ? "(none)"
+                                       : object_owner_name(killer_obj),
+                         self_destruct ? " [self-destruct]" : "");
+
+                process_ship_kill(killer_slot, victim_slot, self_destruct);
+            }
+        }
         bc_relay_to_others(peer_slot, payload, payload_len, true);
         break;
+    }
 
     case BC_OP_PYTHON_EVENT2:
         /* C->S only; server absorbs locally, does NOT relay (0 S->C in stock trace) */
