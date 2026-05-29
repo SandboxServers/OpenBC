@@ -426,6 +426,9 @@ static void record_damage_ledger(int attacker_slot, int target_slot,
     hull_damage *= mod;
 
     if (g_team_mode && same_team_slots(attacker_slot, target_slot)) {
+        /* Issue #203: track cumulative friendly-fire (pre-negation magnitude)
+         * and emit warnings / end-game per the configured FF mode. */
+        bc_ff_record(shield_damage + hull_damage);
         shield_damage = -shield_damage;
         hull_damage = -hull_damage;
     }
@@ -443,6 +446,49 @@ static void end_game_locked(i32 reason, const char *why)
     g_game_ended = true;
     g_accept_new_players = false;
     LOG_INFO("game", "EndGame: reason=%d (%s)", (int)reason, why ? why : "?");
+}
+
+/* --- Friendly-fire tracking (Issue #203) --- */
+
+void bc_ff_reset_round(void)
+{
+    g_ff.current = 0.0f;
+    g_ff.warned = false;
+}
+
+void bc_ff_configure(bc_ff_mode_t mode, f32 tolerance, f32 warning_points)
+{
+    g_ff.mode = mode;
+    g_ff.tolerance = tolerance;
+    g_ff.warning_points = warning_points;
+    /* Stock default: warnings only, never end game. STRICT mode opts in to
+     * ending the game once tolerance is exceeded. */
+    g_ff.game_over_on_threshold = (mode == BC_FF_MODE_STRICT);
+    bc_ff_reset_round();
+}
+
+bool bc_ff_record(f32 damage_amount)
+{
+    if (g_game_ended) return false;
+
+    /* Pure accumulation/decision in combat.c; emits are performed here. */
+    bc_ff_outcome_t out = bc_ff_step(&g_ff, damage_amount);
+
+    if (out.warned) {
+        u8 chat[160];
+        int clen = bc_build_chat(
+            chat, sizeof(chat), 0 /* dedi slot */, false,
+            "WARNING: friendly-fire threshold reached. Cease fire on teammates.");
+        if (clen > 0) bc_send_to_all(chat, clen, true);
+        LOG_INFO("ff", "friendly-fire warning at %.1f (threshold %.1f)",
+                 (double)g_ff.current, (double)g_ff.warning_points);
+    }
+
+    if (out.game_over) {
+        end_game_locked(BC_END_REASON_OVER, "friendly-fire tolerance exceeded");
+    }
+
+    return out.warned;
 }
 
 static void broadcast_team_scores(void)
@@ -592,6 +638,7 @@ static void reset_round_for_restart(void)
     memset(g_team_kills, 0, sizeof(g_team_kills));
     memset(g_damage_ledger, 0, sizeof(g_damage_ledger));
     memset(g_reconnect_scores, 0, sizeof(g_reconnect_scores));
+    bc_ff_reset_round();  /* Issue #203: clear FF accumulator on round restart */
     for (int i = 0; i < BC_MAX_PLAYERS; i++) g_player_teams[i] = BC_TEAM_NONE;
 
     for (int i = 1; i < BC_MAX_PLAYERS; i++) {

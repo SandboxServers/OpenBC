@@ -8,6 +8,7 @@
 #include "openbc/manifest.h"
 #include "openbc/master.h"
 #include "openbc/ship_data.h"
+#include "openbc/combat.h"
 #include "openbc/torpedo_tracker.h"
 #include "openbc/gamespy.h"
 
@@ -84,6 +85,26 @@ extern bool        g_accept_new_players;
 extern bool             g_game_ended;
 
 #define BC_TEAM_NONE 0xFF
+
+/* --- Friendly-fire tracking (Issue #203) ---
+ * Core types (bc_ff_mode_t, bc_friendly_fire_t, bc_ff_outcome_t) and the pure
+ * accumulation step bc_ff_step() live in <openbc/combat.h>. The declarations
+ * below are the server-side global + I/O wrappers. */
+
+extern bc_friendly_fire_t g_ff;
+
+/* Reset FF accumulator/latch to a fresh round (keeps configured thresholds). */
+void bc_ff_reset_round(void);
+
+/* Configure the FF tracker from the parsed three-mode config. Sets thresholds
+ * and game-over policy based on mode; resets the round accumulator. */
+void bc_ff_configure(bc_ff_mode_t mode, f32 tolerance, f32 warning_points);
+
+/* Record same-team (friendly-fire) damage and react per the configured mode.
+ * Wraps bc_ff_step() on g_ff and performs the side effects: fires a one-shot
+ * warning chat at warning_points and (STRICT only) triggers END_GAME once
+ * `current` exceeds tolerance. Returns true if the warning fired on this call. */
+bool bc_ff_record(f32 damage_amount);
 
 typedef struct {
     f32 shield_damage;

@@ -61,6 +61,18 @@ bool        g_accept_new_players = true;
 /* Win condition */
 bool g_game_ended = false;
 
+/* Friendly-fire tracking (Issue #203). Defaults to PERMISSIVE (no tracking).
+ * Stock default is WARNING with warning_points=100. Configured at startup via
+ * bc_ff_configure() from server.toml / CLI. */
+bc_friendly_fire_t g_ff = {
+    BC_FF_MODE_PERMISSIVE,  /* mode */
+    1000.0f,                /* tolerance */
+    0.0f,                   /* current */
+    100.0f,                 /* warning_points (stock default) */
+    false,                  /* game_over_on_threshold */
+    false                   /* warned */
+};
+
 i32 g_player_scores[BC_MAX_PLAYERS];
 i32 g_player_kills[BC_MAX_PLAYERS];
 i32 g_player_deaths[BC_MAX_PLAYERS];
