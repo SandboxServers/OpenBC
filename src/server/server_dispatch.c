@@ -1049,20 +1049,76 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     }
 
     /* --- Python events (reliable) --- */
-    case BC_OP_PYTHON_EVENT:
-        /* Do NOT relay inbound 0x06 verbatim. Wire-protocol trace analysis of a
-         * stock dedicated server session shows 0x06 PythonEvent is
-         * server-ORIGINATED on the wire (zero client->server occurrences); the
-         * host's receive handler consumes it locally without re-broadcasting.
-         * The four events that must reach bystander clients are emitted from the
-         * server's own simulation, not relayed from client input:
-         *   - ADD_TO_REPAIR_LIST       (generate_damage_events / death burst)
-         *   - OBJECT_EXPLODING         (server death pipeline)
-         *   - REPAIR_COMPLETED         (repair tick, main loop)
-         *   - REPAIR_CANNOT_BE_COMPLETED (repair tick, main loop)
-         * Relaying inbound 0x06 verbatim produced duplicate events on bystander
-         * clients (Engineering / repair-queue UI desync). Absorb locally. */
+    case BC_OP_PYTHON_EVENT: {
+        /* Inbound 0x06 is consumed locally and NOT relayed verbatim (#189).
+         * Relaying inbound 0x06 produced duplicate events on bystander clients
+         * (Engineering / repair-queue UI desync); the events bystanders need
+         * (ADD_TO_REPAIR_LIST, OBJECT_EXPLODING, REPAIR_COMPLETED,
+         * REPAIR_CANNOT_BE_COMPLETED) are emitted from the server's own
+         * simulation, not relayed from client input.
+         *
+         * The inbound ObjectExplodingEvent (factory 0x8129) is still parsed
+         * here as a FALLBACK kill detector (#188): weapon kills are sometimes
+         * delivered to the victim purely via per-tick health replication
+         * (StateUpdate), so the server-side combat paths
+         * (beam/torpedo/collision/self-destruct) do not always observe the
+         * killing blow.  We score the inbound event only when the server has
+         * not already retired the victim's ship, so the two paths never
+         * double-count; if the client never sends 0x06 this block simply does
+         * not fire (no regression).
+         *
+         * OPEN (needs live trace verification): the relative frequency of
+         * client- vs server-originated 0x06, and whether bystanders need a
+         * server-re-originated OBJECT_EXPLODING in the fallback-kill case or
+         * self-trigger the death visual from the hull-zero StateUpdate. */
+        bc_exploding_event_t expl_ev;
+        if (!g_game_ended &&
+            bc_parse_python_exploding_event(payload, payload_len, &expl_ev)) {
+            int victim_slot = -1;
+            int vgs = bc_object_id_to_slot(expl_ev.dest_object_id);
+            if (vgs >= 0 && vgs + 1 < BC_MAX_PLAYERS) victim_slot = vgs + 1;
+
+            if (victim_slot > 0 &&
+                g_peers.peers[victim_slot].has_ship &&
+                g_peers.peers[victim_slot].ship.alive) {
+                /* Resolve the killer.  source_object_id is the killer ship's
+                 * object ID; killer_id duplicates it.  0 => self-destruct /
+                 * environmental / AI (no kill credit). */
+                i32 killer_obj = expl_ev.source_object_id != 0
+                               ? expl_ev.source_object_id
+                               : expl_ev.killer_id;
+                bool self_destruct = (killer_obj == 0);
+                int killer_slot = -1;
+                if (!self_destruct) {
+                    int kgs = bc_object_id_to_slot(killer_obj);
+                    if (kgs >= 0 && kgs + 1 < BC_MAX_PLAYERS)
+                        killer_slot = kgs + 1;
+                    /* A killer slot that is not an active player ship yields
+                     * no kill credit (e.g. AI / departed peer). */
+                    if (killer_slot > 0 &&
+                        g_peers.peers[killer_slot].state < PEER_LOBBY)
+                        killer_slot = -1;
+                }
+
+                /* Retire the victim ship before scoring so the server-side
+                 * combat path cannot re-score the same death. */
+                g_peers.peers[victim_slot].ship.alive = false;
+                g_peers.peers[victim_slot].has_ship = false;
+                g_peers.peers[victim_slot].respawn_timer = 0.0f;
+                g_peers.peers[victim_slot].respawn_class = -1;
+
+                LOG_INFO("combat",
+                         "client-reported kill: victim=%s killer=%s%s",
+                         peer_name(victim_slot),
+                         self_destruct ? "(none)"
+                                       : object_owner_name(killer_obj),
+                         self_destruct ? " [self-destruct]" : "");
+
+                process_ship_kill(killer_slot, victim_slot, self_destruct);
+            }
+        }
         break;
+    }
 
     case BC_OP_PYTHON_EVENT2:
         /* C->S only; server absorbs locally, does NOT relay (0 S->C in stock trace) */
