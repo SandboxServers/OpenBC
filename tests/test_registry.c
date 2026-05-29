@@ -951,7 +951,7 @@ TEST(repair_heals_subsystem)
     ASSERT_EQ(ship.repair_count, 1);
 
     f32 before = ship.subsystem_hp[0];
-    bc_repair_tick(&ship, cls, 1.0f);
+    bc_repair_tick(&ship, cls, 1.0f, NULL, 0, NULL);
     ASSERT(ship.subsystem_hp[0] > before); /* healed */
 }
 
@@ -967,7 +967,7 @@ TEST(repair_removes_when_full)
 
     bc_repair_add(&ship, 0);
     /* Repair for long time -> should fully heal and auto-remove */
-    bc_repair_tick(&ship, cls, 100.0f);
+    bc_repair_tick(&ship, cls, 100.0f, NULL, 0, NULL);
     ASSERT(ship.subsystem_hp[0] >= max_hp - 0.01f);
     ASSERT_EQ(ship.repair_count, 0); /* removed from queue */
 }

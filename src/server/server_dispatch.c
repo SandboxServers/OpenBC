@@ -744,21 +744,14 @@ static void apply_beam_damage(int shooter_slot, int target_slot)
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
-        /* Send Explosion (0x29) -- visual effect for the kill.
-         * Stock BC does NOT send DestroyObject (0x14) for ship deaths;
-         * the old ship is implicitly replaced when the respawn ObjCreateTeam
-         * arrives. Verified: 0 DestroyObject messages across 59 ship deaths
-         * in a 33.5-minute combat session. */
-        {
-            u8 boom[16];
-            int blen = bc_build_explosion(boom, sizeof(boom),
-                                           target->ship.object_id,
-                                           target->ship.pos.x,
-                                           target->ship.pos.y,
-                                           target->ship.pos.z,
-                                           damage, 300.0f);
-            if (blen > 0) bc_send_to_all(boom, blen, true);
-        }
+        /* No server-originated Explosion (0x29) for the kill. Wire-protocol
+         * trace analysis of a stock dedicated server session shows the host
+         * emits 0x29 ONLY as a catch-up to late observers (RequestObj /
+         * NewPlayerInGame), never from per-tick combat. The death visual is
+         * carried by the OBJECT_EXPLODING PythonEvent (0x06) above; per-tick
+         * 0x29 here duplicated that visual on bystander clients. Stock BC also
+         * does NOT send DestroyObject (0x14) for ship deaths -- the old ship is
+         * implicitly replaced when the respawn ObjCreateTeam arrives. */
 
         process_ship_kill(shooter_slot, target_slot, false);
 
@@ -846,18 +839,10 @@ void bc_torpedo_hit_callback(int shooter_slot, i32 target_id,
             if (elen > 0) bc_send_to_all(expl, elen, true);
         }
 
-        /* Send Explosion (0x29) -- visual effect for the kill.
-         * Stock BC does NOT send DestroyObject (0x14) for ship deaths. */
-        {
-            u8 boom[16];
-            int blen = bc_build_explosion(boom, sizeof(boom),
-                                           target->ship.object_id,
-                                           impact_pos.x,
-                                           impact_pos.y,
-                                           impact_pos.z,
-                                           damage, damage_radius > 0.0f ? damage_radius : 300.0f);
-            if (blen > 0) bc_send_to_all(boom, blen, true);
-        }
+        /* No server-originated Explosion (0x29) for the kill -- see the beam
+         * kill path for the rationale. The OBJECT_EXPLODING PythonEvent (0x06)
+         * above is the sole kill-visual emission; stock emits 0x29 only as a
+         * catch-up to late observers, never from per-tick combat. */
 
         process_ship_kill(shooter_slot, target_slot, false);
 
@@ -1065,7 +1050,18 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
 
     /* --- Python events (reliable) --- */
     case BC_OP_PYTHON_EVENT:
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        /* Do NOT relay inbound 0x06 verbatim. Wire-protocol trace analysis of a
+         * stock dedicated server session shows 0x06 PythonEvent is
+         * server-ORIGINATED on the wire (zero client->server occurrences); the
+         * host's receive handler consumes it locally without re-broadcasting.
+         * The four events that must reach bystander clients are emitted from the
+         * server's own simulation, not relayed from client input:
+         *   - ADD_TO_REPAIR_LIST       (generate_damage_events / death burst)
+         *   - OBJECT_EXPLODING         (server death pipeline)
+         *   - REPAIR_COMPLETED         (repair tick, main loop)
+         *   - REPAIR_CANNOT_BE_COMPLETED (repair tick, main loop)
+         * Relaying inbound 0x06 verbatim produced duplicate events on bystander
+         * clients (Engineering / repair-queue UI desync). Absorb locally. */
         break;
 
     case BC_OP_PYTHON_EVENT2:
