@@ -168,6 +168,23 @@ int bc_build_restart_game(u8 *buf, int buf_size);
 #define BC_EVENT_NEW_PLAYER          0x008000F1  /* adds player to engine player list */
 #define BC_EVENT_PLAYER_REMOVED      0x00060005  /* removes player from engine player list */
 
+/* Connect-event broadcast (mechanism #3): transport-level join/leave events
+ * the host forwards to already-connected peers so they learn about a new peer
+ * before checksum exchange.  Distinct from the per-handler game-data relay and
+ * from Python script messaging.
+ *
+ * ET_NEW_PEER_CONNECTED (0x00060007) fires when a new peer completes the
+ * transport-layer connect handshake.  The complementary
+ * BC_EVENT_PLAYER_REMOVED (0x00060005) is the disconnect side.  Both ride the
+ * DeletePlayerUI (0x17) event transport (factory BC_FACTORY_DELETE_PLAYER_UI).
+ */
+#define BC_EVENT_NEW_PEER_CONNECTED  0x00060007
+
+/* Build a connect-event broadcast message for opcode 0x17.
+ * [0x17][factory=0x866:i32][event=0x00060007:i32][src=0:i32][tgt=0:i32][wire_peer:u8]
+ * 18 bytes total.  wire_peer_id is the new peer's 1-based wire/network ID. */
+int bc_build_new_peer_connected(u8 *buf, int buf_size, u8 wire_peer_id);
+
 /* SubsystemEvent: [0x06][factory=0x101:i32][event_type:i32][source:i32][dest:i32]
  * 17 bytes total. Used for ADD_TO_REPAIR_LIST, REPAIR_COMPLETED, etc. */
 int bc_build_python_subsystem_event(u8 *buf, int buf_size,

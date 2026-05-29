@@ -287,19 +287,35 @@ TEST(join_sends_delete_player_ui_to_others)
     CHECK(test_client_connect(&cli2, JF_PORT + 1, "Player2", 0, GAME_DIR));
     cli2_ok = true;
 
-    /* First client should receive DeletePlayerUI (0x17) for the second player */
+    /* First client should receive DeletePlayerUI (0x17) for the second player.
+     *
+     * Two distinct 0x17 messages now arrive for a join:
+     *   1. The connect-event broadcast (#202), carrying event_code
+     *      BC_EVENT_NEW_PEER_CONNECTED (0x00060007), fired at transport
+     *      connect time -- before checksum exchange.
+     *   2. The NewPlayerInGame player-list add, carrying event_code
+     *      BC_EVENT_NEW_PLAYER (0x008000F1).
+     * Both are valid; this test targets the NEW_PLAYER one, so scan past any
+     * connect-event 0x17 until the NEW_PLAYER-coded message is found. */
     int msg_len = 0;
-    const u8 *msg = test_client_expect_opcode(&cli1, BC_OP_DELETE_PLAYER_UI,
-                                               &msg_len, 2000);
-    CHECK(msg != NULL);
-    CHECK(msg_len == 18);
-
-    /* Verify it's a NEW_PLAYER event */
-    i32 event_code = read_i32_le(msg + 5);
-    CHECK(event_code == (i32)BC_EVENT_NEW_PLAYER);
+    i32 event_code = 0;
+    u8 wire_peer = 0;
+    bool found_new_player = false;
+    for (int attempt = 0; attempt < 8 && !found_new_player; attempt++) {
+        const u8 *msg = test_client_expect_opcode(&cli1, BC_OP_DELETE_PLAYER_UI,
+                                                   &msg_len, 2000);
+        CHECK(msg != NULL);
+        CHECK(msg_len == 18);
+        event_code = read_i32_le(msg + 5);
+        wire_peer  = msg[17];
+        if (event_code == (i32)BC_EVENT_NEW_PLAYER)
+            found_new_player = true;
+        else
+            CHECK(event_code == (i32)BC_EVENT_NEW_PEER_CONNECTED);
+    }
+    CHECK(found_new_player);
 
     /* Wire peer ID should be the second player's wire slot */
-    u8 wire_peer = msg[17];
     CHECK(wire_peer == 3);  /* peer_slot=2 -> wire_slot=3 */
 
 cleanup2:

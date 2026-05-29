@@ -44,6 +44,26 @@ typedef struct obc_event_ctx {
     bool        suppress_relay; /* One-way latch: once true, later handlers cannot clear. */
 } obc_event_ctx_t;
 
+/*
+ * Payload for the "player_connected" event (fired at transport-level peer add,
+ * before checksum exchange begins).  Cast obc_event_ctx_t.event_data to this
+ * when event_name == "player_connected".
+ *
+ * slot      : 0-based peer slot index assigned to the new peer.
+ * wire_id   : 1-based wire/network ID (slot + 1), as seen by other peers.
+ * addr_ip   : peer source IP, network byte order (0 if unknown).
+ * addr_port : peer source UDP port, network byte order (0 if unknown).
+ */
+typedef struct obc_peer_info {
+    int          slot;
+    int          wire_id;
+    unsigned int addr_ip;
+    unsigned short addr_port;
+} obc_peer_info_t;
+
+/* Canonical event name for the transport-level connect notification (#202). */
+#define OBC_EVENT_PLAYER_CONNECTED "player_connected"
+
 /* Handler function type. api is the same table received at module load. */
 typedef void (*obc_event_handler_fn)(const obc_engine_api_t *api,
                                      obc_event_ctx_t        *ctx);
