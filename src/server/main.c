@@ -1017,7 +1017,7 @@ int main(int argc, char **argv)
                     /* Build remote version (with power data) using same
                      * start_idx so both cover the same entries. */
                     u8 hbuf_rmt[128];
-                    u8 rmt_next;
+                    u8 rmt_next = p->subsys_rr_idx;
                     int hlen_rmt = bc_ship_build_health_update(
                         &p->ship, cls, g_game_time,
                         p->subsys_rr_idx, &rmt_next, false,

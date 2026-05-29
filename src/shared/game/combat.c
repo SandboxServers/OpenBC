@@ -419,10 +419,13 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
                            f32 power_level, f32 dt)
 {
     if (!ship->alive || dt <= 0.0f) return;
-    /* Issue #192: gate recharge on the deferred shield-active state rather than
-     * raw cloak_state. No recharge during the pending-disable window (cloak-up);
-     * recharge resumes only after the pending-enable timer fires (post-decloak
-     * grace ends). */
+    /* Issue #192: no shield recharge while cloaking/cloaked/decloaking. The
+     * cloak-up vulnerability window keeps shields UP for absorption (via
+     * bc_cloak_shields_active() in apply_damage) but they must NOT recharge
+     * once cloak is engaged. Recharge resumes only when the ship is fully
+     * decloaked AND the post-decloak grace timer has expired (shield_active_now
+     * back to true). */
+    if (ship->cloak_state != BC_CLOAK_DECLOAKED) return;
     if (!bc_cloak_shields_active(ship)) return;
 
     /* Special recovery path: if shield subsystem is destroyed/disabled,

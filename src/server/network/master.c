@@ -131,8 +131,18 @@ int bc_master_parse_txt(const char *path,
     int count = 0;
     char line[256];
     while (count < max_out && fgets(line, sizeof(line), f)) {
-        /* Strip trailing newline / carriage return. */
         size_t len = strlen(line);
+
+        /* If the line was longer than the buffer, fgets stopped mid-line with
+         * no newline. Drain the remainder of the over-long line and skip it
+         * entirely, rather than parse a truncated head plus a bogus tail entry. */
+        if (len > 0 && line[len - 1] != '\n' && !feof(f)) {
+            int ch;
+            while ((ch = fgetc(f)) != '\n' && ch != EOF) { }
+            continue;
+        }
+
+        /* Strip trailing newline / carriage return. */
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
             line[--len] = '\0';
 

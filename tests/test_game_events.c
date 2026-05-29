@@ -532,6 +532,30 @@ TEST(exploding_event_truncated)
     ASSERT(!bc_parse_python_exploding_event(wire, wire_len - 1, &ev));
 }
 
+TEST(exploding_event_permissive_type)
+{
+    /* The parser identifies the kill signal by factory ID alone and must NOT
+     * reject a non-0x4E event_type field. Build a valid event, overwrite the
+     * event_type (offset 5..8, after the opcode byte + factory i32) with a
+     * bogus value, and confirm it still parses with fields intact. */
+    i32 killer_id = bc_make_ship_id(0);
+    i32 victim_id = bc_make_ship_id(1);
+
+    u8 wire[64];
+    int wire_len = bc_build_python_exploding_event(wire, sizeof(wire),
+                                                   killer_id, victim_id,
+                                                   killer_id, 9.5f);
+    ASSERT(wire_len == 25);
+
+    wire[5] = 0x99; wire[6] = 0x99; wire[7] = 0x99; wire[8] = 0x99;
+
+    bc_exploding_event_t ev;
+    ASSERT(bc_parse_python_exploding_event(wire, wire_len, &ev));
+    ASSERT_EQ((u32)ev.source_object_id, (u32)killer_id);
+    ASSERT_EQ((u32)ev.dest_object_id, (u32)victim_id);
+    ASSERT_EQ((u32)ev.killer_id, (u32)killer_id);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -593,4 +617,5 @@ TEST_MAIN_BEGIN()
     RUN(exploding_event_rejects_other_factory);
     RUN(exploding_event_rejects_wrong_opcode);
     RUN(exploding_event_truncated);
+    RUN(exploding_event_permissive_type);
 TEST_MAIN_END()

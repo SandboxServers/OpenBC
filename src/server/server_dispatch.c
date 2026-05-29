@@ -1078,7 +1078,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
             int vgs = bc_object_id_to_slot(expl_ev.dest_object_id);
             if (vgs >= 0 && vgs + 1 < BC_MAX_PLAYERS) victim_slot = vgs + 1;
 
-            if (victim_slot > 0 &&
+            /* Anti-spoof: a client may only report the death of ITS OWN ship.
+             * The victim's object id must map back to the sending peer. Without
+             * this, any peer could send a 0x06 ObjectExplodingEvent naming an
+             * arbitrary victim and instantly kill them / manufacture scoring. */
+            if (victim_slot > 0 && victim_slot == peer_slot &&
                 g_peers.peers[victim_slot].has_ship &&
                 g_peers.peers[victim_slot].ship.alive) {
                 /* Resolve the killer.  source_object_id is the killer ship's

@@ -388,6 +388,51 @@ TEST(flat_count_matches_authored_tree)
     }
 }
 
+/* flat_count_matches_authored_tree pairs registry index i with SHIP_FOLDERS[i],
+ * which only holds if the registry loads ships in SHIP_FOLDERS order. That order
+ * comes from the manifest, so verify SHIP_FOLDERS matches the manifest's ship
+ * enumeration exactly -- if the manifest is reordered, fail loudly here instead
+ * of silently comparing mismatched ship/folder pairs downstream. */
+TEST(ship_folders_match_manifest_order)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/manifest.json", REGISTRY_DIR);
+
+    FILE *f = fopen(path, "rb");
+    ASSERT(f != NULL);
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    ASSERT(sz > 0);
+    char *buf = (char *)malloc((size_t)sz + 1);
+    ASSERT(buf != NULL);
+    size_t rd = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[rd] = '\0';
+
+    json_value_t *root = json_parse(buf);
+    free(buf);
+    ASSERT(root != NULL);
+
+    const json_value_t *ships = json_get(root, "ships");
+    ASSERT(ships != NULL && ships->type == JSON_ARRAY);
+    ASSERT((int)json_array_len(ships) == SHIP_FOLDER_COUNT);
+
+    for (int i = 0; i < SHIP_FOLDER_COUNT; i++) {
+        const json_value_t *e = json_array_get(ships, (size_t)i);
+        ASSERT(e != NULL && e->type == JSON_STRING);
+        const char *folder = json_string(e);
+        if (!folder || strcmp(folder, SHIP_FOLDERS[i]) != 0) {
+            printf("FAIL\n    manifest ship[%d]='%s' != SHIP_FOLDERS[%d]='%s'\n",
+                   i, folder ? folder : "(null)", i, SHIP_FOLDERS[i]);
+            test_fail++; test_pass--;
+            json_free(root);
+            return;
+        }
+    }
+    json_free(root);
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -402,4 +447,5 @@ TEST_MAIN_BEGIN()
     RUN(oversized_tree_never_emits_oob_hp_index);
     RUN(all_ships_hp_index_in_range);
     RUN(flat_count_matches_authored_tree);
+    RUN(ship_folders_match_manifest_order);
 TEST_MAIN_END()

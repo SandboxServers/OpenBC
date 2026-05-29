@@ -170,10 +170,12 @@ static void process_game_section(toml_table_t *root, obc_server_cfg_t *cfg)
     }
 
     value = toml_table_double(game, "friendly_fire_tolerance");
-    if (value.ok) cfg->friendly_fire_tolerance = value.u.d;
+    if (value.ok && !isnan(value.u.d) && !isinf(value.u.d))
+        cfg->friendly_fire_tolerance = value.u.d;
 
     value = toml_table_double(game, "friendly_fire_warning_points");
-    if (value.ok) cfg->friendly_fire_warning_points = value.u.d;
+    if (value.ok && !isnan(value.u.d) && !isinf(value.u.d))
+        cfg->friendly_fire_warning_points = value.u.d;
 
     value = toml_table_int(game, "difficulty");
     if (value.ok) {
