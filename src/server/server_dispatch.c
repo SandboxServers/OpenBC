@@ -845,6 +845,35 @@ static void handle_state_update_input(int peer_slot, bc_peer_t *peer,
             bc_registry_get_ship(&g_registry, peer->class_index);
         bc_state_update_t su;
         if (bc_parse_state_update(payload, payload_len, &su)) {
+            /* Validate before mutating authoritative ship state:
+             *  1. The update must target the sender's *current* ship object
+             *     (reject stale/pre-respawn packets or spoofs for another
+             *     object), and
+             *  2. all decoded floats indicated by the dirty flags must be
+             *     finite (reject NaN/Inf that would corrupt the transform).
+             * If any check fails, skip BOTH the mutation and the downstream
+             * power-state apply so bad data is neither stored nor relayed. */
+            if (su.object_id != peer->ship.object_id) {
+                LOG_DEBUG("state",
+                          "slot=%d StateUpdate object_id=0x%08x != ship 0x%08x dropped",
+                          peer_slot, (unsigned)su.object_id,
+                          (unsigned)peer->ship.object_id);
+                return;
+            }
+            if (((su.dirty & 0x01) &&
+                    (!isfinite(su.pos_x) || !isfinite(su.pos_y) || !isfinite(su.pos_z))) ||
+                ((su.dirty & 0x02) &&
+                    (!isfinite(su.delta_x) || !isfinite(su.delta_y) || !isfinite(su.delta_z))) ||
+                ((su.dirty & 0x04) &&
+                    (!isfinite(su.fwd_x) || !isfinite(su.fwd_y) || !isfinite(su.fwd_z))) ||
+                ((su.dirty & 0x08) &&
+                    (!isfinite(su.up_x) || !isfinite(su.up_y) || !isfinite(su.up_z))) ||
+                ((su.dirty & 0x10) && !isfinite(su.speed))) {
+                LOG_DEBUG("state",
+                          "slot=%d StateUpdate non-finite float dropped",
+                          peer_slot);
+                return;
+            }
             /* Track position */
             if (su.dirty & 0x01) {
                 peer->ship.pos.x = su.pos_x;

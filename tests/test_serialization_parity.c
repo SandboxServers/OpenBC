@@ -14,6 +14,7 @@
  */
 #include "test_util.h"
 #include "openbc/ship_data.h"
+#include <stdio.h>
 #include <string.h>
 
 #define REGISTRY_DIR  "data/vanilla-1.1"
@@ -216,6 +217,60 @@ TEST(reactor_entry_format_is_power)
     }
 }
 
+/* Write a synthetic registry JSON whose flattened serialization tree exceeds
+ * BC_MAX_SUBSYSTEMS.  The ship has ZERO real subsystems, so every
+ * serialization entry is a synthetic container that consumes a fresh HP slot.
+ * With (BC_MAX_SUBSYSTEMS + 8) parent entries the flatten loop must saturate
+ * next_hp_slot and STOP -- it must never emit hp_index == BC_MAX_SUBSYSTEMS. */
+static const char *write_oversized_registry(void)
+{
+    static const char *path = "test_oversized_ship.json";
+    FILE *f = fopen(path, "wb");
+    if (!f) return NULL;
+
+    fputs("{ \"ships\": [ { \"name\": \"oversized\", \"species_id\": 999,\n", f);
+    fputs("  \"serialization_list\": [\n", f);
+    int n = BC_MAX_SUBSYSTEMS + 8; /* deliberately over the slot pool */
+    for (int i = 0; i < n; i++) {
+        /* Each entry has a unique name not present in (empty) subsystems, so it
+         * is synthetic and demands a new HP slot. */
+        fprintf(f,
+            "    { \"name\": \"synth_%d\", \"format\": \"base\", \"max_condition\": 100.0 }%s\n",
+            i, (i + 1 < n) ? "," : "");
+    }
+    fputs("  ] } ] }\n", f);
+    fclose(f);
+    return path;
+}
+
+TEST(oversized_tree_never_emits_oob_hp_index)
+{
+    const char *path = write_oversized_registry();
+    ASSERT(path != NULL);
+
+    bc_game_registry_t reg;
+    bool ok = bc_registry_load(&reg, path);
+    remove(path);
+    ASSERT(ok);
+    ASSERT(reg.ship_count == 1);
+
+    const bc_ship_class_t *cls = &reg.ships[0];
+    const bc_ss_list_t *sl = &cls->ser_list;
+
+    /* Truncated safely: never more entries than the list can hold. */
+    ASSERT(sl->count <= BC_SS_MAX_ENTRIES);
+    /* HP slot accounting must never exceed the backing array. */
+    ASSERT(sl->total_hp_slots <= BC_MAX_SUBSYSTEMS);
+
+    /* The core invariant: NO entry may carry an out-of-bounds hp_index.
+     * subsystem_hp[] has exactly BC_MAX_SUBSYSTEMS slots (indices 0..63). */
+    for (int i = 0; i < sl->count; i++) {
+        int hp = sl->entries[i].hp_index;
+        ASSERT(hp >= 0);
+        ASSERT(hp < BC_MAX_SUBSYSTEMS);
+    }
+}
+
 /* === Run all tests === */
 
 TEST_MAIN_BEGIN()
@@ -227,4 +282,5 @@ TEST_MAIN_BEGIN()
     RUN(every_weapon_mount_is_top_level);
     RUN(start_idx_reaches_weapon_indices);
     RUN(reactor_entry_format_is_power);
+    RUN(oversized_tree_never_emits_oob_hp_index);
 TEST_MAIN_END()

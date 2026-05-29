@@ -183,10 +183,22 @@ static void load_serialization_list(bc_ship_class_t *ship, const json_value_t *a
             parent_max = ship->subsystems[parent_hp].max_condition;
         } else {
             /* Synthetic container (e.g. weapon-system parent) not in the flat
-             * subsystem array -- allocate a new HP slot for it. */
+             * subsystem array -- allocate a new HP slot for it.  If the HP slot
+             * pool is exhausted, the flattened tree is larger than
+             * subsystem_hp[] / the wire round-robin can address: reject the
+             * remainder rather than emit an out-of-bounds hp_index. */
+            if (next_hp_slot >= BC_MAX_SUBSYSTEMS) {
+                fprintf(stderr,
+                        "ship_data: '%s' serialization tree exceeds "
+                        "BC_MAX_SUBSYSTEMS (%d) at entry '%s' -- truncating "
+                        "(check ship config)\n",
+                        ship->name, BC_MAX_SUBSYSTEMS,
+                        ename ? ename : "(synthetic)");
+                break;
+            }
             parent_hp = next_hp_slot;
             parent_max = (f32)json_number(json_get(entry_obj, "max_condition"));
-            if (next_hp_slot < BC_MAX_SUBSYSTEMS) next_hp_slot++;
+            next_hp_slot++;
         }
 
         /* Emit the parent as a flat top-level entry. */
@@ -212,9 +224,20 @@ static void load_serialization_list(bc_ship_class_t *ship, const json_value_t *a
                     /* Record the (real) parent's hp_index on the child subsystem. */
                     ship->subsystems[cidx].parent_idx = parent_hp;
                 } else {
+                    /* Synthetic child -- needs a fresh HP slot.  Reject rather
+                     * than emit hp_index == BC_MAX_SUBSYSTEMS (out of bounds). */
+                    if (next_hp_slot >= BC_MAX_SUBSYSTEMS) {
+                        fprintf(stderr,
+                                "ship_data: '%s' serialization tree exceeds "
+                                "BC_MAX_SUBSYSTEMS (%d) at child '%s' -- "
+                                "truncating (check ship config)\n",
+                                ship->name, BC_MAX_SUBSYSTEMS,
+                                cname ? cname : "(synthetic)");
+                        break;
+                    }
                     cidx = next_hp_slot;
                     cmax = (f32)json_number(json_get(child_obj, "max_condition"));
-                    if (next_hp_slot < BC_MAX_SUBSYSTEMS) next_hp_slot++;
+                    next_hp_slot++;
                 }
                 if (append_flat_entry(sl, BC_SS_FORMAT_BASE, cidx,
                                       cmax, 0.0f, BC_POWER_MODE_MAIN_FIRST) < 0)
