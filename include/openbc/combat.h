@@ -112,8 +112,10 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
 /* --- Cloaking device --- */
 
 /* Default cloak transition time (seconds).
- * BC engine uses ~3s; not exposed in hardpoint scripts. */
-#define BC_CLOAK_TRANSITION_TIME  3.0f
+ * Binary-confirmed: DAT_008E4E1C in stbc.exe = 5.0f (raw bytes 00 00 A0 40).
+ * Settable per-ship via SWIG CloakingSubsystem_SetCloakTime in stock;
+ * not exposed via hardpoint script API. */
+#define BC_CLOAK_TRANSITION_TIME  5.0f
 
 /* Cloak energy threshold: if the cloaking device's power efficiency
  * drops below this, the cloak fails and decloaking begins. */

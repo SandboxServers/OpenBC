@@ -192,8 +192,11 @@ $(BUILD)/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
 
-# Include auto-generated header dependencies
--include $(wildcard $(BUILD)/src/**/*.d $(BUILD)/tools/*.d)
+# Include auto-generated header dependencies.
+# Use find(1) instead of ** globbing: GNU make wildcard does not recurse
+# reliably here, which can leave stale objects when headers change.
+DEP_FILES := $(shell find $(BUILD) -type f -name '*.d' 2>/dev/null)
+-include $(DEP_FILES)
 
 # --- Copy data files into build directory ---
 $(BUILD)/data: data

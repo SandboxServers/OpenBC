@@ -1337,14 +1337,18 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
     }
 
-    /* --- Object destruction: always relay (visual + game state for all clients) --- */
+    /* --- Object destruction: LOCAL-ONLY per stock binary RE --- */
     case BC_OP_DESTROY_OBJ: {
         bc_destroy_event_t ev;
         if (bc_parse_destroy_obj(payload, payload_len, &ev)) {
             LOG_INFO("combat", "Client DestroyObj: %s's ship",
                      object_owner_name(ev.object_id));
         }
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        /* 2026-05-29: relay removed per stock-parity binary RE.
+         * Stock binary handles 0x14 LOCAL-ONLY (memo C1); OpenBC's own
+         * death pipeline emits EXPLODING + Explosion downstream
+         * (server_dispatch.c lines 682, 698, 784, 797), so removing the
+         * relay does not break bystander visuals. */
         break;
     }
 
@@ -1547,11 +1551,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- Collision effect: parse and apply damage server-side.
      * Wire format from docs/collision-effect-wire-format.md.
      * source_obj=0 for environment collisions, otherwise other ship's ID.
-     * The host applies damage; relay to others for visual effects. */
+     * The host applies damage; bystander visuals come via StateUpdate HP
+     * transitions, not via opcode 0x15 relay. */
     case BC_OP_COLLISION_EFFECT: {
         LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
-        /* Always relay for visual effects, even if damage is rejected */
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        /* 2026-05-29: relay removed per stock-parity binary RE.
+         * Stock binary handles 0x15 C->S only (leaf #15); bystander
+         * collision visuals propagate via StateUpdate HP transitions,
+         * not via opcode 0x15 relay. */
 
         if (g_registry_loaded && g_collision_dmg) {
             /* Rate limit: skip damage if this ship's collision cooldown is active.

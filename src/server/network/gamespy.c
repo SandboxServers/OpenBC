@@ -263,10 +263,13 @@ int bc_gamespy_build_validate(u8 *out, int out_size,
     char validate[89];
     bc_gsmsalg(validate, challenge, BC_GAMESPY_SECRET_KEY, 0);
 
-    /* Stock QR SDK order: validate → final → queryid (no trailing \) */
+    /* Stock QR SDK order: validate → final → queryid (no trailing \)
+     * 2026-05-29: gamever in validate path = "1.6" per stock binary RE
+     * (networking-foundation-gamespy-crypto-validation-20260528 memo).
+     * The \status\ response correctly uses "60" — do not change that. */
     int written = snprintf((char *)out, (size_t)out_size,
         "\\gamename\\bcommander"
-        "\\gamever\\60"
+        "\\gamever\\1.6"
         "\\location\\0"
         "\\validate\\%s"
         "\\final\\"
