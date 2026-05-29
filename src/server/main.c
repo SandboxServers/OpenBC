@@ -21,6 +21,7 @@
 #include "openbc/combat.h"
 #include "openbc/torpedo_tracker.h"
 #include "openbc/game_builders.h"
+#include "openbc/buffer.h"
 #include "openbc/config.h"
 #include "openbc/log.h"
 #include "openbc/module_loader.h"
@@ -117,6 +118,50 @@ static bc_log_level_t parse_log_level(const char *str)
     if (strcmp(str, "trace") == 0) return LOG_TRACE;
     fprintf(stderr, "Unknown log level: %s (using info)\n", str);
     return LOG_INFO;
+}
+
+/* Build a server-shaped downstream StateUpdate (dirty=0x3D) by combining
+ * the server-tracked movement snapshot with a prebuilt 0x20 subsystem block.
+ * health_pkt must be a valid 0x1C packet with dirty=0x20. */
+static int build_mixed_stateupdate_remote(const bc_ship_state_t *ship,
+                                          f32 game_time,
+                                          const u8 *health_pkt,
+                                          int health_len,
+                                          u8 *out,
+                                          int out_size)
+{
+    if (!ship || !health_pkt || health_len <= 10 || !out || out_size <= 0)
+        return -1;
+    if (health_pkt[0] != BC_OP_STATE_UPDATE)
+        return -1;
+    if (health_pkt[9] != BC_DIRTY_SUBSYSTEM_STATES)
+        return -1;
+
+    const u8 *health_data = health_pkt + 10;
+    int health_data_len = health_len - 10;
+
+    u8 fields[256];
+    bc_buffer_t fb;
+    bc_buf_init(&fb, fields, sizeof(fields));
+
+    if (!bc_buf_write_f32(&fb, ship->pos.x)) return -1;
+    if (!bc_buf_write_f32(&fb, ship->pos.y)) return -1;
+    if (!bc_buf_write_f32(&fb, ship->pos.z)) return -1;
+    if (!bc_buf_write_bit(&fb, false)) return -1; /* no hash payload */
+    if (!bc_buf_write_cv3(&fb, ship->fwd.x, ship->fwd.y, ship->fwd.z)) return -1;
+    if (!bc_buf_write_cv3(&fb, ship->up.x, ship->up.y, ship->up.z)) return -1;
+    if (!bc_buf_write_cf16(&fb, ship->speed)) return -1;
+    if (!bc_buf_write_bytes(&fb, health_data, (size_t)health_data_len)) return -1;
+
+    return bc_build_state_update(
+        out, out_size,
+        ship->object_id, game_time,
+        (u8)(BC_DIRTY_POSITION_ABS |
+             BC_DIRTY_ORIENT_FWD |
+             BC_DIRTY_ORIENT_UP |
+             BC_DIRTY_SPEED |
+             BC_DIRTY_SUBSYSTEM_STATES),
+        fields, (int)fb.pos);
 }
 
 static bool read_small_text_file(const char *path, char *out, size_t out_size)
@@ -814,12 +859,24 @@ int main(int argc, char **argv)
                     /* Shield recharge (shield gen is Base format, eff = 1.0) */
                     bc_combat_shield_tick(&p->ship, cls, 1.0f, dt);
 
-                    /* Phaser charge + torpedo cooldown (use weapon efficiency) */
-                    f32 wep_eff = bc_powered_efficiency(&p->ship, cls, "phaser");
-                    f32 pulse_eff = bc_powered_efficiency(&p->ship, cls, "pulse_weapon");
-                    f32 min_wep = (pulse_eff < wep_eff) ? pulse_eff : wep_eff;
-                    bc_combat_charge_tick(&p->ship, cls, min_wep, dt);
-                    bc_combat_torpedo_tick(&p->ship, cls, dt);
+                    /* Phaser charge + torpedo cooldown (use weapon efficiency).
+                     * Gate at 3 Hz (BC_WEAPON_TICK_INTERVAL) to match stock
+                     * WeaponSystem cadence -- ticking per-frame (~30 Hz) made
+                     * phaser charge / torpedo reload advance ~10x too fast.
+                     * Fixed-step accumulator, mirroring the power 1 Hz gate;
+                     * power_level is sampled per fixed step so charge rate
+                     * stays correct while value updates happen at 3 Hz. */
+                    p->ship.weapon_tick_accum += dt;
+                    while (p->ship.weapon_tick_accum >= BC_WEAPON_TICK_INTERVAL) {
+                        p->ship.weapon_tick_accum -= BC_WEAPON_TICK_INTERVAL;
+                        f32 wep_eff = bc_powered_efficiency(&p->ship, cls, "phaser");
+                        f32 pulse_eff = bc_powered_efficiency(&p->ship, cls, "pulse_weapon");
+                        f32 min_wep = (pulse_eff < wep_eff) ? pulse_eff : wep_eff;
+                        bc_combat_charge_tick(&p->ship, cls, min_wep,
+                                              BC_WEAPON_TICK_INTERVAL);
+                        bc_combat_torpedo_tick(&p->ship, cls,
+                                               BC_WEAPON_TICK_INTERVAL);
+                    }
 
                     /* Cloak state machine (energy-failure auto-decloak) */
                     f32 clk_eff = bc_powered_efficiency(&p->ship, cls, "cloak");
@@ -852,10 +909,28 @@ int main(int argc, char **argv)
                 }
             }
 
-            /* Health broadcast: every 3 ticks (~100ms = 10 Hz), send 0x20 StateUpdate.
-             * Stock dedi sends at ~10 Hz.  Uses hierarchical round-robin with
-             * 10-byte budget per tick.  Owner gets is_own_ship=true (no power_pct
-             * bytes in Powered entries), remote observers get is_own_ship=false. */
+            /* Downstream StateUpdate broadcast: every 3 ticks (~100ms = 10 Hz).
+             *
+             * Owner lane: send subsystem-only 0x20 (no power bytes for own ship).
+             * Remote lanes: send mixed 0x3D (position/orientation/speed + 0x20)
+             * so downstream stays server-shaped instead of relaying raw owner
+             * payloads.
+             *
+             * Anti-drift / force-resend (#194): NO separate periodic resend
+             * timer is needed. The two state classes self-heal as follows:
+             *   - Position / orientation (fwd, up) / speed: re-sent ABSOLUTELY
+             *     (BC_DIRTY_POSITION_ABS, not delta) in build_mixed_stateupdate_remote
+             *     on EVERY remote broadcast -> fully refreshed every 100ms.
+             *   - Subsystem HP / power: round-robin in bc_ship_build_health_update,
+             *     ~10 bytes/tick. The cursor (p->subsys_rr_idx) advances over the
+             *     <=16 top-level ser_list entries; each entry serializes itself +
+             *     all its children in one shot, so a FULL cycle re-sends every
+             *     subsystem's HP. Worst case is 1 entry/tick (count<=16) =>
+             *     <=16 broadcasts = <=1.6s for a full refresh; typical ships
+             *     (~7-11 entries) complete in ~0.5-1.1s. This round-robin cycle
+             *     IS the "~0.5s force-resend" measured in stock trace mining --
+             *     it is the cycle period, not a separate timer. Adding a blanket
+             *     full-StateUpdate resend would duplicate this and waste bandwidth. */
             if (g_registry_loaded && (tick_counter % 3 == 0)) {
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *p = &g_peers.peers[i];
@@ -882,10 +957,24 @@ int main(int argc, char **argv)
                         p->subsys_rr_idx, &rmt_next, false,
                         hbuf_rmt, sizeof(hbuf_rmt));
 
-                    /* Advance cursor using the owner version (smaller budget,
-                     * may cover fewer entries -- that's fine, the remote
-                     * version just sends more data this tick). */
-                    if (hlen_own > 0)
+                    /* Build mixed downstream packet for remote observers. */
+                    u8 mixed_rmt[256];
+                    int mixed_rmt_len = -1;
+                    if (hlen_rmt > 0) {
+                        mixed_rmt_len = build_mixed_stateupdate_remote(
+                            &p->ship, g_game_time,
+                            hbuf_rmt, hlen_rmt,
+                            mixed_rmt, sizeof(mixed_rmt));
+                    }
+
+                    /* Advance the shared cursor by the lane covering the FEWER entries.
+                     * The remote (power-bearing) packet adds a pct byte per Powered entry,
+                     * so it exhausts the 10-byte budget sooner and covers <= the owner lane.
+                     * Advancing by the owner cursor would skip the [rmt_next, next_idx) band
+                     * on remote lanes every tick, permanently starving remote observers. */
+                    if (hlen_rmt > 0)
+                        p->subsys_rr_idx = rmt_next;
+                    else if (hlen_own > 0)
                         p->subsys_rr_idx = next_idx;
 
                     /* Send appropriate version to each client */
@@ -893,7 +982,10 @@ int main(int argc, char **argv)
                         if (g_peers.peers[j].state < PEER_LOBBY) continue;
                         if (j == i && hlen_own > 0) {
                             bc_queue_unreliable(j, hbuf_own, hlen_own);
+                        } else if (j != i && mixed_rmt_len > 0) {
+                            bc_queue_unreliable(j, mixed_rmt, mixed_rmt_len);
                         } else if (j != i && hlen_rmt > 0) {
+                            /* Fallback to 0x20-only if mixed build fails. */
                             bc_queue_unreliable(j, hbuf_rmt, hlen_rmt);
                         }
                     }

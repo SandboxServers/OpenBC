@@ -252,13 +252,18 @@ The "char event" class (ID 0x105) is a generic event that extends the base event
 single byte field. Its class hierarchy is:
 
 ```
-Event (base, ID 0x02)
-  └── SubsystemEvent (ID 0x101)
-        └── CharEvent (ID 0x105)
+TGObject (engine base, ID 0x02 — not an event class)
+  └── TGEvent (event-class base, ID 0x0101)
+        └── CharEvent (ID 0x0105)
 ```
 
-The `CharEvent` is reused by multiple subsystem events that carry a single-byte payload.
-For SetPhaserLevel, the byte value is the phaser power level (0/1/2).
+> **2026-05-29 cascade correction**: Earlier wording labelled factory 0x0101 as
+> "SubsystemEvent" — that name was a fabrication. **Factory 0x0101 IS plain TGEvent.**
+> See `tgobjptrevent-wire-format.md` for the canonical hierarchy.
 
-The event's `IsA` check reports true for all three IDs in the hierarchy (0x105, 0x101, 0x02),
+The `CharEvent` is reused by multiple events that carry a single-byte payload (subsystem
+toggles, phaser power, etc.). For SetPhaserLevel, the byte value is the phaser power
+level (0/1/2).
+
+The event's `IsA` check reports true for all three IDs in the hierarchy (0x0105, 0x0101, 0x02),
 allowing handlers to match at any level of specificity.

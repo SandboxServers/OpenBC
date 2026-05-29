@@ -468,15 +468,14 @@ static int run_battle(void)
 
         Sleep(200);
 
-        /* Verify byte-identical delivery */
+        /* 2026-05-29: stock binary handles 0x15 C->S only; bystander does
+         * NOT receive a relayed CollisionEffect.  Bystander state diff
+         * propagates via StateUpdate HP transitions instead.  Use a short
+         * timeout to verify no 0x15 arrives at the bystander. */
         int msg_len = 0;
         const u8 *msg = test_client_expect_opcode(&g_kirk, BC_OP_COLLISION_EFFECT,
-                                                    &msg_len, TIMEOUT);
-        BATTLE_ASSERT(msg != NULL);
-        BATTLE_ASSERT(msg_len == 1 + (int)sizeof(COLLISION_EFFECT_DATA));
-        BATTLE_ASSERT(msg[0] == BC_OP_COLLISION_EFFECT);
-        BATTLE_ASSERT(memcmp(msg + 1, COLLISION_EFFECT_DATA,
-                             sizeof(COLLISION_EFFECT_DATA)) == 0);
+                                                    &msg_len, 200);
+        BATTLE_ASSERT(msg == NULL);
     }
 
     /* === Phase 10: KILL SHOT + VICTORY === */
@@ -515,7 +514,7 @@ static int run_battle(void)
 
         Sleep(300);
 
-        /* Sep receives DestroyObj */
+        /* Sep receives "gg" chat */
         int msg_len = 0;
         const u8 *msg;
 
@@ -523,12 +522,12 @@ static int run_battle(void)
         test_client_expect_opcode(&g_sep, BC_OP_TORPEDO_FIRE, &msg_len, TIMEOUT);
         test_client_expect_opcode(&g_sep, BC_OP_TORPEDO_FIRE, &msg_len, TIMEOUT);
 
+        /* 2026-05-29: stock binary handles 0x14 LOCAL-ONLY; bystanders do
+         * NOT receive a relayed DestroyObj.  OpenBC's death pipeline emits
+         * EXPLODING + Explosion downstream for visual feedback instead. */
         msg = test_client_expect_opcode(&g_sep, BC_OP_DESTROY_OBJ,
-                                         &msg_len, TIMEOUT);
-        BATTLE_ASSERT(msg != NULL);
-        bc_destroy_event_t dev;
-        BATTLE_ASSERT(bc_parse_destroy_obj(msg, msg_len, &dev));
-        BATTLE_ASSERT(bc_object_id_to_slot(dev.object_id) == 2);
+                                         &msg_len, 200);
+        BATTLE_ASSERT(msg == NULL);
 
         /* Sep receives "gg" chat */
         msg = test_client_expect_opcode(&g_sep, BC_MSG_CHAT,
@@ -539,11 +538,11 @@ static int run_battle(void)
         BATTLE_ASSERT(strcmp(cev.message, "gg") == 0);
         BATTLE_ASSERT(cev.sender_slot == 1);
 
-        /* Cady also receives DestroyObj and Chat
-         * (expect_opcode skips intermediate torpedo/explosion messages) */
+        /* Cady also does NOT receive DestroyObj (LOCAL-ONLY per stock),
+         * but does receive the chat. */
         msg = test_client_expect_opcode(&g_cady, BC_OP_DESTROY_OBJ,
-                                         &msg_len, TIMEOUT);
-        BATTLE_ASSERT(msg != NULL);
+                                         &msg_len, 200);
+        BATTLE_ASSERT(msg == NULL);
         msg = test_client_expect_opcode(&g_cady, BC_MSG_CHAT,
                                          &msg_len, TIMEOUT);
         BATTLE_ASSERT(msg != NULL);

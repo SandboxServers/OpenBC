@@ -1,5 +1,7 @@
 # TGObjPtrEvent Wire Format — Clean Room Specification
 
+> **Revision 2026-05-29 (cascade correction)**: "TGSubsystemEvent" was a fabricated class name propagated across earlier OpenBC docs. **Factory 0x0101 IS plain TGEvent** (the base class itself), not an intermediate "TGSubsystemEvent" subclass. The corrected 3-class hierarchy is **TGEvent (0x0101) → TGCharEvent (0x0105) / TGObjPtrEvent (0x010C)**. ADD_TO_REPAIR_LIST uses base TGEvent (factory 0x0101, **16-byte payload, 17 bytes total on-wire including the opcode byte**). Earlier "17 bytes payload" wording was counting the opcode byte. TGObjPtrEvent payload size (currently documented as +4 bytes / 20-byte payload / 21 bytes on-wire) **needs follow-up verification** — agent and memo sources disagree on whether the +size is 1 or 4 bytes; not blocking since OpenBC does not currently emit REPAIR_COMPLETED / REPAIR_CANNOT_BE_COMPLETED.
+
 Wire format specification for TGObjPtrEvent, a TGEvent subclass that carries a third object reference as an int32 network ID. This event class accounts for approximately **45% of all PythonEvent messages** during combat.
 
 **Clean room statement**: This specification describes wire format behavior as observable from network packet captures and the game's shipped Python scripting API. No binary addresses, memory offsets, or decompiled code are referenced.
@@ -13,12 +15,14 @@ TGObjPtrEvent is one of five event classes that can be serialized inside PythonE
 ### Event Class Hierarchy
 
 ```
-TGEvent (factory 0x02, 17 bytes on wire)
-  └── TGSubsystemEvent (factory 0x0101, 17 bytes, no extra fields)
-        ├── TGCharEvent (factory 0x0105, 18 bytes, +1 byte char)
-        └── TGObjPtrEvent (factory 0x010C, 21 bytes, +4 byte int32)
-  └── ObjectExplodingEvent (factory 0x8129, 25 bytes, +4 int32 + 4 float)
+TGEvent (factory 0x0101, 16-byte payload / 17 bytes on wire including opcode)
+  ├── TGCharEvent (factory 0x0105, 17-byte payload / 18 bytes on wire, +1 byte char)
+  └── TGObjPtrEvent (factory 0x010C, 20-byte payload / 21 bytes on wire, +4 byte int32)
+
+ObjectExplodingEvent (factory 0x8129, 24-byte payload / 25 bytes on wire) — separate hierarchy
 ```
+
+TGObject (factory 0x02) is the base TGObject class, not an event class; TGEvent (0x0101) is the root of the event-class hierarchy.
 
 See also:
 - [pythonevent-wire-format/](pythonevent-wire-format/) — PythonEvent (0x06) overall wire format and factory dispatch
@@ -41,7 +45,7 @@ Offset  Size  Type    Field            Description
 17      4     i32     objPtrID         Third object reference (TGObject network ID)
 ```
 
-**Total**: 21 bytes (17-byte base TGEvent + 4-byte int32 extension)
+**Total**: 21 bytes on-wire including the 1-byte opcode (= 20-byte payload + 1 opcode). Base TGEvent contributes the 16-byte payload (factoryID + eventType + sourceObjID + destObjID); the +4 byte int32 `objPtrID` extension is appended.
 
 ### Object ID Encoding
 
@@ -56,16 +60,16 @@ All three object ID fields use the same encoding:
 
 TGObjPtrEvent responds to factory ID checks for:
 - `0x010C` (TGObjPtrEvent — itself)
-- `0x0101` (TGSubsystemEvent — parent)
-- `0x02` (TGEvent — grandparent)
+- `0x0101` (TGEvent — parent / event-class base)
+- `0x02`   (TGObject — grandparent / engine object base)
 
-This means code that checks `IsA(0x0101)` (TGSubsystemEvent) will match TGObjPtrEvent instances. Implementations must preserve this inheritance chain.
+This means code that checks `IsA(0x0101)` (TGEvent) will match TGObjPtrEvent instances. Implementations must preserve this inheritance chain.
 
 ---
 
 ## Difference from TGCharEvent (0x0105)
 
-Both TGObjPtrEvent and TGCharEvent are subclasses of TGSubsystemEvent, but they carry different payload types:
+Both TGObjPtrEvent and TGCharEvent are subclasses of TGEvent (factory 0x0101), but they carry different payload types:
 
 | Property | TGObjPtrEvent (0x010C) | TGCharEvent (0x0105) |
 |----------|----------------------|---------------------|
@@ -185,7 +189,7 @@ An OpenBC implementation SHALL:
 
 1. **Register factory ID 0x010C** in the TGStreamedObject factory for PythonEvent deserialization
 2. **Serialize/deserialize the int32 objPtrID** as the last field after the base TGEvent fields
-3. **Preserve the IsA chain**: 0x010C → 0x0101 → 0x02
+3. **Preserve the IsA chain**: 0x010C → 0x0101 (TGEvent) → 0x02 (TGObject) — a 3-class hierarchy, not 4
 4. **Support the dual-fire pattern**: weapon fire must emit both type-specific and generic ET_WEAPON_FIRED events
 5. **Gate ET_STOP_FIRING_AT_TARGET_NOTIFY** to host-only generation
 6. **Store previous target ID** (not new) in ET_TARGET_WAS_CHANGED events
@@ -195,10 +199,12 @@ An OpenBC implementation SHALL:
 
 ## Factory ID Summary Table
 
-| Factory ID | Class | Wire Size | Extension |
-|-----------|-------|-----------|-----------|
-| 0x0002 | TGEvent | 17 bytes | (none) |
-| 0x0101 | TGSubsystemEvent | 17 bytes | (none) |
+| Factory ID | Class | Wire Size (incl. opcode) | Extension |
+|-----------|-------|--------------------------|-----------|
+| 0x0002 | TGObject | (base engine object, not serialized as an event) | — |
+| 0x0101 | TGEvent (event-class base) | 17 bytes (16-byte payload + 1 opcode) | (none) |
 | 0x0105 | TGCharEvent | 18 bytes | +1 byte (char) |
-| **0x010C** | **TGObjPtrEvent** | **21 bytes** | **+4 bytes (int32 object ID)** |
+| **0x010C** | **TGObjPtrEvent** | **21 bytes** | **+4 bytes (int32 object ID) — pending verification** |
 | 0x8129 | ObjectExplodingEvent | 25 bytes | +4 int32 + 4 float |
+
+**Open question (2026-05-29 cascade)**: TGObjPtrEvent extension size is documented here as +4 bytes (int32 objPtrID), but a mid-batch agent memo reported "+1 byte" while a later resolution memo reaffirmed "+4 bytes". OpenBC does not currently emit the affected REPAIR_COMPLETED / REPAIR_CANNOT_BE_COMPLETED events, so this is not blocking; flag for follow-up RE before relying on TGObjPtrEvent's exact on-wire size.

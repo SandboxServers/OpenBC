@@ -1,5 +1,7 @@
 # Bug Report: Self-Destruct Death Pipeline Sends Wrong Messages
 
+> **2026-05-29 cascade correction**: References to "TGSubsystemEvent" in this report are inaccurate per binary RE. **Factory 0x0101 IS plain TGEvent** (the base event class itself), not a "TGSubsystemEvent" subclass. The corrected hierarchy is TGEvent (0x0101) → TGCharEvent (0x0105) / TGObjPtrEvent (0x010C). Investigation findings still stand — only the class label is wrong. See `../../wire-formats/tgobjptrevent-wire-format.md` for the canonical reference.
+
 **Date**: 2026-02-21
 **Severity**: HIGH (3 of 5 anomalies are HIGH)
 **Status**: ALL 5 ANOMALIES FIXED (PR #34). See issue #38 for remaining combat death issues.

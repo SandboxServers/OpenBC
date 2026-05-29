@@ -18,7 +18,10 @@
  */
 
 #define BC_MAX_MASTERS              16
-#define BC_MASTER_HEARTBEAT_INTERVAL 60000  /* 60 seconds */
+/* Binary-confirmed: stock heartbeats at 30s via FUN_006abd80 gate
+ * "30000 < DVar2 - uVar1" (per networking-foundation-gamespy-crypto
+ * -validation-20260528 memo). */
+#define BC_MASTER_HEARTBEAT_INTERVAL 30000  /* 30 seconds */
 #define BC_MASTER_PROBE_TIMEOUT_MS   3000   /* 3 second startup probe window */
 
 typedef struct {

@@ -8,6 +8,13 @@
 
 /* --- Weapon charge/cooldown ticks --- */
 
+/* Weapon tick interval (seconds). Stock ticks WeaponSystem children at 3 Hz
+ * (~0.33s), not per-frame. Per-frame ticking would advance phaser charge and
+ * torpedo reload ~10x faster than stock (~30 Hz main loop). The simulation
+ * loop accumulates dt and steps the charge/cooldown ticks at this interval,
+ * mirroring the power-system 1 Hz gate (bc_ship_power_tick). */
+#define BC_WEAPON_TICK_INTERVAL  (1.0f / 3.0f)  /* exactly 3 Hz (stock WeaponSystem cadence) */
+
 /* Tick phaser/pulse weapon charge (recharge toward max_charge).
  * power_level: 0.0-1.0, affects recharge rate. */
 void bc_combat_charge_tick(bc_ship_state_t *ship,
@@ -112,8 +119,10 @@ void bc_combat_shield_tick(bc_ship_state_t *ship,
 /* --- Cloaking device --- */
 
 /* Default cloak transition time (seconds).
- * BC engine uses ~3s; not exposed in hardpoint scripts. */
-#define BC_CLOAK_TRANSITION_TIME  3.0f
+ * Binary-confirmed: DAT_008E4E1C in stbc.exe = 5.0f (raw bytes 00 00 A0 40).
+ * Settable per-ship via SWIG CloakingSubsystem_SetCloakTime in stock;
+ * not exposed via hardpoint script API. */
+#define BC_CLOAK_TRANSITION_TIME  5.0f
 
 /* Cloak energy threshold: if the cloaking device's power efficiency
  * drops below this, the cloak fails and decloaking begins. */

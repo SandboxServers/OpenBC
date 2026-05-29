@@ -1,5 +1,7 @@
 # Bug Report: Collision Test Parity Gaps (Stock Dedi vs OpenBC)
 
+> **2026-05-29 cascade correction**: References to "TGSubsystemEvent (factory 0x0101)" in this report are inaccurate per binary RE. **Factory 0x0101 IS plain TGEvent** (the base event class itself), not a "TGSubsystemEvent" subclass. The corrected hierarchy is TGEvent (0x0101) → TGCharEvent (0x0105) / TGObjPtrEvent (0x010C). Investigation findings still stand — only the class label is wrong. See `../../wire-formats/tgobjptrevent-wire-format.md` for the canonical reference.
+
 **Date**: 2026-02-22
 **Severity**: HIGH (2 HIGH, 3 MEDIUM, 1 LOW)
 **Status**: OPEN

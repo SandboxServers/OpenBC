@@ -1,5 +1,7 @@
 # Collision Damage Event Chain
 
+> **2026-05-29 cascade correction**: References to "TGSubsystemEvent (factory 0x0101)" throughout this document are inaccurate per binary RE. **Factory 0x0101 IS plain TGEvent** (the base event class itself), not a "TGSubsystemEvent" subclass. The corrected event-class hierarchy is TGEvent (0x0101) → TGCharEvent (0x0105) / TGObjPtrEvent (0x010C). ADD_TO_REPAIR_LIST uses base TGEvent (16-byte payload, 17 bytes total on-wire including the opcode). The investigation findings below still stand — only the class label is wrong. See `../wire-formats/tgobjptrevent-wire-format.md` for the canonical reference and an open question on TGObjPtrEvent's extension size.
+
 How collision damage generates network messages in Bridge Commander multiplayer, documented from observable behavior, network packet captures, and the game's shipped Python scripting API.
 
 **Clean room statement**: This document describes the collision damage event chain as observable multiplayer behavior and network traffic patterns. No binary addresses, memory offsets, or decompiled code are referenced.

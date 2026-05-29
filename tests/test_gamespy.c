@@ -345,7 +345,7 @@ TEST(build_validate_response)
 
     ASSERT(len > 0);
     ASSERT(gs_has_value((char *)buf, len, "gamename", "bcommander"));
-    ASSERT(gs_has_value((char *)buf, len, "gamever", "60"));
+    ASSERT(gs_has_value((char *)buf, len, "gamever", "1.6"));
 
     int vlen = 0;
     const char *val = gs_find_value((char *)buf, len, "validate", &vlen);
@@ -525,7 +525,7 @@ TEST(server_responds_to_secure_challenge)
             got_response = true;
 
             ASSERT(gs_has_value((char *)resp, got, "gamename", "bcommander"));
-            ASSERT(gs_has_value((char *)resp, got, "gamever", "60"));
+            ASSERT(gs_has_value((char *)resp, got, "gamever", "1.6"));
 
             int vlen = 0;
             const char *val = gs_find_value((char *)resp, got, "validate", &vlen);
@@ -681,9 +681,9 @@ TEST(mock_master_full_handshake)
                 if (gs_has_key((char *)recv_buf, got, "validate")) {
                     got_validate = true;
 
-                    /* Verify gamename and gamever */
+                    /* Verify gamename and gamever (validate path = "1.6") */
                     CHECK(gs_has_value((char *)recv_buf, got, "gamename", "bcommander"));
-                    CHECK(gs_has_value((char *)recv_buf, got, "gamever", "60"));
+                    CHECK(gs_has_value((char *)recv_buf, got, "gamever", "1.6"));
 
                     /* Verify the validate hash matches our own computation */
                     char expected_hash[89];

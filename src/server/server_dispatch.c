@@ -147,28 +147,43 @@ f32 bc_powered_efficiency(const bc_ship_state_t *ship,
                           const bc_ship_class_t *cls,
                           const char *child_type)
 {
+    /* The runtime ser_list is FLAT (see #186): former weapon/engine children
+     * are their own BASE entries, linked back to their POWERED parent via the
+     * subsystem's parent_idx (== the parent entry's hp_index).  To find the
+     * efficiency that powers a given subsystem type, locate each POWERED entry
+     * that powers a matching subsystem -- either the powered entry IS that
+     * typed subsystem, or a flat BASE entry of that type points to it via
+     * parent_idx -- and return the minimum efficiency across all matches. */
     const bc_ss_list_t *sl = &cls->ser_list;
     f32 min_eff = 1.0f;
     bool found = false;
     for (int i = 0; i < sl->count; i++) {
         const bc_ss_entry_t *e = &sl->entries[i];
         if (e->format != BC_SS_FORMAT_POWERED) continue;
-        /* Check children for matching type */
-        for (int c = 0; c < e->child_count; c++) {
-            int ci = e->child_hp_index[c];
-            if (ci >= 0 && ci < cls->subsystem_count &&
-                strcmp(cls->subsystems[ci].type, child_type) == 0) {
-                if (!found || ship->efficiency[i] < min_eff)
-                    min_eff = ship->efficiency[i];
-                found = true;
-                break;
+
+        bool powers_type = false;
+
+        /* (a) The powered entry itself is the typed subsystem. */
+        if (e->hp_index >= 0 && e->hp_index < cls->subsystem_count &&
+            strcmp(cls->subsystems[e->hp_index].type, child_type) == 0) {
+            powers_type = true;
+        }
+
+        /* (b) A flat child subsystem of this powered parent matches the type.
+         * Children record parent_idx == parent entry's hp_index. */
+        if (!powers_type) {
+            for (int j = 0; j < cls->subsystem_count; j++) {
+                if (cls->subsystems[j].parent_idx == e->hp_index &&
+                    strcmp(cls->subsystems[j].type, child_type) == 0) {
+                    powers_type = true;
+                    break;
+                }
             }
         }
-        /* Also check the entry itself (for childless powered entries) */
-        if (!found && e->child_count == 0 &&
-            e->hp_index >= 0 && e->hp_index < cls->subsystem_count &&
-            strcmp(cls->subsystems[e->hp_index].type, child_type) == 0) {
-            min_eff = ship->efficiency[i];
+
+        if (powers_type) {
+            if (!found || ship->efficiency[i] < min_eff)
+                min_eff = ship->efficiency[i];
             found = true;
         }
     }
@@ -820,6 +835,94 @@ bool bc_torpedo_target_pos(i32 target_id, bc_vec3_t *out_pos,
     return true;
 }
 
+/* Handle inbound owner StateUpdate (0x1C) as server input only.
+ * Downstream 0x1C stream is generated server-side in main.c. */
+static void handle_state_update_input(int peer_slot, bc_peer_t *peer,
+                                      const u8 *payload, int payload_len)
+{
+    if (g_registry_loaded && peer->has_ship) {
+        const bc_ship_class_t *cls =
+            bc_registry_get_ship(&g_registry, peer->class_index);
+        bc_state_update_t su;
+        if (bc_parse_state_update(payload, payload_len, &su)) {
+            /* Validate before mutating authoritative ship state:
+             *  1. The update must target the sender's *current* ship object
+             *     (reject stale/pre-respawn packets or spoofs for another
+             *     object), and
+             *  2. all decoded floats indicated by the dirty flags must be
+             *     finite (reject NaN/Inf that would corrupt the transform).
+             * If any check fails, skip BOTH the mutation and the downstream
+             * power-state apply so bad data is neither stored nor relayed. */
+            if (su.object_id != peer->ship.object_id) {
+                LOG_DEBUG("state",
+                          "slot=%d StateUpdate object_id=0x%08x != ship 0x%08x dropped",
+                          peer_slot, (unsigned)su.object_id,
+                          (unsigned)peer->ship.object_id);
+                return;
+            }
+            if (((su.dirty & 0x01) &&
+                    (!isfinite(su.pos_x) || !isfinite(su.pos_y) || !isfinite(su.pos_z))) ||
+                ((su.dirty & 0x02) &&
+                    (!isfinite(su.delta_x) || !isfinite(su.delta_y) || !isfinite(su.delta_z))) ||
+                ((su.dirty & 0x04) &&
+                    (!isfinite(su.fwd_x) || !isfinite(su.fwd_y) || !isfinite(su.fwd_z))) ||
+                ((su.dirty & 0x08) &&
+                    (!isfinite(su.up_x) || !isfinite(su.up_y) || !isfinite(su.up_z))) ||
+                ((su.dirty & 0x10) && !isfinite(su.speed))) {
+                LOG_DEBUG("state",
+                          "slot=%d StateUpdate non-finite float dropped",
+                          peer_slot);
+                return;
+            }
+            /* Track position */
+            if (su.dirty & 0x01) {
+                peer->ship.pos.x = su.pos_x;
+                peer->ship.pos.y = su.pos_y;
+                peer->ship.pos.z = su.pos_z;
+            } else if (su.dirty & 0x02) {
+                peer->ship.pos.x += su.delta_x;
+                peer->ship.pos.y += su.delta_y;
+                peer->ship.pos.z += su.delta_z;
+            }
+            if (su.dirty & 0x04) {
+                peer->ship.fwd.x = su.fwd_x;
+                peer->ship.fwd.y = su.fwd_y;
+                peer->ship.fwd.z = su.fwd_z;
+            }
+            if (su.dirty & 0x08) {
+                peer->ship.up.x = su.up_x;
+                peer->ship.up.y = su.up_y;
+                peer->ship.up.z = su.up_z;
+            }
+            if (su.dirty & 0x10) {
+                peer->ship.speed = su.speed;
+            }
+
+            /* Power percentages/on-off intent are carried inside inbound
+             * 0x20 subsystem blocks for remote ships. Apply to server ship
+             * state so downstream 0x20/0x3x broadcasts stay converged. */
+            if (cls) {
+                int updates = bc_ship_apply_remote_power_state(
+                    payload, payload_len, cls, &peer->ship);
+                if (updates > 0) {
+                    LOG_TRACE("power", "slot=%d applied %d remote power entries",
+                              peer_slot, updates);
+                }
+            }
+        } else {
+            LOG_DEBUG("state", "slot=%d malformed StateUpdate dropped",
+                      peer_slot);
+        }
+    } else {
+        /* Server is authoritative for downstream 0x1C shape/cadence.
+         * Never forward owner payload bytes verbatim. */
+        if (payload_len > 0 && payload[0] == BC_OP_STATE_UPDATE) {
+            LOG_TRACE("state", "slot=%d StateUpdate absorbed (no registry/ship)",
+                      peer_slot);
+        }
+    }
+}
+
 /* --- Game message dispatch --- */
 
 static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
@@ -1178,50 +1281,11 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
     }
 
-    /* --- StateUpdate: track position + relay (strip server-authoritative flags) --- */
-    case BC_OP_STATE_UPDATE: {
-        if (g_registry_loaded && peer->has_ship) {
-            bc_state_update_t su;
-            if (bc_parse_state_update(payload, payload_len, &su)) {
-                /* Track position */
-                if (su.dirty & 0x01) {
-                    peer->ship.pos.x = su.pos_x;
-                    peer->ship.pos.y = su.pos_y;
-                    peer->ship.pos.z = su.pos_z;
-                }
-                if (su.dirty & 0x04) {
-                    peer->ship.fwd.x = su.fwd_x;
-                    peer->ship.fwd.y = su.fwd_y;
-                    peer->ship.fwd.z = su.fwd_z;
-                }
-                if (su.dirty & 0x08) {
-                    peer->ship.up.x = su.up_x;
-                    peer->ship.up.y = su.up_y;
-                    peer->ship.up.z = su.up_z;
-                }
-                if (su.dirty & 0x10) {
-                    peer->ship.speed = su.speed;
-                }
-
-                /* Strip server-authoritative flag 0x20 (subsystem health).
-                 * 0x80 (weapon state) is CLIENT-authoritative and must be relayed.
-                 * The SUBSYSTEMS/WEAPONS flag split is ~96% direction-correlated
-                 * (not 100%): in stock BC, the host's own ship can send 0x80 in
-                 * the server→client direction. On our dedicated server there is no
-                 * host-player ship, so dropping pure 0x20 packets from clients
-                 * is still correct. */
-                if (su.dirty == 0x20) {
-                    /* Pure subsystem health update from client -- drop it.
-                     * The server is authoritative for subsystem health. */
-                    LOG_DEBUG("cheat", "slot=%d StateUpdate 0x20 suppressed",
-                              peer_slot);
-                    break;
-                }
-            }
-        }
-        bc_relay_to_others(peer_slot, payload, payload_len, false);
+    /* --- StateUpdate: owner input only (server builds downstream stream) --- */
+    case BC_OP_STATE_UPDATE:
+        handle_state_update_input(peer_slot, peer, payload, payload_len);
+        /* Always absorb incoming 0x1C; downstream is generated server-side. */
         break;
-    }
 
     /* --- Object creation: relay + cache + init server ship state --- */
     case BC_OP_OBJ_CREATE_TEAM:
@@ -1317,14 +1381,18 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
         break;
     }
 
-    /* --- Object destruction: always relay (visual + game state for all clients) --- */
+    /* --- Object destruction: LOCAL-ONLY per stock binary RE --- */
     case BC_OP_DESTROY_OBJ: {
         bc_destroy_event_t ev;
         if (bc_parse_destroy_obj(payload, payload_len, &ev)) {
             LOG_INFO("combat", "Client DestroyObj: %s's ship",
                      object_owner_name(ev.object_id));
         }
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        /* 2026-05-29: relay removed per stock-parity binary RE.
+         * Stock binary handles 0x14 LOCAL-ONLY (memo C1); OpenBC's own
+         * death pipeline emits EXPLODING + Explosion downstream
+         * (server_dispatch.c lines 682, 698, 784, 797), so removing the
+         * relay does not break bystander visuals. */
         break;
     }
 
@@ -1527,11 +1595,14 @@ static void handle_game_message(int peer_slot, const bc_transport_msg_t *msg)
     /* --- Collision effect: parse and apply damage server-side.
      * Wire format from docs/collision-effect-wire-format.md.
      * source_obj=0 for environment collisions, otherwise other ship's ID.
-     * The host applies damage; relay to others for visual effects. */
+     * The host applies damage; bystander visuals come via StateUpdate HP
+     * transitions, not via opcode 0x15 relay. */
     case BC_OP_COLLISION_EFFECT: {
         LOG_DEBUG("game", "slot=%d collision effect len=%d", peer_slot, payload_len);
-        /* Always relay for visual effects, even if damage is rejected */
-        bc_relay_to_others(peer_slot, payload, payload_len, true);
+        /* 2026-05-29: relay removed per stock-parity binary RE.
+         * Stock binary handles 0x15 C->S only (leaf #15); bystander
+         * collision visuals propagate via StateUpdate HP transitions,
+         * not via opcode 0x15 relay. */
 
         if (g_registry_loaded && g_collision_dmg) {
             /* Rate limit: skip damage if this ship's collision cooldown is active.

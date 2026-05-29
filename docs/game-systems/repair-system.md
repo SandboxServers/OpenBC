@@ -155,28 +155,80 @@ Repair events use three distinct opcodes depending on direction and purpose:
 
 #### Path 1: PythonEvent (opcode 0x06) — Host Auto-Notifications
 
-**Direction**: Host → All Clients (reliable)
+**Direction**: Host → All Clients (reliable, NoMe group)
 
-The host generates these automatically during the repair tick. They use the `SubsystemEvent` serialization (factory type `0x0101`).
+The host generates these automatically during the repair tick. The three events use
+different factory classes:
 
-| Event | Meaning |
-|-------|---------|
-| ADD_TO_REPAIR_LIST | Subsystem was damaged and added to repair queue |
-| REPAIR_COMPLETED | Subsystem reached max HP, removed from queue |
-| REPAIR_CANNOT_BE_COMPLETED | Subsystem destroyed while in queue |
+| Event | Event Type | Factory | Wire Size (on-wire incl. opcode) |
+|-------|-----------|---------|----------------------------------|
+| ADD_TO_REPAIR_LIST | 0x008000DF | 0x0101 (base TGEvent) | 17 bytes (16-byte payload + opcode) |
+| REPAIR_COMPLETED | 0x00800074 | 0x010C (TGObjPtrEvent) | 21 bytes (pending verification — see open question) |
+| REPAIR_CANNOT_BE_COMPLETED | 0x00800075 | 0x010C (TGObjPtrEvent) | 21 bytes (pending verification — see open question) |
 
-**Wire format** (17 bytes fixed):
+> **Wire-emission clarification (2026-05-29, Pass 1)**: REPAIR_COMPLETED and
+> REPAIR_CANNOT_BE_COMPLETED **DO** emit on the wire as opcode 0x06 PythonEvent in
+> stock STBC.exe (host-only via `HostEventHandler FUN_006A1150` under the
+> `DAT_0097fa8a != 0` IS_MULTIPLAYER gate). Earlier OpenBC working memos contained
+> a contradiction suggesting these were local-only; Pass 1's binary-truth catalog
+> resolves this definitively.
+>
+> Byte-anchored emission sites (stock `RepairSubsystem::Update @ 0x005652A0`):
+>
+> | Event | Site address | Branch condition |
+> |-------|--------------|-------------------|
+> | REPAIR_COMPLETED (0x00800074) | 0x00565447 | `curCondition / maxCondition >= 1.0f` |
+> | REPAIR_CANNOT_BE_COMPLETED (0x00800075) | 0x005653A4 | `curCondition <= 0.0f` (in-queue branch) |
+> | REPAIR_CANNOT_BE_COMPLETED (0x00800075) | 0x005654E0 | `curCondition <= 0.0f` (post-queue-scan branch) |
+>
+> Subscription is installed at `MultiplayerGame_Ctor @ 0x0069E590` to the
+> HostEventHandler vtable slot for both event IDs.
+>
+> **OpenBC currently does NOT emit these.** The `bc_repair_tick` in
+> `src/shared/game/combat.c` silently removes completed entries and silently skips
+> destroyed entries with no event emission. This is a playability bug for stock
+> clients connected to OpenBC — see `docs/bugs/bug-reports/20260529-repair-completion-silent-drop.md`.
+
+> **Revision 2026-05-29 (cascade correction)**: Earlier text said all three events used
+> the same "SubsystemEvent (factory 0x0101)" serialization. That was wrong on two counts:
+> (1) "SubsystemEvent" was a fabricated class name — factory 0x0101 IS plain TGEvent; and
+> (2) REPAIR_COMPLETED and REPAIR_CANNOT_BE_COMPLETED use factory 0x010C (TGObjPtrEvent),
+> not 0x0101. Only ADD_TO_REPAIR_LIST uses the base TGEvent (0x0101) class.
+>
+> **Open question**: TGObjPtrEvent's extension size is currently documented as +4 bytes
+> (giving a 20-byte payload / 21 bytes on-wire). A mid-batch RE memo briefly reported
+> +1 byte. Not blocking — OpenBC does not currently emit REPAIR_COMPLETED or
+> REPAIR_CANNOT_BE_COMPLETED events. Flag for follow-up RE before relying on the exact
+> on-wire size. See `../wire-formats/tgobjptrevent-wire-format.md` for the canonical
+> reference.
+
+**ADD_TO_REPAIR_LIST wire format** (factory 0x0101, 17 bytes on-wire fixed):
 ```
 Offset  Size  Type    Field            Notes
 ------  ----  ----    -----            -----
 0       1     u8      opcode           0x06
-1       4     i32     factory_id       0x00000101
-5       4     i32     event_type       Event constant (see table above)
+1       4     i32     factory_id       0x00000101  (base TGEvent)
+5       4     i32     event_type       0x008000DF  (ADD_TO_REPAIR_LIST)
 9       4     i32     source_obj_id    Damaged subsystem's network object ID
 13      4     i32     dest_obj_id      Repair subsystem's network object ID
 ```
 
-Both source and dest contain **subsystem-level object IDs** (globally unique, auto-assigned at construction), NOT ship IDs. These are resolved on the receiving end via the global object hash table.
+**REPAIR_COMPLETED / REPAIR_CANNOT_BE_COMPLETED wire format** (factory 0x010C — pending
+verification, +4-byte int32 third object reference):
+```
+Offset  Size  Type    Field            Notes
+------  ----  ----    -----            -----
+0       1     u8      opcode           0x06
+1       4     i32     factory_id       0x0000010C  (TGObjPtrEvent)
+5       4     i32     event_type       0x00800074 or 0x00800075
+9       4     i32     source_obj_id    Subsystem's network object ID
+13      4     i32     dest_obj_id      Repair subsystem's network object ID
+17      4     i32     obj_ptr          Third object reference (pending verification)
+```
+
+Both `source_obj_id` and `dest_obj_id` contain **subsystem-level object IDs** (globally
+unique, auto-assigned at construction), NOT ship IDs. These are resolved on the receiving
+end via the global object hash table.
 
 #### Path 2: AddToRepairList (opcode 0x0B) — Dead Code in Multiplayer
 
@@ -241,15 +293,15 @@ In multiplayer, the repair queue operates as follows:
 
 ## 7. Event Types
 
-| Event | Direction | Trigger |
-|-------|-----------|---------|
-| ADD_TO_REPAIR_LIST | Host → All (opcode 0x06) | Subsystem damaged and auto-queued |
-| REPAIR_COMPLETED | Host → All (opcode 0x06) | Subsystem reached max HP |
-| REPAIR_CANNOT_BE_COMPLETED | Host → All (opcode 0x06) | Subsystem destroyed while queued |
-| REPAIR_INCREASE_PRIORITY | Client → Host (opcode 0x11) | Player clicked priority toggle |
-| SUBSYSTEM_HIT | Internal only | Damage triggers auto-add to queue |
-| SUBSYSTEM_DAMAGED | Internal only | General damage tracking |
-| SET_PLAYER | Internal only | Player's ship changed, reconfigure UI |
+| Event | Event Type | Direction | Trigger |
+|-------|-----------|-----------|---------|
+| ADD_TO_REPAIR_LIST | 0x008000DF | Host → All (opcode 0x06) | Subsystem damaged and auto-queued |
+| REPAIR_COMPLETED | 0x00800074 | Host → All (opcode 0x06) | Subsystem reached max HP |
+| REPAIR_CANNOT_BE_COMPLETED | 0x00800075 | Host → All (opcode 0x06) | Subsystem destroyed while queued |
+| REPAIR_INCREASE_PRIORITY | 0x00800076 | Client → Host (opcode 0x11) | Player clicked priority toggle |
+| SUBSYSTEM_HIT | 0x0080006B | Internal only | Damage triggers auto-add to queue |
+| SUBSYSTEM_REBUILT | 0x00800070 | Internal only | Subsystem condition restored to max (NOT "SUBSYSTEM_DAMAGED" — earlier docs mislabelled this code; the binary string at the corresponding constant address is `SUBSYSTEM_REBUILT`) |
+| SET_PLAYER | 0x0080000E | Internal only | Player's ship changed, reconfigure UI |
 
 ---
 

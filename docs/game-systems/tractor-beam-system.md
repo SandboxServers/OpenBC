@@ -1,5 +1,7 @@
 # Tractor Beam System — Clean Room Specification
 
+> **2026-05-29 cascade correction**: References to "TGSubsystemEvent (factory 0x0101)" in this document are inaccurate per binary RE. **Factory 0x0101 IS plain TGEvent** (the base event class itself), not a "TGSubsystemEvent" subclass. The corrected hierarchy is TGEvent (0x0101) → TGCharEvent (0x0105) / TGObjPtrEvent (0x010C). Behavioral findings still stand — only the class label is wrong. See `../wire-formats/tgobjptrevent-wire-format.md` for the canonical reference.
+
 Behavioral specification of the Bridge Commander tractor beam mechanics: 6 operational modes, force computation, speed drag, distance falloff, and friendly-fire penalty system.
 
 **Clean room statement**: This specification is derived from observable behavior, network packet captures, the game's shipped Python scripting API, and hardpoint script analysis. No binary addresses, memory offsets, or decompiled code are referenced.

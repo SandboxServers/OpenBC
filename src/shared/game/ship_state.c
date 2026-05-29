@@ -88,6 +88,7 @@ void bc_ship_init(bc_ship_state_t *ship,
     ship->main_conduit_remaining = cls->main_conduit_capacity;
     ship->backup_conduit_remaining = cls->backup_conduit_capacity;
     ship->power_tick_accum = 0.0f;
+    ship->weapon_tick_accum = 0.0f;
 }
 
 void bc_ship_assign_subsystem_ids(bc_ship_state_t *ship,

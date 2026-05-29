@@ -298,14 +298,20 @@ bool bc_parse_state_update(const u8 *payload, int len,
 
     /* Parse fields in order of dirty flag bits */
     if (out->dirty & 0x01) {
+        bool has_hash = false;
+        u16 hash16;
         if (!bc_buf_read_f32(&buf, &out->pos_x)) return false;
         if (!bc_buf_read_f32(&buf, &out->pos_y)) return false;
         if (!bc_buf_read_f32(&buf, &out->pos_z)) return false;
+        if (!bc_buf_read_bit(&buf, &has_hash)) return false;
+        if (has_hash) {
+            if (!bc_buf_read_u16(&buf, &hash16)) return false;
+            (void)hash16;
+        }
     }
     if (out->dirty & 0x02) {
-        /* Delta position (cv4) -- skip 5 bytes, we only track absolute */
-        f32 dx, dy, dz;
-        if (!bc_buf_read_cv4(&buf, &dx, &dy, &dz)) return false;
+        if (!bc_buf_read_cv4(&buf, &out->delta_x, &out->delta_y, &out->delta_z))
+            return false;
     }
     if (out->dirty & 0x04) {
         if (!bc_buf_read_cv3(&buf, &out->fwd_x, &out->fwd_y, &out->fwd_z))
