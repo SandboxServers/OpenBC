@@ -1,5 +1,7 @@
 # GameSpy Protocol Specification
 
+> **Revision 2026-05-29**: Multiple corrections from binary RE. Gamever is asymmetric (status=60, validate=1.6). Heartbeat is 30s (was 60s). qr_t struct layout corrections. See STBC-Dedicated-Server companion `docs/networking/gamespy-discovery.md` for full evidence.
+
 Bridge Commander uses the GameSpy Query & Reporting (QR1) protocol for server discovery, both on LAN and over the internet via master servers. GameSpy traffic shares the same UDP socket as game traffic but is transmitted in plaintext (not encrypted).
 
 **Clean room statement**: This document describes the GameSpy protocol as implemented in `src/network/gamespy.c` and `src/network/master.c`, and as observed in packet captures between stock BC clients and servers. No binary addresses, memory offsets, or decompiled code are referenced.
@@ -59,7 +61,8 @@ The server responds with a single unfragmented UDP packet containing backslash-d
 | Field | Values | Notes |
 |-------|--------|-------|
 | gamename | `bcommander` | Hardcoded, never changes |
-| gamever | `60` | Numeric version (NOT "1.1") |
+| gamever (status response) | `60` | Numeric version used in `\status\` LAN/QR responses |
+| gamever (validate response) | `1.6` | String version used in `\validate\` master-auth response (literal at .rdata `0x0095a668`) |
 | location | `0` or `1` | Region code |
 | hostname | string | Prefixed with `*` if password-protected |
 | missionscript | string | e.g. `Multiplayer.Episode.Mission1.Mission1` |
@@ -112,6 +115,17 @@ BC uses GameSpy master servers for internet server discovery. The original Activ
 - Client browsing port: **TCP 28900** (server list retrieval)
 - Override: `masterserver.txt` file in the game directory (one `host:port` per line)
 
+### masterserver.txt Override Mechanism (Two-Symbol Design)
+
+The original binary uses a two-symbol mutable/immutable design to support runtime master server replacement (e.g. for 333networks):
+
+| Symbol | Mutability | Role |
+|--------|------------|------|
+| `.rdata 0x0095a4fc` | **Mutable** destination buffer | Active master hostname at runtime. `_strncpy` from `masterserver.txt` (or fallback) writes here. All heartbeat/validate code reads from this address. |
+| `.rdata 0x0095a594` | **Immutable** canonical source | Hardcoded `stbridgecmnd01.activision.com` (offline since ~2012). Used as the fallback source when `masterserver.txt` is missing — the boot path `_strncpy`s from 0x0095a594 to 0x0095a4fc. |
+
+A clean-room implementation MAY use a single mutable string and skip the immutable canonical copy entirely. The two-symbol split exists only because the original binary preserved the hardcoded hostname as a recovery fallback.
+
 ### Heartbeat Protocol
 
 The server registers with master servers by sending periodic heartbeats:
@@ -141,19 +155,22 @@ The server registers with master servers by sending periodic heartbeats:
 ```
 1. Server  →  Master:27900   \heartbeat\<port>\gamename\bcommander\
 2. Master  →  Server:game    \secure\<6-char challenge>
-3. Server  →  Master         \gamename\bcommander\gamever\60\location\0\validate\<response>\final\\queryid\1.1
+3. Server  →  Master         \gamename\bcommander\gamever\1.6\location\0\validate\<response>\final\\queryid\1.1
 4. Master registers the server (may also send \status\ queries)
 ```
 
+Note the gamever asymmetry: the `\status\` LAN response uses `gamever\60` (numeric), while the `\validate\` master-auth response uses `gamever\1.6` (string literal at .rdata `0x0095a668`).
+
 ### Heartbeat Timing
 
-| Parameter | Value |
-|-----------|-------|
-| Heartbeat interval | 60 seconds |
-| Startup probe timeout | 3 seconds |
-| Probe behavior | Send heartbeat to all masters, wait for responses |
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Heartbeat interval | **30 seconds** | Gate: `30000 < (now - lastHeartbeat)` in qr_heartbeat_tick (FUN_006abd80) |
+| Heartbeat retry cap | **10** | Counter at `qr_t+0xE8`; tick aborts when counter exceeds 10 (`'\n' < cVar3`) |
+| Heartbeat stale window | **300,001 ms** (~5 min) | Constant `0x493e1` — if no master response for this long, the server considers the master stale |
+| Startup probe timeout | 3 seconds | Send heartbeat to all masters, wait for responses |
 
-A master is considered "registered" when it responds to a heartbeat (either with `\secure\` or `\status\`).
+A master is considered "registered" when it responds to a heartbeat (either with `\secure\` or `\status\`). After 10 retries with no response, the server stops heartbeating that master. The 300,001 ms stale window allows a master that disappears mid-session to be re-detected when it comes back.
 
 ---
 
@@ -213,10 +230,10 @@ Encode each 3-byte group into 4 base64 characters
 
 ```
 Master → Server:  \secure\ABCDEF
-Server → Master:  \gamename\bcommander\gamever\60\location\0\validate\XyZ12345\final\\queryid\1.1
+Server → Master:  \gamename\bcommander\gamever\1.6\location\0\validate\XyZ12345\final\\queryid\1.1
 ```
 
-The validate response is embedded in a full GameSpy response packet including gamename, gamever, and location fields.
+The validate response is embedded in a full GameSpy response packet including gamename, gamever, and location fields. Note: `\gamever\1.6\` on the validate path (string literal at .rdata `0x0095a668`), NOT `60` as used in the `\status\` response. See Section 2 field table.
 
 ---
 
@@ -253,6 +270,23 @@ The client iterates through the list and sends `\status\` queries directly to ea
 - Multiple master servers can be registered simultaneously
 - If DNS resolution fails for a master server, skip it (don't block startup)
 - The original game sent `\heartbeat\0\gamename\bcommander\statechanged\1` with port=0, which may be a quirk of the original implementation
+
+### qr_t Internal Struct Notes (Reference)
+
+For implementations cross-referencing the binary, the original `qr_t` struct (passed to QR1 dispatcher/heartbeat code) has these correctly-anchored fields (byte offsets from struct base):
+
+| Byte Offset | Role | Notes |
+|-------------|------|-------|
+| `+0x04` | Socket handle | UDP socket shared with game traffic |
+| `+0x08` | `gamename` string ptr | Points to `"bcommander"` |
+| `+0x48` | Secret key | 6 bytes `"Nm3aZ9"` for RC4 KSA |
+| `+0xD8` | Last heartbeat timestamp | `GetTickCount` at last send |
+| `+0xDC` | Query sequence counter | Increments per inbound query (DWORD) |
+| `+0xE0` | Fragment counter | Per-query fragment index (DWORD) |
+| `+0xE4` | **Active flag AND heartbeat port number** | Dual-role field. Non-zero = active; `%d` argument when formatting heartbeat string. **NOT a packet counter** despite prior documentation. |
+| `+0xE8` | Heartbeat repetition counter | Max 10 retries |
+
+The `ServerList` broadcast socket is stored at byte offset **`+0x88`** in the ServerList struct (NOT `+0x22`; the prior `0x22` value was a DWORD index, byte offset = `0x22 * 4 = 0x88`). The same `+0x88` slot is also the TCP socket for master-server connect — it is a shared socket field.
 
 ---
 

@@ -1,5 +1,7 @@
 # Cloaking System — Clean Room Specification
 
+> **Revision 2026-05-29**: CloakTime default corrected to 5.0s (was 3.0). StopCloaking gate uses isFullyCloaked (not tryingToCloak). Event IDs verified. See STBC-Dedicated-Server companion `docs/gameplay/cloaking-state-machine.md` for full evidence.
+
 Behavioral specification of the Bridge Commander cloaking device state machine, shield interaction, energy failure auto-decloak, and visual transparency effects.
 
 **Clean room statement**: This specification is derived from observable behavior, network packet captures, the game's shipped Python scripting API, and hardpoint script analysis. No binary addresses, memory offsets, or decompiled code are referenced.
@@ -113,18 +115,28 @@ Called when the player activates cloak:
 
 #### StopCloaking (User-Facing)
 Called when the player deactivates cloak:
-1. If currently in CLOAKING (1 or 2) OR `tryingToCloak` is set: begin decloaking
+1. If currently in CLOAKING (1 or 2) OR `isFullyCloaked` is set: begin decloaking
 2. Sets `tryingToCloak = false`
+
+**Field distinction** (verified from binary, both bytes on the cloak subsystem):
+
+| Field | Role | Set By | Cleared By |
+|-------|------|--------|------------|
+| `tryingToCloak` (cloak+0xAD) | Intent latch | StartCloaking (player input) | Consumed each tick when the intent transition fires (StopCloaking clears it after the gate check) |
+| `isFullyCloaked` (cloak+0xAC) | "Cloak transition complete" flag | CloakComplete (timer reaches CloakTime, state→3) | When state leaves CLOAKED (e.g. on BeginDecloaking) |
+
+The StopCloaking gate checks **`isFullyCloaked`** (NOT `tryingToCloak` as previously documented). Semantically: force decloak if the cloak transition is in progress (state 1/2) OR has already completed (isFullyCloaked == 1). This handles both "abort mid-cloak" and "decloak from fully cloaked" without conflating intent with state.
 
 #### BeginCloaking (Internal)
 1. Check energy via recursive power check — if insufficient, abort
 2. Create cloak animation/sound effects
 3. If ship has shields: schedule delayed shield disable (delay = ShieldDelay)
 4. Set state = CLOAKING(2), timer = 0
+5. Post `ET_CLOAK_BEGINNING` event (`0x00800077`) — notifies UI/Python that the cloak transition has started
 
 #### CloakComplete (Timer Finished)
 1. Set state = CLOAKED(3)
-2. Post ET_CLOAK_BEGINNING event
+2. Post `ET_CLOAK_COMPLETED` event (`0x00800078`)
 3. Set `isFullyCloaked = true`
 4. Make ship invisible in scene graph
 
@@ -169,14 +181,14 @@ Time  Event                    Shields    Visible
 0.0   Player activates cloak   ON         Yes
 0.0   BeginCloaking fires      ON (delay) Fading...
 1.0   ShieldDelay expires      OFF        Fading...
-3.0   CloakTime expires        OFF        No (invisible)
+5.0   CloakTime expires        OFF        No (invisible)
 ...   Player deactivates cloak OFF        Appearing...
-+3.0  CloakTime timer expires  OFF        Yes (visible)
-+3.0  DecloakComplete fires    OFF (delay) Yes
-+4.0  ShieldDelay expires      ON         Yes
++5.0  CloakTime timer expires  OFF        Yes (visible)
++5.0  DecloakComplete fires    OFF (delay) Yes
++6.0  ShieldDelay expires      ON         Yes
 ```
 
-(Assuming CloakTime = 3.0s and ShieldDelay = 1.0s)
+(Stock defaults: CloakTime = 5.0s and ShieldDelay = 1.0s)
 
 ---
 
@@ -337,8 +349,13 @@ An OpenBC server implementation SHALL:
 | STATE_DECLOAKING | 5 | Transition to visible (timer counting down) |
 | GHOST_STATE_CLOAKING | 1 | Checked in IsCloaking, never assigned |
 | GHOST_STATE_DECLOAKING | 4 | Checked in IsDecloaking, never assigned |
-| DEFAULT_SHIELD_DELAY | 1.0 | Default ShieldDelay in seconds |
+| DEFAULT_CLOAK_TIME | **5.0** | Default CloakTime in seconds (binary-confirmed at `DAT_008E4E1C`, bytes `00 00 A0 40`) |
+| DEFAULT_SHIELD_DELAY | 1.0 | Default ShieldDelay in seconds (binary-confirmed at `DAT_008E4E20`, bytes `00 00 80 3F`) |
 | ENERGY_THRESHOLD | (configurable) | Efficiency ratio below which auto-decloak triggers |
+
+> **OpenBC implementation note**: The OpenBC `BC_CLOAK_TRANSITION_TIME` constant is being updated from 3.0f to 5.0f via the parallel Cascade A code-fix task to match the stock binary value.
+
+> **ShieldDelay TODO**: The 1.0s delayed shield disable/enable window (Section "Shield Interaction") is correctly specified here but is **NOT currently implemented** in OpenBC. Cloak transitions in OpenBC disable/enable shields instantly with no delay window — see the deferred bug-report task for tracking.
 
 ---
 
@@ -346,11 +363,17 @@ An OpenBC server implementation SHALL:
 
 | Event | Name | Fired When |
 |-------|------|------------|
-| ET_START_CLOAKING | Request | Player activates cloak (local only — opcode 0x0E NOT used in MP) |
-| ET_START_CLOAKING_NOTIFY | Forwarded | Subsystem receives cloak command |
-| ET_STOP_CLOAKING | Request | Player deactivates cloak (local only — opcode 0x0F NOT used in MP) |
-| ET_STOP_CLOAKING_NOTIFY | Forwarded | Subsystem receives decloak command |
-| ET_CLOAK_BEGINNING | Notification | CloakComplete: state → CLOAKED(3) |
-| ET_DECLOAK_BEGINNING | Notification | BeginDecloaking: state → DECLOAKING(5) |
-| ET_DECLOAK_COMPLETED | Notification | DecloakComplete: state → DECLOAKED(0) |
-| ET_SUBSYSTEM_STATUS | System | Subsystem enabled/disabled (used to disable weapons) |
+| Event | Hex ID | Kind | Fired When |
+|-------|--------|------|------------|
+| ET_START_CLOAKING | `0x008000E2` (MultiplayerGame) / `0x008000E3` (subsystem) | Request | Player activates cloak (MP opcode 0x0E NOT used; see below) |
+| ET_START_CLOAKING_NOTIFY | (+1 from above) | Forwarded | Subsystem receives cloak command |
+| ET_STOP_CLOAKING | `0x008000E4` (MultiplayerGame) / `0x008000E5` (subsystem) | Request | Player deactivates cloak (MP opcode 0x0F NOT used; see below) |
+| ET_STOP_CLOAKING_NOTIFY | (+1 from above) | Forwarded | Subsystem receives decloak command |
+| **ET_CLOAK_BEGINNING** | **`0x00800077`** | Notification | BeginCloaking: state → CLOAKING(2); fires once at start of cloak transition (string at `.rdata 0x009106B4`) |
+| **ET_CLOAK_COMPLETED** | **`0x00800078`** | Notification | CloakComplete: state → CLOAKED(3); fires when CloakTime elapses (string at `.rdata 0x009106A0`) |
+| ET_DECLOAK_BEGINNING | `0x00800079` | Notification | BeginDecloaking: state → DECLOAKING(5) |
+| ET_DECLOAK_COMPLETED | `0x0080007A` | Notification | DecloakComplete: state → DECLOAKED(0) |
+| ET_SHIELD_REENABLE_DELAYED | `0x0080007B` | Notification | Delayed shield enable scheduled by cloak/decloak transitions |
+| ET_SUBSYSTEM_STATUS | (see subsystem doc) | System | Subsystem enabled/disabled (used to disable weapons) |
+
+**Note on prior version**: Earlier revisions of this doc listed `ET_CLOAK_BEGINNING` as firing on CloakComplete. That was incorrect — `0x00800078` is `ET_CLOAK_COMPLETED` (fires when the cloak transition finishes), while `0x00800077` is `ET_CLOAK_BEGINNING` (fires when the transition starts). Both events are now distinguished correctly.

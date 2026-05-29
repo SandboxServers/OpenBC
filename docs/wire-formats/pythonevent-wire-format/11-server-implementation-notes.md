@@ -15,8 +15,15 @@ For a full implementation:
    a. Check if condition decreased below maximum
    b. If so, add to the ship's repair queue (reject duplicates)
    c. If the add succeeds and this is the host in multiplayer:
-      - Serialize a SubsystemEvent (factory 0x101) with event type ADD_TO_REPAIR_LIST
-      - Send reliably to all other peers via the "NoMe" routing group
+      - Serialize a base **TGEvent (factory 0x0101)** with event type ADD_TO_REPAIR_LIST.
+        Wire format is the 16-byte event payload (factory_id + event_type + source_obj_id
+        + dest_obj_id), giving 17 bytes total on-wire with the 0x06 opcode prefix.
+      - Preserve the IsA chain (0x0101 → 0x02 — a 2-level chain for the base class).
+      - Send reliably to all other peers via the "NoMe" routing group.
+
+   > **Note (2026-05-29)**: Earlier wording said "SubsystemEvent (factory 0x0101)" — that
+   > class name was a fabrication. Factory 0x0101 IS plain TGEvent. See
+   > `../tgobjptrevent-wire-format.md` for the canonical hierarchy.
 
 2. **Explosion events**: When a ship is destroyed:
    a. Serialize an ObjectExplodingEvent (factory 0x8129) with the killer's player ID

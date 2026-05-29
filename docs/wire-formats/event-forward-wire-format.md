@@ -81,8 +81,8 @@ Offset  Size  Type    Field                    Notes
 
 | Class ID | Name | Extra Fields | Total Size |
 |----------|------|-------------|------------|
-| 0x0002 | Event (base) | None | 17 bytes |
-| 0x0101 | SubsystemEvent | None (same as base) | 17 bytes |
+| 0x0002 | TGObject (engine base, not an event class) | n/a | n/a |
+| 0x0101 | TGEvent (event-class base) | None | 17 bytes on-wire (16-byte payload + opcode) |
 | 0x0104 | SubsystemControlEvent | +1 byte value | 18 bytes |
 | 0x0105 | CharEvent | +1 byte value | 18 bytes |
 | 0x010C | ObjPtrEvent | +4 byte object ID | 21 bytes |
@@ -197,7 +197,7 @@ Not all opcodes in this group use the same event class factory:
 | Opcode | Observed Factory | Wire Size | Notes |
 |--------|-----------------|-----------|-------|
 | 0x07 StartFiring | 0x8128 | 25 bytes | Always duplicate pair, +8 extra bytes |
-| 0x08 StopFiring | 0x0101 | 17 bytes | Standard SubsystemEvent, single message |
+| 0x08 StopFiring | 0x0101 | 17 bytes | Base TGEvent (no extra fields), single message |
 | 0x0A SubsysStatus | 0x0104 | 18 bytes | NOT 0x0105; sibling class, same +1 byte layout |
 | 0x10 StartWarp | 0x812A | Variable | +string + 4×f32 (destination + speed) |
 | 0x11 RepairListPriority | 0x010C | 21 bytes | ObjPtrEvent (+4 byte subsystem obj ID), event 0x00800076 |

@@ -1,10 +1,19 @@
-# Four Event Classes
+# Three Event Classes (plus ObjectExplodingEvent)
 
+> **Revision 2026-05-29 (cascade correction)**: Earlier wording labelled factory 0x0101 as
+> "SubsystemEvent" — that name was a fabrication. **Factory 0x0101 IS plain TGEvent** (the
+> root of the event-class hierarchy). The canonical hierarchy is **TGEvent (0x0101) →
+> TGCharEvent (0x0105) / TGObjPtrEvent (0x010C)** — three event classes total, not four.
+> ObjectExplodingEvent (0x8129) is documented alongside as a separate factory used by the
+> PythonEvent deserializer. ADD_TO_REPAIR_LIST uses base TGEvent (16-byte payload, 17 bytes
+> on-wire including the opcode). See `../tgobjptrevent-wire-format.md` for the canonical
+> reference and an open question on TGObjPtrEvent's extension size.
 
-### 1. SubsystemEvent (factory_id = 0x00000101)
+### 1. TGEvent (factory_id = 0x00000101) — base event class
 
 The most common event in collision traffic. No extension fields beyond the base event —
-factory_id + event_type + two object references is the complete payload.
+factory_id + event_type + two object references is the complete payload. Earlier docs
+called this "SubsystemEvent"; the correct class name is plain **TGEvent**.
 
 ```
 Offset  Size  Type    Field            Notes
@@ -16,7 +25,8 @@ Offset  Size  Type    Field            Notes
 13      4     i32     dest_obj_id      Repair subsystem that queued it (repair sub's object ID)
 ```
 
-**Total**: 17 bytes (fixed).
+**Total**: 17 bytes on-wire including the 1-byte opcode (= 16-byte payload). Earlier
+"17 bytes payload" wording was counting the opcode byte.
 
 Both object references are **subsystem-level IDs**, not ship IDs. See "Subsystem Object
 IDs" above for how these are allocated.
@@ -31,7 +41,7 @@ IDs" above for how these are allocated.
 
 ### 2. CharEvent (factory_id = 0x00000105)
 
-Extends SubsystemEvent with a single byte payload. This class is primarily used by
+Extends TGEvent (0x0101) with a single byte payload. This class is primarily used by
 opcodes 0x07-0x12 and 0x1B (weapon, cloak, and warp events) rather than opcode 0x06.
 Documented here because the polymorphic deserializer handles any registered factory
 type.
@@ -54,9 +64,16 @@ analysis of CharEvent usage.
 
 ### 3. ObjPtrEvent (factory_id = 0x0000010C)
 
-Extends SubsystemEvent with a single int32 third object reference — a network object ID
+Extends TGEvent (0x0101) with a single int32 third object reference — a network object ID
 for a third party (e.g. the weapon subsystem that fired). This is the highest-volume
 event class during combat, accounting for ~45% of all PythonEvent messages.
+
+> **2026-05-29 open question**: The +4-byte int32 extension documented here is the
+> majority-source value (matches packet captures and the canonical
+> `../tgobjptrevent-wire-format.md`), but a mid-batch RE memo briefly reported a
+> +1-byte extension. Not blocking — OpenBC does not currently emit the
+> REPAIR_COMPLETED / REPAIR_CANNOT_BE_COMPLETED events that would exercise this path.
+> Flag for follow-up RE before relying on the exact on-wire size.
 
 ```
 Offset  Size  Type    Field            Notes
@@ -119,13 +136,15 @@ combat PythonEvent traffic.
 ### Class Hierarchy
 
 ```
-Event (base, factory 0x02)
-  └── SubsystemEvent (factory 0x101)
-        ├── CharEvent (factory 0x105)
-        └── ObjPtrEvent (factory 0x10C)
+TGObject (base engine object, factory 0x02 — not an event class)
+  └── TGEvent (event-class base, factory 0x0101)
+        ├── CharEvent (factory 0x0105)
+        └── ObjPtrEvent (factory 0x010C)
 ```
 
-The `IsA` check reports true for all IDs in the ancestry chain.
+There is no intermediate "SubsystemEvent" — factory 0x0101 IS plain TGEvent. The `IsA`
+check reports true for all IDs in the ancestry chain, so `IsA(0x0101)` matches CharEvent
+and ObjPtrEvent instances as well as bare TGEvent instances.
 
 ### 4. ObjectExplodingEvent (factory_id = 0x00008129)
 

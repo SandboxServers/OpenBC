@@ -1,5 +1,6 @@
 # Collision Test (2026-02-22)
 
+> **2026-05-29 cascade correction**: References to "TGSubsystemEvent (factory 0x0101)" in this audit are inaccurate per binary RE. **Factory 0x0101 IS plain TGEvent** (the base event class itself), not a "TGSubsystemEvent" subclass. The corrected hierarchy is TGEvent (0x0101) → TGCharEvent (0x0105) / TGObjPtrEvent (0x010C). The audit findings (wire-format matches, object-ID mismatches, behavioral gaps) still stand — only the class label is wrong. See `../../wire-formats/tgobjptrevent-wire-format.md` for the canonical reference.
 
 **Source**: Side-by-side packet traces — stock dedi vs OpenBC. Initial test: Sovereign,
 environment collision, death, respawn, second collision. Follow-up (same date): 4m 24s
