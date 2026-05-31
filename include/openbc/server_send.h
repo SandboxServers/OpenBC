@@ -18,6 +18,13 @@ void bc_send_unreliable_direct(const bc_addr_t *to,
 /* Flush a peer's outbox with optional SEND trace logging. */
 void bc_flush_peer(int slot);
 
+/* Run the 4-pass bundling drain for one peer, sending at most one datagram. */
+void bc_drain_peer(int slot);
+
+/* Run the 4-pass drain for every active peer, round-robin across peers for
+ * fairness.  Called once per network tick after the immediate-outbox flush. */
+void bc_drain_all(void);
+
 /* Relay a message to all connected peers except the sender.
  * Uses reliable delivery for guaranteed opcodes, unreliable otherwise. */
 void bc_relay_to_others(int sender_slot, const u8 *payload, int payload_len,

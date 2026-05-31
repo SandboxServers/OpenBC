@@ -6,6 +6,7 @@
 #include "openbc/opcodes.h"
 #include "openbc/transport.h"
 #include "openbc/reliable.h"
+#include "openbc/drain.h"
 #include "openbc/ship_state.h"
 
 /*
@@ -62,6 +63,7 @@ typedef struct {
     bc_fragment_buf_t   fragment;        /* Fragment reassembly state */
     bc_reliable_queue_t reliable_out;    /* Outgoing reliable delivery queue */
     bc_outbox_t         outbox;          /* Outgoing message accumulator */
+    bc_drain_t          drain;           /* 4-pass bundling queues (in-game) */
 
     /* Server-authoritative ship state (Phase E) */
     bc_ship_state_t     ship;            /* Server-tracked ship HP, position, etc. */

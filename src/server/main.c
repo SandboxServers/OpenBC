@@ -1167,11 +1167,18 @@ int main(int argc, char **argv)
                 }
             }
 
-            /* Flush all peer outboxes (skip slot 0 = dedi) */
+            /* Flush all peer outboxes (skip slot 0 = dedi).  This ships
+             * handshake / keepalive / disconnect traffic that uses the
+             * immediate-mode accumulator. */
             for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                 if (g_peers.peers[i].state == PEER_EMPTY) continue;
                 bc_flush_peer(i);
             }
+
+            /* Drain in-game reliable / unreliable traffic via the 4-pass
+             * bundling drain, round-robin across peers for fairness.  Packs up
+             * to 255 messages into one 512-byte datagram per peer per tick. */
+            bc_drain_all();
 
             last_tick = now;
         }
@@ -1199,6 +1206,8 @@ int main(int argc, char **argv)
         if (g_peers.peers[i].state == PEER_EMPTY) continue;
         bc_flush_peer(i);
     }
+    /* Drain any queued in-game traffic still held by the 4-pass bundler. */
+    bc_drain_all();
 
     /* Send ConnectAck shutdown notification to all connected peers.
      * Real BC server sends ConnectAck (0x05) to each peer on shutdown,

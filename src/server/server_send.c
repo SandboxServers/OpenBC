@@ -1,6 +1,7 @@
 #include "openbc/server_state.h"
 #include "openbc/server_send.h"
 #include "openbc/transport.h"
+#include "openbc/drain.h"
 #include "openbc/cipher.h"
 #include "openbc/reliable.h"
 #include "openbc/log.h"
@@ -25,26 +26,25 @@ void bc_queue_reliable(int peer_slot, const u8 *payload, int payload_len)
                  peer_slot, payload_len);
     }
 
-    if (!bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq)) {
-        bc_flush_peer(peer_slot);
-        if (!bc_outbox_add_reliable(&peer->outbox, payload, payload_len, seq)) {
-            LOG_WARN("send", "outbox still full after flush, reliable msg dropped "
-                     "(slot=%d seq=%u len=%d)",
-                     peer_slot, (unsigned)seq, payload_len);
-        }
+    /* Fresh reliable game traffic feeds the priority-reliable queue, drained
+     * by Pass 1 of the per-peer 4-pass bundling drain (retx escalates a
+     * stuck entry into the Pass-4 lane). */
+    if (!bc_drain_enqueue_priority(&peer->drain, payload, payload_len, seq)) {
+        LOG_WARN("send", "drain priority queue full, reliable msg dropped "
+                 "(slot=%d seq=%u len=%d)",
+                 peer_slot, (unsigned)seq, payload_len);
     }
 }
 
 void bc_queue_unreliable(int peer_slot, const u8 *payload, int payload_len)
 {
     bc_peer_t *peer = &g_peers.peers[peer_slot];
-    if (!bc_outbox_add_unreliable(&peer->outbox, payload, payload_len)) {
-        bc_flush_peer(peer_slot);
-        if (!bc_outbox_add_unreliable(&peer->outbox, payload, payload_len)) {
-            LOG_WARN("send", "outbox still full after flush, unreliable msg dropped "
-                     "(slot=%d len=%d)",
-                     peer_slot, payload_len);
-        }
+    /* Unreliable game traffic feeds the unreliable queue, drained by Pass 3
+     * (dequeue + free each; promote to reliable tracking on first delivery). */
+    if (!bc_drain_enqueue_unreliable(&peer->drain, payload, payload_len)) {
+        LOG_WARN("send", "drain unreliable queue full, unreliable msg dropped "
+                 "(slot=%d len=%d)",
+                 peer_slot, payload_len);
     }
 }
 
@@ -123,4 +123,60 @@ void bc_send_to_all(const u8 *payload, int payload_len, bool reliable)
         else
             bc_queue_unreliable(i, payload, payload_len);
     }
+}
+
+/* Round-robin cursor across peers for fairness: the drain starts from a
+ * different peer each tick so no single peer is consistently first to claim
+ * datagram budget under load. */
+static int g_drain_cursor = 1;  /* slot 0 is the dedi host, never drained */
+
+void bc_drain_peer(int slot)
+{
+    bc_peer_t *peer = &g_peers.peers[slot];
+    if (!bc_drain_pending(&peer->drain)) return;
+
+    /* The peer is disconnecting once its slot leaves the active states; this
+     * (with pending ACKs) is what opens the Pass-4 gate. */
+    peer->drain.disconnecting = (peer->state == PEER_EMPTY);
+
+    u8 pkt[BC_MAX_PACKET_SIZE];
+    const bc_qmsg_t *promoted[BC_DRAIN_QUEUE_CAP];
+    int promoted_count = 0;
+
+    int len = bc_drain_to_buf(&peer->drain, BC_DIR_SERVER, pkt, sizeof(pkt),
+                              promoted, BC_DRAIN_QUEUE_CAP, &promoted_count);
+    if (len <= 0) return;  /* Pass-4 gate closed / nothing to send this tick */
+
+    /* Pass 3 promoted these unreliable messages to reliable tracking on first
+     * delivery: register them so they retransmit until ACKed, matching stock
+     * burst-absorption where a drained unreliable graduates to the reliable
+     * path. */
+    for (int p = 0; p < promoted_count; p++) {
+        const bc_qmsg_t *m = promoted[p];
+        /* m->bytes is the serialized unreliable frame [0x32][len][0x00][body];
+         * strip the 3-byte transport header to recover the game payload. */
+        if (m->len > 3) {
+            u16 seq = peer->reliable_seq_out++;
+            bc_reliable_add(&peer->reliable_out, m->bytes + 3, m->len - 3,
+                            seq, bc_ms_now());
+        }
+    }
+
+    bc_packet_t trace;
+    if (bc_transport_parse(pkt, len, &trace))
+        bc_log_packet_trace(&trace, slot, "DRN");
+    alby_cipher_encrypt(pkt, (size_t)len);
+    bc_socket_send(&g_socket, &peer->addr, pkt, len);
+}
+
+void bc_drain_all(void)
+{
+    /* Advance the round-robin start point so fairness rotates across ticks. */
+    int start = g_drain_cursor;
+    for (int n = 0; n < BC_MAX_PLAYERS - 1; n++) {
+        int slot = 1 + ((start - 1 + n) % (BC_MAX_PLAYERS - 1));
+        if (g_peers.peers[slot].state == PEER_EMPTY) continue;
+        bc_drain_peer(slot);
+    }
+    g_drain_cursor = bc_drain_next_cursor(g_drain_cursor, BC_MAX_PLAYERS);
 }
