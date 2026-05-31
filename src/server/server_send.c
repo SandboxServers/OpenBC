@@ -135,8 +135,12 @@ void bc_drain_peer(int slot)
     bc_peer_t *peer = &g_peers.peers[slot];
     if (!bc_drain_pending(&peer->drain)) return;
 
-    /* The peer is disconnecting once its slot leaves the active states; this
-     * (with pending ACKs) is what opens the Pass-4 gate. */
+    /* Pass-4 "disconnecting" gate input. NOTE: there is currently no distinct
+     * addressable disconnecting state -- a leaving peer transitions straight to
+     * PEER_EMPTY, which bc_drain_all() skips -- so this is always false in the
+     * live path today and the Pass-4 gate reduces to (msg_count>0 AND
+     * ack_count>0). The branch is kept and unit-tested for when a disconnecting
+     * state with a still-valid address is introduced. */
     peer->drain.disconnecting = (peer->state == PEER_EMPTY);
 
     u8 pkt[BC_MAX_PACKET_SIZE];
