@@ -59,7 +59,6 @@ int bc_peers_add(bc_peer_mgr_t *mgr, const bc_addr_t *addr)
                 *cid = -1;
             }
             bc_outbox_init(&mgr->peers[i].outbox);
-            bc_drain_init(&mgr->peers[i].drain);
             mgr->count++;
             return i;
         }

@@ -1,311 +1,298 @@
 #include "test_util.h"
-#include "openbc/drain.h"
+#include "openbc/reliable.h"
 #include "openbc/transport.h"
 #include <string.h>
 
 /*
- * Unit tests for the 4-pass per-peer outbound drain (issue #195).
+ * Unit tests for reliable_out-based outbound packet bundling (issue #195).
  *
- * The drain packs multiple TGMessages into one datagram in a fixed pass order
- * (priority-reliable -> reliable one-shot -> unreliable -> priority stale),
- * matching the burst-absorption behaviour observed in wire-protocol trace
- * analysis of a stock dedicated server session.
+ * Wire-protocol trace analysis of a stock dedicated server session shows
+ * outbound datagrams carry MULTIPLE transport messages (up to 255) in one
+ * 512-byte datagram rather than one message per datagram.  OpenBC reproduces
+ * that by accumulating ACKs / unreliable data into the per-peer outbox and, at
+ * flush time, packing every *due* reliable_out entry into the SAME datagram via
+ * bc_reliable_pack_due().
+ *
+ * The two correctness properties the old parallel-queue design lacked, proven
+ * here, are:
+ *   1. Idempotency within a tick -- packing a peer twice at the same now_ms
+ *      does not duplicate a reliable message on the wire (send_time is stamped).
+ *   2. ACK removal -- an ACKed reliable entry is pruned from reliable_out and is
+ *      never packed again (bundling and ACK removal share one queue).
  */
 
-/* Count the transport messages in a serialized datagram by re-parsing it.
- * Returns the parsed message count, or -1 on parse failure. */
-static int parse_count(const u8 *buf, int len)
+/* Build one bundled datagram the way bc_flush_peer does: pack due reliable
+ * entries into a fresh outbox, then serialize the outbox.  Returns datagram
+ * length (0 if nothing pending), and sets *count to the parsed message count. */
+static int build_bundle(bc_reliable_queue_t *q, bc_outbox_t *outbox,
+                        u32 now_ms, u8 *out, int out_size, int *count)
 {
+    bc_reliable_pack_due(q, outbox, now_ms, NULL);
+    if (count) *count = 0;
+    if (!bc_outbox_pending(outbox)) return 0;
+    int len = bc_outbox_flush_to_buf(outbox, out, out_size);
+    if (len <= 0) return len;
     bc_packet_t pkt;
-    if (!bc_transport_parse(buf, len, &pkt)) return -1;
-    return pkt.msg_count;
+    if (bc_transport_parse(out, len, &pkt)) {
+        if (count) *count = pkt.msg_count;
+    } else if (count) {
+        *count = -1;
+    }
+    return len;
 }
 
-/* === Pass ordering === */
+/* === Multi-message bundling === */
 
-TEST(drain_empty_sends_nothing)
+TEST(bundle_packs_multiple_reliables_in_one_datagram)
 {
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT_EQ_INT(len, 0);
-}
+    /* Several reliable messages queued before a flush all ride in one datagram
+     * (multi-msg, not one-per-datagram). */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
 
-TEST(drain_bundles_priority_multi)
-{
-    /* Pass 1 packs multiple fresh priority-reliable messages into one
-     * datagram (multi-msg, not one-per-datagram). */
-    bc_drain_t d;
-    bc_drain_init(&d);
     u8 body[] = { 0x1C, 0xAA, 0xBB };
     for (int i = 0; i < 5; i++)
-        ASSERT(bc_drain_enqueue_priority(&d, body, sizeof(body), (u16)i));
+        ASSERT(bc_reliable_add(&q, body, sizeof(body), (u16)i, 1000));
 
     u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
+    int count = 0;
+    int len = build_bundle(&q, &outbox, 1000, out, sizeof(out), &count);
     ASSERT(len > 0);
-    ASSERT_EQ(out[0], 0x01);       /* sender id */
-    ASSERT_EQ(out[1], 5);          /* message count header */
-    ASSERT_EQ_INT(parse_count(out, len), 5);
+    ASSERT_EQ(out[0], BC_DIR_SERVER);  /* sender id (server) */
+    ASSERT_EQ(out[1], 5);              /* message count header */
+    ASSERT_EQ_INT(count, 5);
+    /* All five remain in reliable_out until ACKed (still tracked). */
+    ASSERT_EQ_INT(q.count, 5);
 }
 
-TEST(drain_reliable_is_one_shot)
+TEST(bundle_mixes_acks_and_reliables_in_one_datagram)
 {
-    /* Pass 2 is one-shot: at most ONE reliable message per datagram even when
-     * several are queued. */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 body[] = { 0x32, 0x01, 0x02, 0x03 };
-    for (int i = 0; i < 4; i++)
-        ASSERT(bc_drain_enqueue_reliable(&d, body, sizeof(body), (u16)i));
+    /* ACKs accumulated in the outbox bundle together with due reliable_out
+     * entries in a single datagram. */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    /* Two pending ACKs already in the outbox (like incoming-reliable ACKs). */
+    ASSERT(bc_outbox_add_ack(&outbox, 0x0500, 0x00));
+    ASSERT(bc_outbox_add_ack(&outbox, 0x0600, 0x00));
+    /* One due reliable message. */
+    u8 body[] = { 0x06, 0x01 };
+    ASSERT(bc_reliable_add(&q, body, sizeof(body), 1, 1000));
 
     u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
+    int count = 0;
+    int len = build_bundle(&q, &outbox, 1000, out, sizeof(out), &count);
     ASSERT(len > 0);
-    ASSERT_EQ(out[1], 1);          /* exactly one reliable drained */
-    ASSERT_EQ_INT(parse_count(out, len), 1);
-
-    /* Next drain pulls the next reliable (still one at a time). */
-    len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT_EQ(out[1], 1);
-    /* Two of the four remain after two one-shot drains. */
-    ASSERT_EQ_INT(d.reliable.count, 2);
+    ASSERT_EQ_INT(count, 3);  /* 2 ACKs + 1 reliable, one datagram */
 }
 
-TEST(drain_pass_order_priority_then_reliable_then_unreliable)
+/* === Synchronous-send idiom === */
+
+TEST(bundle_fresh_reliable_is_due_immediately)
 {
-    /* A datagram with all three lanes populated drains in pass order:
-     * priority (P1) first, then one reliable (P2), then unreliable (P3). */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 pr[] = { 0x06, 0x01 };
-    u8 rl[] = { 0x07, 0x02 };
-    u8 ur[] = { 0x1C, 0x03 };
-    ASSERT(bc_drain_enqueue_priority(&d, pr, sizeof(pr), 1));
-    ASSERT(bc_drain_enqueue_reliable(&d, rl, sizeof(rl), 2));
-    ASSERT(bc_drain_enqueue_unreliable(&d, ur, sizeof(ur)));
+    /* A just-queued reliable (never sent) is due on the very next pack, even
+     * when its send_time equals "now" -- this is what makes the synchronous
+     * idiom bc_queue_reliable(); bc_flush_peer(); send immediately. */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
 
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT(len > 0);
-    ASSERT_EQ_INT(parse_count(out, len), 3);
+    u8 body[] = { 0x28 };
+    ASSERT(bc_reliable_add(&q, body, sizeof(body), 7, 5000));  /* send_time=5000 */
 
-    /* First message after the 2-byte header is the priority one (reliable,
-     * carries pr body). out[2]=type 0x32, out[4]=flags 0x80 reliable. */
-    ASSERT_EQ(out[2], BC_TRANSPORT_RELIABLE);
-    ASSERT_EQ(out[4], 0x80);
-    /* priority body begins after [type][len][0x80][seqHi][seqLo] */
-    ASSERT_EQ(out[7], 0x06);
+    /* Pack at the SAME now_ms it was added.  Without the `sent` flag this would
+     * be (now - send_time == 0) < interval -> skipped; the first-send rule
+     * makes it due. */
+    int packed = bc_reliable_pack_due(&q, &outbox, 5000, NULL);
+    ASSERT_EQ_INT(packed, 1);
+    ASSERT(bc_outbox_pending(&outbox));
 }
 
-/* === Pass 3 promotion + dequeue === */
+/* === Within-tick idempotency === */
 
-TEST(drain_unreliable_promotes_and_frees)
+TEST(bundle_idempotent_within_a_tick)
 {
-    /* Pass 3 drains unreliable messages, dequeues+frees each, and reports the
-     * promoted ones to the caller. */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 ur[] = { 0x1C, 0x10, 0x20 };
-    for (int i = 0; i < 3; i++)
-        ASSERT(bc_drain_enqueue_unreliable(&d, ur, sizeof(ur)));
+    /* Packing the same peer twice at the same now_ms must NOT re-send a reliable
+     * message: the first pack stamps send_time = now, so the second pack sees it
+     * as not-yet-due.  This is the key property the parallel-queue design lacked
+     * (it re-sent on every drain). */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
 
-    const bc_qmsg_t *promoted[8];
-    int pc = 0;
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), promoted, 8, &pc);
-    ASSERT(len > 0);
-    ASSERT_EQ_INT(pc, 3);                 /* all three promoted */
-    ASSERT_EQ_INT(d.unreliable.count, 0); /* all three dequeued + freed */
+    u8 body[] = { 0x06, 0x42 };
+    ASSERT(bc_reliable_add(&q, body, sizeof(body), 3, 2000));
+
+    /* First pack at t=2000: the message is due (first send). */
+    bc_outbox_t ob1;
+    bc_outbox_init(&ob1);
+    int packed1 = bc_reliable_pack_due(&q, &ob1, 2000, NULL);
+    ASSERT_EQ_INT(packed1, 1);
+
+    /* Second pack at the SAME t=2000 (e.g. synchronous flush + per-tick flush):
+     * nothing due, nothing packed -- no duplicate on the wire. */
+    bc_outbox_t ob2;
+    bc_outbox_init(&ob2);
+    int packed2 = bc_reliable_pack_due(&q, &ob2, 2000, NULL);
+    ASSERT_EQ_INT(packed2, 0);
+    ASSERT(!bc_outbox_pending(&ob2));
+
+    /* The entry is still tracked (awaiting ACK), not dropped. */
+    ASSERT_EQ_INT(q.count, 1);
 }
 
-/* === 255-message cap === */
-
-TEST(drain_respects_255_cap)
+TEST(bundle_retransmits_after_interval_elapses)
 {
-    /* The per-datagram message count is a u8 that is capped at 255 (it never
-     * wraps).  We fill the priority ring with tiny messages and confirm every
-     * drained message is accounted for in the header count and the count
-     * stays within the cap. */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 body[] = { 0x00 };  /* 6 bytes on wire: [0x32][len][0x80][seq][0][0x00] */
-    int n = BC_DRAIN_QUEUE_CAP;  /* fill the priority ring (64) */
-    for (int i = 0; i < n; i++)
-        bc_drain_enqueue_priority(&d, body, sizeof(body), (u16)i);
+    /* Once the retransmit interval elapses since the last send, the entry
+     * becomes due again and is re-packed (retransmit). */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
 
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT(len > 0);
-    /* 64 * 6 = 384 bytes + 2 header = 386 <= 512, so all 64 fit in one
-     * datagram and the header count reflects them without wrapping. */
-    ASSERT_EQ(out[1], (u8)n);
-    ASSERT(out[1] <= BC_DRAIN_MSGCOUNT_MAX);
+    u8 body[] = { 0x06, 0x99 };
+    ASSERT(bc_reliable_add(&q, body, sizeof(body), 4, 0));
+
+    bc_outbox_t ob1;
+    bc_outbox_init(&ob1);
+    ASSERT_EQ_INT(bc_reliable_pack_due(&q, &ob1, 0, NULL), 1);  /* first send */
+
+    /* Still within the interval -> not due. */
+    bc_outbox_t ob2;
+    bc_outbox_init(&ob2);
+    ASSERT_EQ_INT(
+        bc_reliable_pack_due(&q, &ob2, BC_RELIABLE_RETRANSMIT_MS - 1, NULL), 0);
+
+    /* Interval elapsed -> due again (retransmit), retransmit count reported. */
+    bc_outbox_t ob3;
+    bc_outbox_init(&ob3);
+    int retx = 0;
+    int packed = bc_reliable_pack_due(&q, &ob3, BC_RELIABLE_RETRANSMIT_MS, &retx);
+    ASSERT_EQ_INT(packed, 1);
+    ASSERT_EQ_INT(retx, 1);          /* counted as a retransmit, not first send */
+    ASSERT_EQ_INT(q.entries[0].retries, 1);
 }
 
-/* === Won't-fit break === */
+/* === ACK removal === */
 
-TEST(drain_breaks_when_next_wont_fit)
+TEST(bundle_ack_removes_message_so_it_is_not_resent)
 {
-    /* Pass 1 breaks (does not drop later messages) when the next message would
-     * overflow the 512-byte datagram.  Use large bodies so only a few fit. */
-    bc_drain_t d;
-    bc_drain_init(&d);
+    /* An incoming ACK prunes the matching reliable_out entry; after the
+     * retransmit interval elapses it is NOT re-packed because it is gone.  ACK
+     * removal and bundling share the single reliable_out queue. */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+
+    u8 a[] = { 0x06, 0x01 };
+    u8 b[] = { 0x07, 0x02 };
+    ASSERT(bc_reliable_add(&q, a, sizeof(a), 10, 0));
+    ASSERT(bc_reliable_add(&q, b, sizeof(b), 11, 0));
+
+    /* First send of both at t=0. */
+    bc_outbox_t ob1;
+    bc_outbox_init(&ob1);
+    ASSERT_EQ_INT(bc_reliable_pack_due(&q, &ob1, 0, NULL), 2);
+
+    /* Wire seq is (counter << 8); the ACK references the high byte (counter).
+     * bc_reliable_ack matches on the stored seq directly, so ACK seq 10. */
+    ASSERT(bc_reliable_ack(&q, 10));
+    ASSERT_EQ_INT(q.count, 1);  /* one pruned, one remains */
+
+    /* After the interval, only the un-ACKed entry (seq 11) is re-packed. */
+    bc_outbox_t ob2;
+    bc_outbox_init(&ob2);
+    int packed = bc_reliable_pack_due(&q, &ob2, BC_RELIABLE_RETRANSMIT_MS, NULL);
+    ASSERT_EQ_INT(packed, 1);
+
+    /* And the surviving entry is the un-ACKed one. */
+    bool found_11 = false, found_10 = false;
+    for (int i = 0; i < BC_RELIABLE_QUEUE_SIZE; i++) {
+        if (!q.entries[i].active) continue;
+        if (q.entries[i].seq == 11) found_11 = true;
+        if (q.entries[i].seq == 10) found_10 = true;
+    }
+    ASSERT(found_11);
+    ASSERT(!found_10);
+}
+
+TEST(bundle_ack_before_first_send_prevents_send)
+{
+    /* If an ACK arrives before a queued reliable is ever packed (it was
+     * delivered via some other coalesced datagram), the entry is removed and
+     * never sent. */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+
+    u8 body[] = { 0x06, 0x01 };
+    ASSERT(bc_reliable_add(&q, body, sizeof(body), 20, 0));
+    ASSERT(bc_reliable_ack(&q, 20));
+    ASSERT_EQ_INT(q.count, 0);
+
+    bc_outbox_t ob;
+    bc_outbox_init(&ob);
+    ASSERT_EQ_INT(bc_reliable_pack_due(&q, &ob, 0, NULL), 0);
+    ASSERT(!bc_outbox_pending(&ob));
+}
+
+/* === MTU / 255 cap behaviour === */
+
+TEST(bundle_respects_mtu_leaves_remainder_queued)
+{
+    /* Packing breaks (does not drop) when the next reliable would overflow the
+     * 512-byte datagram.  The remainder stays due for the next flush. */
+    bc_reliable_queue_t q;
+    bc_reliable_init(&q);
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
+
+    /* Large bodies: each on wire is 5 (reliable hdr) + 200 = 205 bytes.
+     * 2-byte datagram header + 205*2 = 412 fits; a third (205) -> 617 > 512.
+     * So only 2 fit; the third must remain queued. */
     u8 big[200];
     memset(big, 0x55, sizeof(big));
-    big[0] = 0x1C;
-    /* Each on wire: 5 hdr + 200 = 205 bytes.  2-byte header + 205*2 = 412,
-     * + a third (205) = 617 > 512, so only 2 fit per datagram. */
-    for (int i = 0; i < 5; i++)
-        ASSERT(bc_drain_enqueue_priority(&d, big, sizeof(big), (u16)i));
+    for (int i = 0; i < 3; i++)
+        ASSERT(bc_reliable_add(&q, big, sizeof(big), (u16)i, 1000));
+
+    int packed = bc_reliable_pack_due(&q, &outbox, 1000, NULL);
+    ASSERT_EQ_INT(packed, 2);          /* only two fit this datagram */
+    ASSERT_EQ_INT(outbox.msg_count, 2);
 
     u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT(len > 0);
-    ASSERT(len <= BC_MAX_PACKET_SIZE);
-    ASSERT_EQ(out[1], 2);  /* only two fit; the rest stay queued */
-    /* The un-drained fresh priority messages remain (retx still < 3). */
+    int len = bc_outbox_flush_to_buf(&outbox, out, sizeof(out));
+    ASSERT(len > 0 && len <= BC_MAX_PACKET_SIZE);
+
+    /* The third entry is still queued (active), not sent, not dropped. */
+    ASSERT_EQ_INT(q.count, 3);  /* all three tracked; only two marked sent */
+    int sent_count = 0;
+    for (int i = 0; i < BC_RELIABLE_QUEUE_SIZE; i++)
+        if (q.entries[i].active && q.entries[i].sent) sent_count++;
+    ASSERT_EQ_INT(sent_count, 2);
 }
 
-/* === Pass 4 gate (the ACK-outbox deadlock condition) === */
+/* === MTU / header constants (wire facts) === */
 
-TEST(drain_pass4_gate_closed_without_acks)
+TEST(bundle_wire_constants)
 {
-    /* A stale priority-reliable message (retx >= 3) must NOT fire when there
-     * are no pending ACKs, even though there is queued data -- this is the
-     * exact ACK-outbox-deadlock gate. */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 body[] = { 0x06, 0x01 };
-    ASSERT(bc_drain_enqueue_priority(&d, body, sizeof(body), 1));
-    /* Force the single priority entry into the stale lane (retx >= 3). */
-    d.priority.slot[d.priority.head].retx = BC_DRAIN_RETX_STALE;
-
-    /* No ACKs queued -> ack_count == 0 -> gate closed -> nothing sent. */
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT_EQ_INT(len, 0);
-    /* The stale entry stays queued (not freed, not sent). */
-    ASSERT_EQ_INT(d.priority.count, 1);
-}
-
-TEST(drain_pass4_gate_open_with_acks)
-{
-    /* With a pending ACK, msg_count becomes > 0 after the ACK is packed, the
-     * gate opens, and the stale priority-reliable message flushes alongside. */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 body[] = { 0x06, 0x01 };
-    ASSERT(bc_drain_enqueue_priority(&d, body, sizeof(body), 1));
-    d.priority.slot[d.priority.head].retx = BC_DRAIN_RETX_STALE;
-    ASSERT(bc_drain_enqueue_ack(&d, 0x0500, 0x00));  /* one pending ACK */
-
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT(len > 0);
-    /* ACK + stale priority message = 2 messages. */
-    ASSERT_EQ_INT(parse_count(out, len), 2);
-}
-
-TEST(drain_pass4_gate_with_disconnecting_flag_set)
-{
-    /* The disconnecting flag is the second arm of the gate's first clause
-     * (msg_count > 0 OR disconnecting).  With the flag set and a pending ACK,
-     * the gate opens and the stale priority message flushes. */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 body[] = { 0x06, 0x01 };
-    ASSERT(bc_drain_enqueue_priority(&d, body, sizeof(body), 1));
-    d.priority.slot[d.priority.head].retx = BC_DRAIN_RETX_STALE;
-    ASSERT(bc_drain_enqueue_ack(&d, 0x0500, 0x00));
-    d.disconnecting = true;
-
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT(len > 0);
-    ASSERT_EQ_INT(parse_count(out, len), 2);
-
-    /* And the gate stays CLOSED when disconnecting but no ACK is pending --
-     * ack_count > 0 is mandatory regardless of the disconnecting flag. */
-    bc_drain_t d2;
-    bc_drain_init(&d2);
-    ASSERT(bc_drain_enqueue_priority(&d2, body, sizeof(body), 1));
-    d2.priority.slot[d2.priority.head].retx = BC_DRAIN_RETX_STALE;
-    d2.disconnecting = true;  /* set, but no ACK queued */
-    int len2 = bc_drain_to_buf(&d2, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT_EQ_INT(len2, 0);
-    ASSERT_EQ_INT(d2.priority.count, 1);
-}
-
-TEST(drain_pass4_frees_at_retx_9)
-{
-    /* A stale priority entry is freed once its retx reaches 9.  The gate needs
-     * msg_count > 0 (a fresh P1 message opens it) AND a pending ACK. */
-    bc_drain_t d;
-    bc_drain_init(&d);
-    u8 fresh[] = { 0x06, 0x01 };
-    u8 stale[] = { 0x07, 0x02 };
-    /* Fresh priority message (retx 0) -> packed by Pass 1, opens the gate. */
-    ASSERT(bc_drain_enqueue_priority(&d, fresh, sizeof(fresh), 1));
-    /* Stale priority message starting at retx 8: one drain -> retx 9 -> freed. */
-    ASSERT(bc_drain_enqueue_priority(&d, stale, sizeof(stale), 2));
-    d.priority.slot[(d.priority.head + 1) % BC_DRAIN_QUEUE_CAP].retx =
-        BC_DRAIN_RETX_FREE - 1;
-    ASSERT(bc_drain_enqueue_ack(&d, 0x0500, 0x00));
-
-    u8 out[BC_MAX_PACKET_SIZE];
-    int len = bc_drain_to_buf(&d, 0x01, out, sizeof(out), NULL, 0, NULL);
-    ASSERT(len > 0);
-    /* The fresh entry remains (retx 1, still < 3); the stale entry was freed. */
-    ASSERT_EQ_INT(d.priority.count, 1);
-}
-
-/* === Fragment chunk constant === */
-
-TEST(drain_fragment_chunk_constant)
-{
-    /* Fragmentation is decided at queue time with a 412-byte chunk budget
-     * (MTU - 100).  Assert the constant is exposed and consistent. */
-    ASSERT_EQ_INT(BC_DRAIN_FRAG_CHUNK_MAX, BC_MAX_PACKET_SIZE - 100);
-    ASSERT_EQ_INT(BC_DRAIN_HEADER_LEN, 2);
-    ASSERT_EQ_INT(BC_DRAIN_MSGCOUNT_MAX, 255);
-}
-
-/* === Round-robin cursor advancement === */
-
-TEST(drain_round_robin_cursor_advances_and_wraps)
-{
-    /* With BC_MAX_PLAYERS slots, the cursor cycles over 1..MAX-1 and wraps
-     * back to 1, giving every peer a turn at being first under load. */
-    int max = 7;            /* arbitrary slot count for the math check */
-    int seen[8];
-    memset(seen, 0, sizeof(seen));
-    int cur = 1;
-    for (int i = 0; i < max - 1; i++) {
-        ASSERT(cur >= 1 && cur <= max - 1);
-        seen[cur] = 1;
-        cur = bc_drain_next_cursor(cur, max);
-    }
-    /* Every peer slot 1..max-1 was visited exactly once before wrap. */
-    for (int s = 1; s <= max - 1; s++)
-        ASSERT_EQ_INT(seen[s], 1);
-    /* After a full cycle the cursor returns to its start. */
-    ASSERT_EQ_INT(cur, 1);
+    ASSERT_EQ_INT(BC_MAX_PACKET_SIZE, 512);            /* MTU */
+    ASSERT_EQ_INT(BC_RELIABLE_MAX_PAYLOAD, 512);
+    /* Datagram header is [direction:1][msg_count:1] = 2 bytes (outbox starts
+     * its write cursor at 2). */
+    bc_outbox_t ob;
+    bc_outbox_init(&ob);
+    ASSERT_EQ_INT(ob.pos, 2);
+    ASSERT_EQ_INT(ob.msg_count, 0);
 }
 
 TEST_MAIN_BEGIN()
-    RUN(drain_empty_sends_nothing);
-    RUN(drain_bundles_priority_multi);
-    RUN(drain_reliable_is_one_shot);
-    RUN(drain_pass_order_priority_then_reliable_then_unreliable);
-    RUN(drain_unreliable_promotes_and_frees);
-    RUN(drain_respects_255_cap);
-    RUN(drain_breaks_when_next_wont_fit);
-    RUN(drain_pass4_gate_closed_without_acks);
-    RUN(drain_pass4_gate_open_with_acks);
-    RUN(drain_pass4_gate_with_disconnecting_flag_set);
-    RUN(drain_pass4_frees_at_retx_9);
-    RUN(drain_fragment_chunk_constant);
-    RUN(drain_round_robin_cursor_advances_and_wraps);
+    RUN(bundle_packs_multiple_reliables_in_one_datagram);
+    RUN(bundle_mixes_acks_and_reliables_in_one_datagram);
+    RUN(bundle_fresh_reliable_is_due_immediately);
+    RUN(bundle_idempotent_within_a_tick);
+    RUN(bundle_retransmits_after_interval_elapses);
+    RUN(bundle_ack_removes_message_so_it_is_not_resent);
+    RUN(bundle_ack_before_first_send_prevents_send);
+    RUN(bundle_respects_mtu_leaves_remainder_queued);
+    RUN(bundle_wire_constants);
 TEST_MAIN_END()

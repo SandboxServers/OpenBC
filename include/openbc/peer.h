@@ -6,7 +6,6 @@
 #include "openbc/opcodes.h"
 #include "openbc/transport.h"
 #include "openbc/reliable.h"
-#include "openbc/drain.h"
 #include "openbc/ship_state.h"
 
 /*
@@ -61,9 +60,12 @@ typedef struct {
     i32                 kills;             /* Kill count */
     i32                 deaths;            /* Death count */
     bc_fragment_buf_t   fragment;        /* Fragment reassembly state */
-    bc_reliable_queue_t reliable_out;    /* Outgoing reliable delivery queue */
-    bc_outbox_t         outbox;          /* Outgoing message accumulator */
-    bc_drain_t          drain;           /* 4-pass bundling queues (in-game) */
+    bc_reliable_queue_t reliable_out;    /* Outgoing reliable queue (ACK-pruned,
+                                          * retransmit-timed; flush bundles from
+                                          * its due entries) */
+    bc_outbox_t         outbox;          /* Outgoing accumulator: ACKs +
+                                          * unreliable + keepalive, bundled with
+                                          * due reliable_out entries at flush */
 
     /* Server-authoritative ship state (Phase E) */
     bc_ship_state_t     ship;            /* Server-tracked ship HP, position, etc. */

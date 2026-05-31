@@ -42,7 +42,7 @@ BUILD    := build
 # Source files by component
 CHECKSUM_SRC := src/shared/checksum/string_hash.c src/shared/checksum/file_hash.c src/shared/checksum/hash_tables.c src/shared/checksum/manifest.c
 PROTOCOL_SRC := src/shared/protocol/cipher.c src/shared/protocol/buffer.c src/shared/protocol/opcodes.c src/shared/protocol/handshake.c src/shared/protocol/game_events.c src/shared/protocol/game_builders.c src/shared/protocol/client_transport.c
-SERVER_NET_SRC := src/server/network/net.c src/server/network/peer.c src/server/network/transport.c src/server/network/gamespy.c src/server/network/reliable.c src/server/network/master.c src/server/network/drain.c
+SERVER_NET_SRC := src/server/network/net.c src/server/network/peer.c src/server/network/transport.c src/server/network/gamespy.c src/server/network/reliable.c src/server/network/master.c
 JSON_SRC     := src/shared/json/json_parse.c
 GAME_SRC     := src/shared/game/ship_data.c src/shared/game/ship_state.c src/shared/game/ship_power.c src/shared/game/movement.c src/shared/game/combat.c src/shared/game/torpedo_tracker.c
 MANIFEST_SRC := tools/manifest.c

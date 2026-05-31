@@ -2253,17 +2253,16 @@ void bc_handle_packet(const bc_addr_t *from, u8 *data, int len)
          * Fragment messages need a 5-byte ACK with frag_idx so the
          * client drains the correct retransmit queue entry. */
         if (tmsg->type == BC_TRANSPORT_RELIABLE && (tmsg->flags & 0x80)) {
-            /* In-game ACKs feed the drain's ACK-outbox so they coalesce with
-             * bundled game traffic in one datagram.  A non-empty ACK-outbox is
-             * also the condition that opens the Pass-4 gate
-             * (docs/bugs/ack-outbox-deadlock.md). */
+            /* Outgoing ACKs accumulate in the outbox so they bundle into the
+             * same datagram as due reliable / unreliable game data on the next
+             * flush. */
             if ((tmsg->flags & BC_RELIABLE_FLAG_FRAGMENT) &&
                 tmsg->payload_len >= 1) {
                 u8 frag_idx = tmsg->payload[0];
-                bc_drain_enqueue_fragment_ack(&g_peers.peers[slot].drain,
-                                              tmsg->seq, frag_idx);
+                bc_outbox_add_fragment_ack(&g_peers.peers[slot].outbox,
+                                           tmsg->seq, frag_idx);
             } else {
-                bc_drain_enqueue_ack(&g_peers.peers[slot].drain, tmsg->seq, 0x00);
+                bc_outbox_add_ack(&g_peers.peers[slot].outbox, tmsg->seq, 0x00);
             }
         }
 
