@@ -1122,18 +1122,28 @@ TEST(reliable_retransmit)
 {
     bc_reliable_queue_t q;
     bc_reliable_init(&q);
+    bc_outbox_t outbox;
+    bc_outbox_init(&outbox);
 
     u8 payload[] = { 0x20, 0x00 };
     bc_reliable_add(&q, payload, 2, 0x0005, 1000);
 
-    /* No retransmit needed yet */
-    ASSERT_EQ_INT(bc_reliable_check_retransmit(&q, 1500), -1);
+    /* First send: a never-sent entry is due immediately and is packed. */
+    int retx = 0;
+    ASSERT_EQ_INT(bc_reliable_pack_due(&q, &outbox, 1000, &retx), 1);
+    ASSERT_EQ_INT(retx, 0);  /* first send, not a retransmit */
+    ASSERT_EQ_INT(q.entries[0].retries, 0);
 
-    /* After 2 seconds, should trigger retransmit */
-    int idx = bc_reliable_check_retransmit(&q, 3001);
-    ASSERT(idx >= 0);
-    ASSERT_EQ(q.entries[idx].seq, 0x0005);
-    ASSERT_EQ_INT(q.entries[idx].retries, 1);
+    /* Within the retransmit interval: not due, nothing re-packed. */
+    bc_outbox_init(&outbox);
+    ASSERT_EQ_INT(bc_reliable_pack_due(&q, &outbox, 1500, NULL), 0);
+
+    /* After 2 seconds, the entry is due again (retransmit). */
+    bc_outbox_init(&outbox);
+    ASSERT_EQ_INT(bc_reliable_pack_due(&q, &outbox, 3001, &retx), 1);
+    ASSERT_EQ_INT(retx, 1);
+    ASSERT_EQ(q.entries[0].seq, 0x0005);
+    ASSERT_EQ_INT(q.entries[0].retries, 1);
 }
 
 /* === Fragment reassembly error-path tests === */
