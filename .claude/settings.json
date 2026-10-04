@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.agent-board/board\" ] && \"$HOME/.agent-board/board\" hook session-start; exit 0",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
