@@ -812,12 +812,16 @@ int main(int argc, char **argv)
 
             /* Every 30 ticks (~1 second): retransmit, timeout, master heartbeat */
             if (tick_counter % 30 == 0) {
-                /* Retransmit unACKed reliable messages (skip slot 0 = dedi) */
+                /* Check for dead peers (max retries exceeded).  The actual
+                 * retransmit of overdue reliable messages is no longer a
+                 * separate one-datagram-per-message pass: bc_flush_peer packs
+                 * every *due* reliable_out entry (interval elapsed) into the
+                 * same bundled datagram as ACKs / unreliable data on the
+                 * per-tick flush below. (skip slot 0 = dedi) */
                 for (int i = 1; i < BC_MAX_PLAYERS; i++) {
                     bc_peer_t *peer = &g_peers.peers[i];
                     if (peer->state == PEER_EMPTY) continue;
 
-                    /* Check for dead peers (max retries exceeded) */
                     if (bc_reliable_check_timeout(&peer->reliable_out)) {
                         char addr_str[32];
                         bc_addr_to_string(&peer->addr, addr_str, sizeof(addr_str));
@@ -825,24 +829,6 @@ int main(int argc, char **argv)
                                  addr_str, i);
                         bc_handle_peer_disconnect(i);
                         continue;
-                    }
-
-                    /* Retransmit overdue messages (direct send, not via outbox) */
-                    int idx;
-                    while ((idx = bc_reliable_check_retransmit(
-                                &peer->reliable_out, now)) >= 0) {
-                        g_stats.reliable_retransmits++;
-                        bc_reliable_entry_t *e = &peer->reliable_out.entries[idx];
-                        u8 pkt[BC_MAX_PACKET_SIZE];
-                        int len = bc_transport_build_reliable(
-                            pkt, sizeof(pkt), e->payload, e->payload_len, e->seq);
-                        if (len > 0) {
-                            bc_packet_t trace;
-                            if (bc_transport_parse(pkt, len, &trace))
-                                bc_log_packet_trace(&trace, i, "RTXM");
-                            alby_cipher_encrypt(pkt, (size_t)len);
-                            bc_socket_send(&g_socket, &peer->addr, pkt, len);
-                        }
                     }
                 }
 
@@ -1167,11 +1153,11 @@ int main(int argc, char **argv)
                 }
             }
 
-            /* Flush all peer outboxes (skip slot 0 = dedi) */
-            for (int i = 1; i < BC_MAX_PLAYERS; i++) {
-                if (g_peers.peers[i].state == PEER_EMPTY) continue;
-                bc_flush_peer(i);
-            }
+            /* Flush every active peer (skip slot 0 = dedi).  Each peer's flush
+             * bundles its pending ACKs, unreliable data, and every due
+             * reliable_out entry into one 512-byte datagram (up to 255 msgs),
+             * matching stock burst-absorption. */
+            bc_flush_all_peers();
 
             last_tick = now;
         }
@@ -1194,11 +1180,9 @@ int main(int argc, char **argv)
     /* Log session summary before tearing down */
     bc_log_session_summary();
 
-    /* Flush all pending outbox data before sending shutdown (skip slot 0 = dedi) */
-    for (int i = 1; i < BC_MAX_PLAYERS; i++) {
-        if (g_peers.peers[i].state == PEER_EMPTY) continue;
-        bc_flush_peer(i);
-    }
+    /* Flush all pending outbox + due reliable data before sending shutdown
+     * (skip slot 0 = dedi). */
+    bc_flush_all_peers();
 
     /* Send ConnectAck shutdown notification to all connected peers.
      * Real BC server sends ConnectAck (0x05) to each peer on shutdown,
